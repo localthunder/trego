@@ -1,6 +1,7 @@
 package com.splitter.splitter.screens
 
 import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.*
 import androidx.compose.runtime.*
@@ -14,9 +15,16 @@ import com.splitter.splitter.network.AuthResponse
 import com.splitter.splitter.network.RetrofitClient
 import com.splitter.splitter.network.User
 import com.splitter.splitter.utils.TokenManager
+import com.splitter.splitter.utils.storeUserIdInPreferences
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
+
+fun handleLoginSuccess(context: Context, userId: Int) {
+    storeUserIdInPreferences(context, userId)
+    Toast.makeText(context, "Login Successful", Toast.LENGTH_SHORT).show()
+    // Continue with other login success actions, such as navigating to the home screen
+}
 
 @Composable
 fun LoginScreen(navController: NavController, context: Context) {
@@ -25,7 +33,9 @@ fun LoginScreen(navController: NavController, context: Context) {
     var loginState by remember { mutableStateOf<String?>(null) }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -50,11 +60,20 @@ fun LoginScreen(navController: NavController, context: Context) {
                 val user = User(email = email, password = password)
                 apiService.loginUser(user).enqueue(object : Callback<AuthResponse> {
                     override fun onResponse(call: Call<AuthResponse>, response: Response<AuthResponse>) {
-                        if (response.isSuccessful && response.body()?.token != null) {
-                            val token = response.body()?.token
-                            TokenManager.saveAccessToken(context, token!!)
-                            loginState = "Login successful!"
-                            navController.navigate("home") // Navigate to HomeScreen
+                        if (response.isSuccessful) {
+                            val authResponse = response.body()
+                            if (authResponse != null) {
+                                val token = authResponse.token
+                                val userId = authResponse.userId
+                                if (token != null) {
+                                    TokenManager.saveAccessToken(context, token)
+                                }
+                                handleLoginSuccess(context, userId)
+                                loginState = "Login successful!"
+                                navController.navigate("home") // Navigate to HomeScreen
+                            } else {
+                                loginState = "Login failed: ${response.body()?.message ?: "Unknown error"}"
+                            }
                         } else {
                             loginState = "Login failed: ${response.body()?.message ?: "Unknown error"}"
                         }

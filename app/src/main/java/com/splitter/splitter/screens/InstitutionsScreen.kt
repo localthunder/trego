@@ -1,6 +1,8 @@
 package com.splitter.splitter.screens
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
@@ -16,6 +18,8 @@ import androidx.navigation.NavController
 import coil.compose.rememberImagePainter
 import com.splitter.splitter.model.Institution
 import com.splitter.splitter.network.ApiService
+import com.splitter.splitter.network.RequisitionRequest
+import com.splitter.splitter.network.RequisitionResponseWithRedirect
 import com.splitter.splitter.network.RetrofitClient
 import retrofit2.Call
 import retrofit2.Callback
@@ -59,7 +63,7 @@ fun InstitutionsScreen(navController: NavController, context: Context) {
             LazyColumn {
                 items(institutions) { institution ->
                     InstitutionItem(institution) {
-                        handleCreateRequisition(institution.id, context)
+                        handleCreateRequisition(institution.id, context, )
                     }
                 }
             }
@@ -83,6 +87,29 @@ fun InstitutionItem(institution: Institution, onClick: () -> Unit) {
 }
 
 fun handleCreateRequisition(institutionId: String, context: Context) {
-    // Implement the logic to create a requisition
-    Toast.makeText(context, "Create requisition for $institutionId", Toast.LENGTH_SHORT).show()
+    val baseUrl = "splitter://bankaccounts"
+    val apiService = RetrofitClient.getInstance(context).create(ApiService::class.java)
+    val requisitionRequest = RequisitionRequest(
+        baseUrl = baseUrl,
+        institutionId = institutionId,
+        reference = "ref_${System.currentTimeMillis()}",
+        userLanguage = "EN"
+    )
+
+    apiService.createRequisition(requisitionRequest).enqueue(object : Callback<RequisitionResponseWithRedirect> {
+        override fun onResponse(call: Call<RequisitionResponseWithRedirect>, response: Response<RequisitionResponseWithRedirect>) {
+            if (response.isSuccessful) {
+                val requisitionResponse = response.body()
+                // Launch the GoCardless URL to redirect the user
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(requisitionResponse?.link))
+                context.startActivity(intent)
+            } else {
+                Toast.makeText(context, "Failed to create requisition", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        override fun onFailure(call: Call<RequisitionResponseWithRedirect>, t: Throwable) {
+            Toast.makeText(context, "Error creating requisition", Toast.LENGTH_SHORT).show()
+        }
+    })
 }

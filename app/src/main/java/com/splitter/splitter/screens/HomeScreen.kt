@@ -1,5 +1,6 @@
 package com.splitter.splitter.screens
 
+import android.content.Context
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.*
 import androidx.compose.runtime.*
@@ -7,9 +8,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import com.splitter.splitter.utils.getUserIdFromPreferences
 
 @Composable
-fun HomeScreen(navController: NavController) {
+fun HomeScreen(navController: NavController, context: Context) {
+    val userId = getUserIdFromPreferences(context)
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -31,6 +35,22 @@ fun HomeScreen(navController: NavController) {
                     navController.navigate("institutions")
                 }) {
                     Text("Institutions")
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(onClick = {
+                    userId?.let {
+                        navController.navigate("transactions/$it")
+                    }
+                }) {
+                    Text("Transactions")
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(onClick = {
+                    userId?.let {
+                        navController.navigate("userGroups/$it")
+                    }
+                }) {
+                    Text("Groups")
                 }
             }
         }
