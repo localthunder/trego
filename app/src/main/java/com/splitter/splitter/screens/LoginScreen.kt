@@ -10,15 +10,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import com.splitter.splitter.model.User
 import com.splitter.splitter.network.ApiService
 import com.splitter.splitter.network.AuthResponse
 import com.splitter.splitter.network.RetrofitClient
-import com.splitter.splitter.network.User
 import com.splitter.splitter.utils.TokenManager
 import com.splitter.splitter.utils.storeUserIdInPreferences
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
+
+data class LoginRequest(
+    val email: String,
+    val password: String
+)
 
 fun handleLoginSuccess(context: Context, userId: Int) {
     storeUserIdInPreferences(context, userId)
@@ -57,8 +62,8 @@ fun LoginScreen(navController: NavController, context: Context) {
         Button(
             onClick = {
                 val apiService = RetrofitClient.getInstance(context).create(ApiService::class.java)
-                val user = User(email = email, password = password)
-                apiService.loginUser(user).enqueue(object : Callback<AuthResponse> {
+                val loginRequest = LoginRequest(email = email, password = password)
+                apiService.loginUser(loginRequest).enqueue(object : Callback<AuthResponse> {
                     override fun onResponse(call: Call<AuthResponse>, response: Response<AuthResponse>) {
                         if (response.isSuccessful) {
                             val authResponse = response.body()

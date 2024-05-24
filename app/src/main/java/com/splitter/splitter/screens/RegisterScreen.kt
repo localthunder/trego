@@ -12,12 +12,16 @@ import androidx.navigation.NavController
 import com.splitter.splitter.network.ApiService
 import com.splitter.splitter.network.AuthResponse
 import com.splitter.splitter.network.RetrofitClient
-import com.splitter.splitter.network.User
 import com.splitter.splitter.utils.TokenManager
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
 
+data class RegisterRequest(
+    val email: String,
+    val password: String,
+    val username: String
+)
 @Composable
 fun RegisterScreen(navController: NavController, context: Context) {
     var username by remember { mutableStateOf("") }
@@ -55,8 +59,8 @@ fun RegisterScreen(navController: NavController, context: Context) {
         Button(
             onClick = {
                 val apiService = RetrofitClient.getInstance(context).create(ApiService::class.java)
-                val user = User(username = username, email = email, password = password)
-                apiService.registerUser(user).enqueue(object : Callback<AuthResponse> {
+                val registerRequest = RegisterRequest(username = username, email = email, password = password)
+                apiService.registerUser(registerRequest).enqueue(object : Callback<AuthResponse> {
                     override fun onResponse(call: Call<AuthResponse>, response: Response<AuthResponse>) {
                         if (response.isSuccessful) {
                             val authResponse = response.body()

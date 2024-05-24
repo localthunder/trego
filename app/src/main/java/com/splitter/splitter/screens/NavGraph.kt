@@ -57,5 +57,16 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
                 GroupDetailsScreen(navController, it, apiService)
             }
         }
+        composable(
+            route = "paymentDetails/{groupId}/{paymentId}",
+            arguments = listOf(
+                navArgument("groupId") { type = NavType.IntType },
+                navArgument("paymentId") { type = NavType.IntType }
+            )
+        ) { backStackEntry ->
+            val groupId = backStackEntry.arguments?.getInt("groupId") ?: return@composable
+            val paymentId = backStackEntry.arguments?.getInt("paymentId") ?: return@composable
+            PaymentScreen(navController, groupId, paymentId, apiService, context)
+        }
     }
 }

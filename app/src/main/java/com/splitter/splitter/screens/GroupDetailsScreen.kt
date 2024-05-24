@@ -1,6 +1,7 @@
 package com.splitter.splitter.screens
 
 import android.content.Context
+import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -17,30 +18,41 @@ import androidx.navigation.NavController
 import coil.compose.rememberImagePainter
 import com.splitter.splitter.model.Group
 import com.splitter.splitter.model.GroupMember
+import com.splitter.splitter.model.User
+import com.splitter.splitter.model.Payment
 import com.splitter.splitter.network.ApiService
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 @Composable
 fun GroupDetailsScreen(navController: NavController, groupId: Int, apiService: ApiService) {
     var group by remember { mutableStateOf<Group?>(null) }
     var groupMembers by remember { mutableStateOf<List<GroupMember>>(emptyList()) }
+    var usernames by remember { mutableStateOf<Map<Int, String>>(emptyMap()) }
+    var payments by remember { mutableStateOf<List<Payment>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(groupId) {
+        Log.d("GroupDetailsScreen", "Fetching group details for groupId: $groupId")
+
         apiService.getGroupById(groupId).enqueue(object : Callback<Group> {
             override fun onResponse(call: Call<Group>, response: Response<Group>) {
                 if (response.isSuccessful) {
                     group = response.body()
+                    Log.d("GroupDetailsScreen", "Fetched group details: $group")
                 } else {
                     error = response.message()
+                    Log.e("GroupDetailsScreen", "Error fetching group details: $error")
                 }
             }
 
             override fun onFailure(call: Call<Group>, t: Throwable) {
                 error = t.message
+                Log.e("GroupDetailsScreen", "Failed to fetch group details: $error")
             }
         })
 
@@ -48,8 +60,14 @@ fun GroupDetailsScreen(navController: NavController, groupId: Int, apiService: A
             override fun onResponse(call: Call<List<GroupMember>>, response: Response<List<GroupMember>>) {
                 if (response.isSuccessful) {
                     groupMembers = response.body() ?: emptyList()
+                    Log.d("GroupDetailsScreen", "Fetched group members: $groupMembers")
+                    fetchUsernames(apiService, groupMembers.map { it.userId }) { usernamesResult ->
+                        usernames = usernamesResult
+                        Log.d("GroupDetailsScreen", "Fetched usernames: $usernames")
+                    }
                 } else {
                     error = response.message()
+                    Log.e("GroupDetailsScreen", "Error fetching group members: $error")
                 }
                 loading = false
             }
@@ -57,6 +75,24 @@ fun GroupDetailsScreen(navController: NavController, groupId: Int, apiService: A
             override fun onFailure(call: Call<List<GroupMember>>, t: Throwable) {
                 error = t.message
                 loading = false
+                Log.e("GroupDetailsScreen", "Failed to fetch group members: $error")
+            }
+        })
+
+        apiService.getPaymentsByGroup(groupId).enqueue(object : Callback<List<Payment>> {
+            override fun onResponse(call: Call<List<Payment>>, response: Response<List<Payment>>) {
+                if (response.isSuccessful) {
+                    payments = response.body() ?: emptyList()
+                    Log.d("GroupDetailsScreen", "Fetched payments: $payments")
+                } else {
+                    error = response.message()
+                    Log.e("GroupDetailsScreen", "Error fetching payments: $error")
+                }
+            }
+
+            override fun onFailure(call: Call<List<Payment>>, t: Throwable) {
+                error = t.message
+                Log.e("GroupDetailsScreen", "Failed to fetch payments: $error")
             }
         })
     }
@@ -65,6 +101,16 @@ fun GroupDetailsScreen(navController: NavController, groupId: Int, apiService: A
         topBar = {
             TopAppBar(title = { Text(group?.name ?: "Group Details") })
         },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = {
+                    // Navigate to PaymentScreen for creating a new payment
+                    navController.navigate("paymentDetails/${groupId}/0")
+                }
+            ) {
+                Text("+")
+            }
+        },
         content = { padding ->
             Column(
                 modifier = Modifier
@@ -72,7 +118,7 @@ fun GroupDetailsScreen(navController: NavController, groupId: Int, apiService: A
                     .padding(padding)
                     .padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+                verticalArrangement = Arrangement.Top
             ) {
                 if (loading) {
                     CircularProgressIndicator()
@@ -91,14 +137,43 @@ fun GroupDetailsScreen(navController: NavController, groupId: Int, apiService: A
                             )
                             Text(groupDetails.name, fontSize = 24.sp, color = Color.Black)
                             groupDetails.description?.let {
-                                Text(it, fontSize = 16.sp, color = Color.Gray, modifier = Modifier.padding(bottom = 16.dp))
+                                Text(
+                                    it,
+                                    fontSize = 16.sp,
+                                    color = Color.Gray,
+                                    modifier = Modifier.padding(bottom = 16.dp)
+                                )
                             }
-                            Text("Members", fontSize = 20.sp, color = Color.Black, modifier = Modifier.padding(vertical = 8.dp))
-                            LazyColumn {
-                                items(groupMembers) { member ->
-                                    GroupMemberItem(member)
+                            Text(
+                                "Members",
+                                fontSize = 20.sp,
+                                color = Color.Black,
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceEvenly
+                            ) {
+                                groupMembers.forEach { member ->
+                                    val username = usernames[member.userId] ?: "Loading..."
+                                    Text(username, fontSize = 18.sp, color = Color.Black)
                                 }
                             }
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                "Payments",
+                                fontSize = 20.sp,
+                                color = Color.Black,
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            )
+                            LazyColumn {
+                                items(payments) { payment ->
+                                    PaymentItem(payment) {
+                                        navController.navigate("paymentDetails/${groupId}/${payment.id}")
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(16.dp))
                         }
                     }
                 }
@@ -107,12 +182,69 @@ fun GroupDetailsScreen(navController: NavController, groupId: Int, apiService: A
     )
 }
 
+fun fetchUsernames(apiService: ApiService, userIds: List<Int>, onResult: (Map<Int, String>) -> Unit) {
+    val usernames = mutableMapOf<Int, String>()
+    Log.d("GroupDetailsScreen", "Fetching usernames for userIds: $userIds")
+
+    userIds.forEach { userId ->
+        apiService.getUserById(userId).enqueue(object : Callback<User> {
+            override fun onResponse(call: Call<User>, response: Response<User>) {
+                if (response.isSuccessful) {
+                    response.body()?.let { user ->
+                        usernames[userId] = user.username
+                        Log.d("GroupDetailsScreen", "Fetched username for userId $userId: ${user.username}")
+                        onResult(usernames)
+                    }
+                } else {
+                    Log.e("GroupDetailsScreen", "Error fetching username for userId $userId: ${response.message()}")
+                }
+            }
+
+            override fun onFailure(call: Call<User>, t: Throwable) {
+                Log.e("GroupDetailsScreen", "Failed to fetch username for userId $userId: ${t.message}")
+            }
+        })
+    }
+}
+
 @Composable
-fun GroupMemberItem(groupMember: GroupMember) {
+fun PaymentItem(payment: Payment, onClick: () -> Unit) {
+    val paymentDateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+    val dateTimeFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.getDefault())
+    val displayDateFormat = SimpleDateFormat("MMMM dd, yyyy", Locale.getDefault())
+
+    val parsedPaymentDate: String? = payment.paymentDate?.let {
+        try {
+            paymentDateFormat.parse(it.toString())?.let { date -> displayDateFormat.format(date) }
+        } catch (e: Exception) {
+            Log.e("PaymentItem", "Error parsing payment date: $it", e)
+            null
+        }
+    }
+
+    val parsedCreatedAt: String? = payment.createdAt?.let {
+        try {
+            dateTimeFormat.parse(it)?.let { date -> displayDateFormat.format(date) }
+        } catch (e: Exception) {
+            Log.e("PaymentItem", "Error parsing created_at date: $it", e)
+            null
+        }
+    }
+
+    val parsedUpdatedAt: String? = payment.updatedAt?.let {
+        try {
+            dateTimeFormat.parse(it)?.let { date -> displayDateFormat.format(date) }
+        } catch (e: Exception) {
+            Log.e("PaymentItem", "Error parsing updated_at date: $it", e)
+            null
+        }
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
+            .padding(vertical = 4.dp)
+            .clickable(onClick = onClick),
         elevation = 4.dp
     ) {
         Row(
@@ -122,10 +254,19 @@ fun GroupMemberItem(groupMember: GroupMember) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
-                Text("User ID: ${groupMember.userId}", fontSize = 18.sp, color = Color.Black)
-                Text("Joined at: ${groupMember.createdAt}", fontSize = 14.sp, color = Color.Gray)
-                groupMember.updatedAt?.let {
-                    Text("Updated at: $it", fontSize = 14.sp, color = Color.Gray)
+                Text("Amount: ${payment.amount}", fontSize = 18.sp, color = Color.Black)
+                Text("Description: ${payment.description}", fontSize = 14.sp, color = Color.Gray)
+                parsedPaymentDate?.let {
+                    Text("Payment Date: $it", fontSize = 14.sp, color = Color.Gray)
+                }
+                parsedCreatedAt?.let {
+                    Text("Created At: $it", fontSize = 14.sp, color = Color.Gray)
+                }
+                parsedUpdatedAt?.let {
+                    Text("Updated At: $it", fontSize = 14.sp, color = Color.Gray)
+                }
+                payment.notes?.let {
+                    Text("Notes: $it", fontSize = 14.sp, color = Color.Gray)
                 }
             }
         }

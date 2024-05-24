@@ -9,6 +9,9 @@ import com.splitter.splitter.model.Payment
 import com.splitter.splitter.model.PaymentSplit
 import com.splitter.splitter.model.Requisition
 import com.splitter.splitter.model.Transaction
+import com.splitter.splitter.model.User
+import com.splitter.splitter.screens.LoginRequest
+import com.splitter.splitter.screens.RegisterRequest
 import retrofit2.Call
 import retrofit2.http.Body
 import retrofit2.http.GET
@@ -16,8 +19,6 @@ import retrofit2.http.POST
 import retrofit2.http.PUT
 import retrofit2.http.Path
 import retrofit2.http.Query
-
-data class User(val username: String = "", val email: String, val password: String)
 
 data class AuthResponse(val token: String?, val userId: Int, val success: Boolean = true, val message: String?, val refreshToken: String?)
 data class RequisitionRequest(
@@ -31,14 +32,18 @@ data class RequisitionRequest(
 data class RequisitionResponseWithRedirect(val id: String, val link: String, val redirectUrl: String)
 
 interface ApiService {
+
+    @GET("/api/users/{userId}")
+    fun getUserById(@Path("userId") userId: Int): Call<User>
+
     @GET("/api/gocardless/institutions")
     fun getInstitutions(@Query("country") country: String): Call<List<Institution>>
 
     @POST("/api/auth/register")
-    fun registerUser(@Body user: User): Call<AuthResponse>
+    fun registerUser(@Body registerRequest: RegisterRequest): Call<AuthResponse>
 
     @POST("/api/auth/login")
-    fun loginUser(@Body user: User): Call<AuthResponse>
+    fun loginUser(@Body loginRequest: LoginRequest): Call<AuthResponse>
 
     @POST("/auth/refresh-token")
     fun refreshToken(@Body body: Map<String, String>): Call<AuthResponse>
@@ -90,7 +95,7 @@ interface ApiService {
     @GET("api/payments/{paymentId}")
     fun getPaymentById(@Path("paymentId") paymentId: Int): Call<Payment>
 
-    @GET("api/groups/{groupId}/payments")
+    @GET("api/payments/groups/{groupId}")
     fun getPaymentsByGroup(@Path("groupId") groupId: Int): Call<List<Payment>>
 
     // Payment Splits
