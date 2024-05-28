@@ -11,5 +11,7 @@ data class BankAccount(
     @SerializedName("owner_name") val ownerName: String?,
     @SerializedName("name") val name: String?,
     @SerializedName("product") val product: String?,
-    @SerializedName("cash_account_type") val cashAccountType: String?
+    @SerializedName("cash_account_type") val cashAccountType: String?,
+    @SerializedName("created_at") val createdAt: String,
+    @SerializedName("updated_at") val updatedAt: String
 )

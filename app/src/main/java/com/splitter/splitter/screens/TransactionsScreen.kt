@@ -11,12 +11,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import com.splitter.splitter.components.TransactionItem
 import com.splitter.splitter.model.Transaction
-import com.splitter.splitter.network.ApiService
-import com.splitter.splitter.network.RetrofitClient
-import retrofit2.Call
-import retrofit2.Callback
-import retrofit2.Response
+import com.splitter.splitter.utils.GocardlessUtils.fetchTransactions
+
 
 @Composable
 fun TransactionsScreen(navController: NavController, context: Context, userId: Int) {
@@ -52,57 +50,21 @@ fun TransactionsScreen(navController: NavController, context: Context, userId: I
                         .padding(16.dp)
                 ) {
                     items(transactions) { transaction ->
-                        TransactionItem(transaction)
+                        TransactionItem(transaction) {
+                            val description =
+                                if (!transaction.creditorName.isNullOrEmpty()) {
+                                    transaction.creditorName
+                                } else {
+                                    transaction.remittanceInformationUnstructured
+                                }
+                            Log.d("AddExpenseScreen", "Navigating to paymentDetails with transactionId=${transaction.transactionId}, amount=${transaction.transactionAmount.amount}, description=${description}, creditorName=${transaction.creditorName}, currency=${transaction.transactionAmount.currency}, bookingDateTime=${transaction.bookingDateTime}, remittanceInfo=${transaction.remittanceInformationUnstructured}")
+                            navController.navigate(
+                                "paymentDetails/1/0?transactionId=${transaction.transactionId}&amount=${transaction.transactionAmount.amount}&description=${description}&creditorName=${transaction.creditorName}&currency=${transaction.transactionAmount.currency}&bookingDateTime=${transaction.bookingDateTime}&remittanceInfo=${transaction.remittanceInformationUnstructured}"
+                            )
+                        }
                     }
                 }
             }
         }
     )
-}
-
-@Composable
-fun TransactionItem(transaction: Transaction) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        elevation = 4.dp
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-        ) {
-            Text("Transaction ID: ${transaction.transactionId ?: "N/A"}")
-            Text("Booking Date: ${transaction.bookingDate ?: "N/A"}")
-            Text("Booking DateTime: ${transaction.bookingDateTime ?: "N/A"}")
-            Text("Amount: ${transaction.transactionAmount?.amount ?: "N/A"}")
-            Text("Currency: ${transaction.transactionAmount?.currency ?: "N/A"}")
-            Text("Creditor Name: ${transaction.creditorName ?: "N/A"}")
-            Text("Creditor Account BBAN: ${transaction.creditorAccount?.bban ?: "N/A"}")
-            Text("Remittance Info: ${transaction.remittanceInformationUnstructured ?: "N/A"}")
-            Text("Proprietary Bank Transaction Code: ${transaction.proprietaryBankTransactionCode ?: "N/A"}")
-            Text("Internal Transaction ID: ${transaction.internalTransactionId ?: "N/A"}")
-        }
-    }
-}
-
-fun fetchTransactions(context: Context, userId: Int, callback: (List<Transaction>) -> Unit) {
-    val apiService = RetrofitClient.getInstance(context).create(ApiService::class.java)
-    apiService.getTransactions(userId).enqueue(object : Callback<List<Transaction>> {
-        override fun onResponse(call: Call<List<Transaction>>, response: Response<List<Transaction>>) {
-            if (response.isSuccessful) {
-                Log.d("fetchTransactions", "Transactions fetched successfully: ${response.body()}")
-                callback(response.body() ?: emptyList())
-            } else {
-                Log.e("fetchTransactions", "Failed to fetch transactions: ${response.errorBody()?.string()}")
-                callback(emptyList())
-            }
-        }
-
-        override fun onFailure(call: Call<List<Transaction>>, t: Throwable) {
-            Log.e("fetchTransactions", "Error fetching transactions: ${t.message}")
-            callback(emptyList())
-        }
-    })
 }

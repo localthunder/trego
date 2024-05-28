@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -15,7 +16,6 @@ import androidx.navigation.NavController
 import com.splitter.splitter.model.GroupMember
 import com.splitter.splitter.model.Payment
 import com.splitter.splitter.network.ApiService
-import com.splitter.splitter.utils.PaymentUtils
 import com.splitter.splitter.utils.PaymentUtils.createPayment
 import com.splitter.splitter.utils.PaymentUtils.fetchPaymentSplits
 import com.splitter.splitter.utils.PaymentUtils.updatePayment
@@ -43,6 +43,38 @@ fun PaymentScreen(
     var groupMembers by remember { mutableStateOf<List<GroupMember>>(emptyList()) }
     var paymentDate by remember { mutableStateOf(SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())) }
     var error by remember { mutableStateOf<String?>(null) }
+    var splitMode by remember { mutableStateOf("equally") }
+
+    // Retrieve transaction details from previous screen
+    val transactionId = navController.currentBackStackEntry?.arguments?.getString("transactionId")
+    val transactionAmount = navController.currentBackStackEntry?.arguments?.getString("amount")?.toDoubleOrNull()
+    val transactionDescription = navController.currentBackStackEntry?.arguments?.getString("description")
+    val transactionCreditorName = navController.currentBackStackEntry?.arguments?.getString("creditorName")
+    val transactionCurrency = navController.currentBackStackEntry?.arguments?.getString("currency")
+    val transactionBookingDateTime = navController.currentBackStackEntry?.arguments?.getString("bookingDateTime")
+
+    Log.d("PaymentScreen", "Transaction details from previous screen: transactionId=$transactionId, amount=$transactionAmount, description=$transactionDescription, creditorName=$transactionCreditorName, currency=$transactionCurrency, bookingDateTime=$transactionBookingDateTime")
+
+    fun updateEqualSplits(amount: Double, members: List<GroupMember>) {
+        if (members.isNotEmpty()) {
+            val totalAmount = (amount * 100).toInt() // Convert to cents
+            val perPerson = totalAmount / members.size
+            val remainder = totalAmount % members.size
+
+            Log.d("PaymentScreen", "Total amount: $totalAmount cents, Per person: $perPerson cents, Remainder: $remainder cents")
+
+            val splitList = MutableList(members.size) { perPerson }
+            if (remainder != 0) {
+                val random = Random()
+                for (i in 0 until remainder) {
+                    splitList[random.nextInt(members.size)] += 1
+                }
+            }
+
+            splits = members.associate { it.userId to splitList[members.indexOf(it)] / 100.0 }
+            Log.d("PaymentScreen", "Split amounts: $splits")
+        }
+    }
 
     // Fetch group members
     LaunchedEffect(groupId) {
@@ -53,14 +85,20 @@ fun PaymentScreen(
                     if (paymentId == 0) {
                         // Initialize splits for all members if creating a new payment
                         splits = groupMembers.associate { it.userId to 0.0 }
+                        if (splitMode == "equally") {
+                            updateEqualSplits(amount, groupMembers)
+                        }
                     }
+                    Log.d("PaymentScreen", "Fetched group members: $groupMembers")
                 } else {
                     error = response.message()
+                    Log.e("PaymentScreen", "Error fetching group members: $error")
                 }
             }
 
             override fun onFailure(call: Call<List<GroupMember>>, t: Throwable) {
                 error = t.message
+                Log.e("PaymentScreen", "Failed to fetch group members: $error")
             }
         })
     }
@@ -77,20 +115,32 @@ fun PaymentScreen(
                             description = it.description ?: ""
                             notes = it.notes ?: ""
                             paymentDate = it.paymentDate
-                            PaymentUtils.fetchPaymentSplits(apiService, paymentId) { fetchedSplits ->
+                            fetchPaymentSplits(apiService, paymentId) { fetchedSplits ->
                                 // Ensure all group members have a split entry
                                 splits = groupMembers.associate { it.userId to (fetchedSplits[it.userId] ?: 0.0) }
+                                Log.d("PaymentScreen", "Fetched payment splits: $splits")
                             }
                         }
                     } else {
                         error = response.message()
+                        Log.e("PaymentScreen", "Error fetching payment details: $error")
                     }
                 }
 
                 override fun onFailure(call: Call<Payment>, t: Throwable) {
                     error = t.message
+                    Log.e("PaymentScreen", "Failed to fetch payment details: $error")
                 }
             })
+        } else {
+            // Prefill with transaction details
+            transactionAmount?.let { amount = it }
+            transactionDescription?.let { description = it }
+            transactionBookingDateTime?.let { paymentDate = it.split("T")[0] } // Extracting date part
+            if (splitMode == "equally") {
+                updateEqualSplits(amount, groupMembers)
+            }
+            Log.d("PaymentScreen", "Prefilled with transaction details: amount=$amount, description=$description, paymentDate=$paymentDate")
         }
     }
 
@@ -99,89 +149,127 @@ fun PaymentScreen(
         topBar = {
             TopAppBar(title = { Text(if (paymentId == 0) "Add Payment" else "Edit Payment") })
         },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = {
+                    val totalSplitAmount = splits.values.sum()
+                    Log.d("PaymentScreen", "Total split amount: $totalSplitAmount, Payment amount: $amount")
+                    if (totalSplitAmount == amount) {
+                        if (paymentId == 0) {
+                            Log.d("PaymentScreen", "Creating new payment")
+                            if (userId != null) {
+                                createPayment(apiService, groupId, amount, description, notes, splits, paymentDate, userId, transactionId, splitMode) {
+                                    navController.popBackStack()
+                                }
+                            }
+                        } else {
+                            Log.d("PaymentScreen", "Updating existing payment")
+                            if (userId != null) {
+                                updatePayment(apiService, paymentId, groupId, amount, description, notes, splits, paymentDate, userId, splitMode) {
+                                    navController.popBackStack()
+                                }
+                            }
+                        }
+                    } else {
+                        showToast(context, "The total of the splits must equal the amount")
+                    }
+                }
+            ) {
+                Text(if (paymentId == 0) "Add Payment" else "Save Payment")
+            }
+        },
         content = { padding ->
-            Column(
+            LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
                     .padding(16.dp),
                 verticalArrangement = Arrangement.Top
             ) {
-                if (error != null) {
-                    Text("Error: $error", color = MaterialTheme.colors.error)
-                }
-                TextField(
-                    value = amount.toString(),
-                    onValueChange = { amount = it.toDoubleOrNull() ?: 0.0 },
-                    label = { Text("Amount") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                TextField(
-                    value = description,
-                    onValueChange = { description = it },
-                    label = { Text("Description") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                TextField(
-                    value = notes,
-                    onValueChange = { notes = it },
-                    label = { Text("Notes") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                TextField(
-                    value = paymentDate,
-                    onValueChange = { paymentDate = it },
-                    label = { Text("Payment Date (yyyy-MM-dd)") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Display splits and allow overrides
-                Text("Splits:", fontSize = 20.sp, color = Color.Black, modifier = Modifier.padding(vertical = 8.dp))
-                groupMembers.forEach { member ->
-                    val splitAmount = splits[member.userId] ?: 0.0
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("User ${member.userId}")
-                        TextField(
-                            value = splitAmount.toString(),
-                            onValueChange = {
-                                splits = splits.toMutableMap().apply {
-                                    this[member.userId] = it.toDoubleOrNull() ?: 0.0
-                                }
-                            },
-                            modifier = Modifier.width(100.dp)
-                        )
+                item {
+                    if (error != null) {
+                        Text("Error: $error", color = MaterialTheme.colors.error)
                     }
-                }
-
-                Button(
-                    onClick = {
-                        val totalSplitAmount = splits.values.sum()
-                        if (totalSplitAmount == amount) {
-                            if (paymentId == 0) {
-                                if (userId != null) {
-                                    createPayment(apiService, groupId, amount, description, notes, splits, paymentDate, userId) {
-                                        navController.popBackStack()
-                                    }
-                                }
-                            } else {
-                                if (userId != null) {
-                                    updatePayment(apiService, paymentId, groupId, amount, description, notes, splits, paymentDate, userId) {
-                                        navController.popBackStack()
-                                    }
-                                }
+                    TextField(
+                        value = amount.toString(),
+                        onValueChange = {
+                            amount = it.toDoubleOrNull() ?: 0.0
+                            if (splitMode == "equally") {
+                                updateEqualSplits(amount, groupMembers)
                             }
-                        } else {
-                            showToast(context, "The total of the splits must equal the amount")
+                        },
+                        label = { Text("Amount") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    TextField(
+                        value = description,
+                        onValueChange = { description = it },
+                        label = { Text("Description") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    TextField(
+                        value = notes,
+                        onValueChange = { notes = it },
+                        label = { Text("Notes") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    TextField(
+                        value = paymentDate,
+                        onValueChange = { paymentDate = it },
+                        label = { Text("Payment Date (yyyy-MM-dd)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Split Mode Dropdown
+                    Text("Split Mode:", fontSize = 20.sp, color = Color.Black, modifier = Modifier.padding(vertical = 8.dp))
+                    var expanded by remember { mutableStateOf(false) }
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        TextButton(onClick = { expanded = true }) {
+                            Text(splitMode, color = MaterialTheme.colors.primary)
                         }
-                    },
-                    modifier = Modifier.align(Alignment.CenterHorizontally)
-                ) {
-                    Text(if (paymentId == 0) "Add Payment" else "Save Payment")
+                        DropdownMenu(
+                            expanded = expanded,
+                            onDismissRequest = { expanded = false }
+                        ) {
+                            DropdownMenuItem(onClick = {
+                                splitMode = "equally"
+                                updateEqualSplits(amount, groupMembers)
+                                expanded = false
+                            }) {
+                                Text("Equally")
+                            }
+                            DropdownMenuItem(onClick = {
+                                splitMode = "unequally"
+                                expanded = false
+                            }) {
+                                Text("Unequally")
+                            }
+                        }
+                    }
+
+                    // Display splits and allow overrides
+                    Text("Splits:", fontSize = 20.sp, color = Color.Black, modifier = Modifier.padding(vertical = 8.dp))
+                    groupMembers.forEach { member ->
+                        val splitAmount = splits[member.userId] ?: 0.0
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("User ${member.userId}")
+                            TextField(
+                                value = String.format("%.2f", splitAmount),
+                                onValueChange = {
+                                    splits = splits.toMutableMap().apply {
+                                        this[member.userId] = it.toDoubleOrNull() ?: 0.0
+                                    }
+                                },
+                                modifier = Modifier.width(100.dp),
+                                enabled = splitMode == "unequally"
+                            )
+                        }
+                    }
                 }
             }
         }

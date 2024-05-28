@@ -23,13 +23,15 @@ object PaymentUtils {
         splits: Map<Int, Double>,
         paymentDate: String,
         userId: Int,
+        transactionId: String?,
+        splitMode: String,
         onComplete: () -> Unit
     ) {
         val payment = Payment(
             id = 0,  // New payment will get its ID from the backend
             groupId = groupId,
             paidByUserId = userId,
-            transactionId = null,
+            transactionId = transactionId,
             amount = amount,
             description = description,
             notes = notes,
@@ -43,7 +45,8 @@ object PaymentUtils {
             updatedAt = SimpleDateFormat(
                 "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
                 Locale.getDefault()
-            ).format(Date())
+            ).format(Date()),
+            splitMode = splitMode
         )
 
         apiService.createPayment(payment).enqueue(object : Callback<Payment> {
@@ -77,6 +80,7 @@ object PaymentUtils {
         splits: Map<Int, Double>,
         paymentDate: String,
         userId: Int,
+        splitMode: String,
         onComplete: () -> Unit
     ) {
         val payment = Payment(
@@ -94,7 +98,8 @@ object PaymentUtils {
             updatedAt = SimpleDateFormat(
                 "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
                 Locale.getDefault()
-            ).format(Date())
+            ).format(Date()),
+            splitMode = splitMode
         )
 
         apiService.updatePayment(paymentId, payment).enqueue(object : Callback<Payment> {

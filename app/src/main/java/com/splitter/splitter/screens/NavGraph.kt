@@ -58,15 +58,32 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
             }
         }
         composable(
-            route = "paymentDetails/{groupId}/{paymentId}",
+            route = "paymentDetails/{groupId}/{paymentId}?transactionId={transactionId}&amount={amount}&description={description}&creditorName={creditorName}&currency={currency}&bookingDateTime={bookingDateTime}&remittanceInfo={remittanceInfo}",
             arguments = listOf(
                 navArgument("groupId") { type = NavType.IntType },
-                navArgument("paymentId") { type = NavType.IntType }
+                navArgument("paymentId") { type = NavType.IntType },
+                navArgument("transactionId") { type = NavType.StringType; nullable = true },
+                navArgument("amount") { type = NavType.StringType; nullable = true },
+                navArgument("description") { type = NavType.StringType; nullable = true },
+                navArgument("creditorName") { type = NavType.StringType; nullable = true },
+                navArgument("currency") { type = NavType.StringType; nullable = true },
+                navArgument("bookingDateTime") { type = NavType.StringType; nullable = true },
+                navArgument("remittanceInfo") { type = NavType.StringType; nullable = true }
             )
         ) { backStackEntry ->
             val groupId = backStackEntry.arguments?.getInt("groupId") ?: return@composable
             val paymentId = backStackEntry.arguments?.getInt("paymentId") ?: return@composable
             PaymentScreen(navController, groupId, paymentId, apiService, context)
         }
+        composable(
+            route = "addExpense/{groupId}",
+            arguments = listOf(
+                navArgument("groupId") { type = NavType.IntType }
+            )
+        ) { backStackEntry ->
+            val groupId = backStackEntry.arguments?.getInt("groupId") ?: return@composable
+            AddExpenseScreen(navController, context, groupId)
+        }
+
     }
 }

@@ -65,6 +65,8 @@ interface ApiService {
 
     @GET("/api/gocardless/transactions/{accountId}")
     fun getTransactions(@Path("accountId") accountId: Int): Call<List<Transaction>>
+    @POST("/api/gocardless/transactions")
+    fun createTransaction(@Body transaction: Transaction): Call<Transaction>
     @GET("/api/gocardless/{userId}/accounts")
     fun getUserAccounts(@Path("userId") userId: Int): Call<List<BankAccount>>
     @POST("/api/groups")

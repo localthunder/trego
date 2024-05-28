@@ -82,11 +82,14 @@ fun GroupDetailsScreen(navController: NavController, groupId: Int, apiService: A
         apiService.getPaymentsByGroup(groupId).enqueue(object : Callback<List<Payment>> {
             override fun onResponse(call: Call<List<Payment>>, response: Response<List<Payment>>) {
                 if (response.isSuccessful) {
-                    payments = response.body() ?: emptyList()
-                    Log.d("GroupDetailsScreen", "Fetched payments: $payments")
+                    val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                    payments = response.body()?.sortedByDescending { payment ->
+                        dateFormat.parse(payment.paymentDate)
+                    } ?: emptyList()
+                    loading = false
                 } else {
                     error = response.message()
-                    Log.e("GroupDetailsScreen", "Error fetching payments: $error")
+                    loading = false
                 }
             }
 
@@ -105,7 +108,7 @@ fun GroupDetailsScreen(navController: NavController, groupId: Int, apiService: A
             FloatingActionButton(
                 onClick = {
                     // Navigate to PaymentScreen for creating a new payment
-                    navController.navigate("paymentDetails/${groupId}/0")
+                    navController.navigate("addExpense/$groupId")
                 }
             ) {
                 Text("+")
