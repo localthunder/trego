@@ -12,6 +12,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
@@ -21,6 +22,7 @@ import com.splitter.splitter.model.GroupMember
 import com.splitter.splitter.model.User
 import com.splitter.splitter.model.Payment
 import com.splitter.splitter.network.ApiService
+import com.splitter.splitter.utils.GroupUtils.fetchUsernames
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
@@ -29,6 +31,7 @@ import java.util.Locale
 
 @Composable
 fun GroupDetailsScreen(navController: NavController, groupId: Int, apiService: ApiService) {
+    val context = LocalContext.current
     var group by remember { mutableStateOf<Group?>(null) }
     var groupMembers by remember { mutableStateOf<List<GroupMember>>(emptyList()) }
     var usernames by remember { mutableStateOf<Map<Int, String>>(emptyMap()) }
@@ -136,7 +139,9 @@ fun GroupDetailsScreen(navController: NavController, groupId: Int, apiService: A
                             Image(
                                 painter = rememberImagePainter(groupDetails.groupImg),
                                 contentDescription = null,
-                                modifier = Modifier.size(80.dp).padding(bottom = 16.dp)
+                                modifier = Modifier
+                                    .size(80.dp)
+                                    .padding(bottom = 16.dp)
                             )
                             Text(groupDetails.name, fontSize = 24.sp, color = Color.Black)
                             groupDetails.description?.let {
@@ -163,6 +168,27 @@ fun GroupDetailsScreen(navController: NavController, groupId: Int, apiService: A
                                 }
                             }
                             Spacer(modifier = Modifier.height(16.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceEvenly
+                            ) {
+                                CreateGroupInviteLink(navController, context, groupId)
+                                Button(
+                                    onClick = {
+                                        navController.navigate("inviteMembers/$groupId")
+                                    }
+                                ) {
+                                    Text("Invite Members")
+                                }
+                                Button(
+                                    onClick = {
+                                        navController.navigate("groupBalances/$groupId")
+                                    }
+                                ){
+                                    Text("Balances")
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(16.dp))
                             Text(
                                 "Payments",
                                 fontSize = 20.sp,
@@ -183,31 +209,6 @@ fun GroupDetailsScreen(navController: NavController, groupId: Int, apiService: A
             }
         }
     )
-}
-
-fun fetchUsernames(apiService: ApiService, userIds: List<Int>, onResult: (Map<Int, String>) -> Unit) {
-    val usernames = mutableMapOf<Int, String>()
-    Log.d("GroupDetailsScreen", "Fetching usernames for userIds: $userIds")
-
-    userIds.forEach { userId ->
-        apiService.getUserById(userId).enqueue(object : Callback<User> {
-            override fun onResponse(call: Call<User>, response: Response<User>) {
-                if (response.isSuccessful) {
-                    response.body()?.let { user ->
-                        usernames[userId] = user.username
-                        Log.d("GroupDetailsScreen", "Fetched username for userId $userId: ${user.username}")
-                        onResult(usernames)
-                    }
-                } else {
-                    Log.e("GroupDetailsScreen", "Error fetching username for userId $userId: ${response.message()}")
-                }
-            }
-
-            override fun onFailure(call: Call<User>, t: Throwable) {
-                Log.e("GroupDetailsScreen", "Failed to fetch username for userId $userId: ${t.message}")
-            }
-        })
-    }
 }
 
 @Composable

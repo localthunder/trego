@@ -65,6 +65,13 @@ fun UserGroupsScreen(navController: NavController, context: Context) {
         topBar = {
             TopAppBar(title = { Text("Your Groups") })
         },
+        floatingActionButton = {
+            FloatingActionButton(onClick = {
+                navController.navigate("addGroup")
+            }) {
+                Text("+")
+            }
+        },
         content = { padding ->
             Column(
                 modifier = Modifier

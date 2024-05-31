@@ -39,7 +39,14 @@ fun AddExpenseScreen(navController: NavController, context: Context, groupId: In
     LaunchedEffect(userId) {
         if (userId != null) {
             fetchTransactions(context, userId) { fetchedTransactions ->
-                transactions = fetchedTransactions
+                // Multiply transaction amounts by -1
+                transactions = fetchedTransactions.map { transaction ->
+                    transaction.copy(
+                        transactionAmount = transaction.transactionAmount.copy(
+                            amount = transaction.transactionAmount.amount * -1
+                        )
+                    )
+                }
                 loading = false
             }
         }
@@ -119,7 +126,7 @@ fun AddExpenseScreen(navController: NavController, context: Context, groupId: In
                                         transaction.remittanceInformationUnstructured
                                     }
 
-                                val transactionAmount = transaction.transactionAmount?.amount ?: "N/A"
+                                val transactionAmount = transaction.transactionAmount?.amount?.toString() ?: "N/A"
                                 val currency = transaction.transactionAmount?.currency ?: "N/A"
 
                                 Log.d(

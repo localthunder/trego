@@ -10,6 +10,7 @@ import com.splitter.splitter.model.PaymentSplit
 import com.splitter.splitter.model.Requisition
 import com.splitter.splitter.model.Transaction
 import com.splitter.splitter.model.User
+import com.splitter.splitter.model.UserBalance
 import com.splitter.splitter.screens.LoginRequest
 import com.splitter.splitter.screens.RegisterRequest
 import retrofit2.Call
@@ -77,7 +78,8 @@ interface ApiService {
     fun updateGroup(@Path("id") id: Int, @Body group: Group): Call<Group>
     @POST("api/groups/{groupId}/members")
     fun addMemberToGroup(@Path("groupId") groupId: Int, @Body groupMember: GroupMember): Call<GroupMember>
-
+    @GET("api/groups/{groupId}/invite-link")
+    fun getGroupInviteLink(@Path("groupId") groupId: Int): Call<Map<String, String>>
     @GET("api/groups/user/{userId}")
     fun getGroupsByUserId(@Path("userId") userId: Int): Call<List<Group>>
 
@@ -86,6 +88,9 @@ interface ApiService {
 
     @PUT("api/groups/{groupId}/members/{userId}")
     fun removeMemberFromGroup(@Path("groupId") groupId: Int, @Path("userId") userId: Int): Call<GroupMember>
+
+    @GET("api/groups/{groupId}/balances")
+    fun getGroupBalances(@Path("groupId") groupId: Int): Call<List<UserBalance>>
 
     // Payments
     @POST("api/payments")

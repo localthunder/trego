@@ -8,6 +8,7 @@ import androidx.compose.material.Card
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.splitter.splitter.model.Transaction
 
@@ -28,7 +29,21 @@ fun TransactionItem(transaction: Transaction, onClick: () -> Unit = {}) {
             Text("Transaction ID: ${transaction.transactionId ?: "N/A"}")
             Text("Booking Date: ${transaction.bookingDate ?: "N/A"}")
             Text("Booking DateTime: ${transaction.bookingDateTime ?: "N/A"}")
-            Text("Amount: ${transaction.transactionAmount?.amount ?: "N/A"}")
+
+            // Conditionally format the amount
+            val amount = transaction.transactionAmount?.amount ?: "N/A"
+            val formattedAmount = if (amount is Double && amount < 0) {
+                "+${-amount}" // Convert negative amount to positive with "+" sign
+            } else {
+                amount.toString()
+            }
+            val amountColor = if (amount is Double && amount < 0) Color.Green else Color.Black
+
+            Text(
+                text = "Amount: $formattedAmount",
+                color = amountColor
+            )
+
             Text("Currency: ${transaction.transactionAmount?.currency ?: "N/A"}")
             Text("Creditor Name: ${transaction.creditorName ?: "N/A"}")
             Text("Creditor Account BBAN: ${transaction.creditorAccount?.bban ?: "N/A"}")

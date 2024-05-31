@@ -22,7 +22,7 @@ data class Transaction(
 )
 
 data class TransactionAmount(
-    @SerializedName("amount") val amount: String,
+    @SerializedName("amount") val amount: Double,
     @SerializedName("currency") val currency: String
 )
 

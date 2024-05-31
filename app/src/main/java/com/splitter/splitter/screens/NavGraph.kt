@@ -45,6 +45,9 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
             val userId = backStackEntry.arguments?.getInt("userId") ?: return@composable
             TransactionsScreen(navController, context, userId)
         }
+        composable("addGroup") {
+            AddGroupScreen(navController, LocalContext.current)
+        }
         composable("userGroups/{groupId}") { backStackEntry ->
             val groupId = backStackEntry.arguments?.getString("groupId")?.toIntOrNull()
             groupId?.let {
@@ -84,6 +87,23 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
             val groupId = backStackEntry.arguments?.getInt("groupId") ?: return@composable
             AddExpenseScreen(navController, context, groupId)
         }
-
+        composable(
+            route = "inviteMembers/{groupId}",
+            arguments = listOf(
+                navArgument("groupId") { type = NavType.IntType }
+            )
+        ) { backStackEntry ->
+            val groupId = backStackEntry.arguments?.getInt("groupId") ?: return@composable
+            InviteMembersScreen(navController, context, groupId)
+        }
+        composable(
+            route = "groupBalances/{groupId}",
+            arguments = listOf(
+                navArgument("groupId") { type = NavType.IntType }
+            )
+        ){backStackEntry ->
+            val groupId = backStackEntry.arguments?.getInt("groupId") ?: return@composable
+            GroupBalancesScreen(navController, context, groupId)
+        }
     }
 }
