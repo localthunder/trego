@@ -11,8 +11,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import com.splitter.splitter.components.GlobalTopAppBar
 import com.splitter.splitter.components.TransactionItem
 import com.splitter.splitter.model.Transaction
+import com.splitter.splitter.ui.theme.GlobalTheme
 import com.splitter.splitter.utils.GocardlessUtils.fetchTransactions
 
 
@@ -28,43 +30,45 @@ fun TransactionsScreen(navController: NavController, context: Context, userId: I
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Transactions") }
-            )
-        },
-        content = { padding ->
-            if (loading) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator()
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding)
-                        .padding(16.dp)
-                ) {
-                    items(transactions) { transaction ->
-                        TransactionItem(transaction) {
-                            val description =
-                                if (!transaction.creditorName.isNullOrEmpty()) {
-                                    transaction.creditorName
-                                } else {
-                                    transaction.remittanceInformationUnstructured
-                                }
-                            Log.d("AddExpenseScreen", "Navigating to paymentDetails with transactionId=${transaction.transactionId}, amount=${transaction.transactionAmount.amount}, description=${description}, creditorName=${transaction.creditorName}, currency=${transaction.transactionAmount.currency}, bookingDateTime=${transaction.bookingDateTime}, remittanceInfo=${transaction.remittanceInformationUnstructured}")
-                            navController.navigate(
-                                "paymentDetails/1/0?transactionId=${transaction.transactionId}&amount=${transaction.transactionAmount.amount}&description=${description}&creditorName=${transaction.creditorName}&currency=${transaction.transactionAmount.currency}&bookingDateTime=${transaction.bookingDateTime}&remittanceInfo=${transaction.remittanceInformationUnstructured}"
-                            )
+    GlobalTheme {
+        Scaffold(
+            topBar = {
+                GlobalTopAppBar(
+                    title = { Text("Transactions") }
+                )
+            },
+            content = { padding ->
+                if (loading) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding)
+                            .padding(16.dp)
+                    ) {
+                        items(transactions) { transaction ->
+                            TransactionItem(transaction) {
+                                val description =
+                                    if (!transaction.creditorName.isNullOrEmpty()) {
+                                        transaction.creditorName
+                                    } else {
+                                        transaction.remittanceInformationUnstructured
+                                    }
+                                Log.d("AddExpenseScreen", "Navigating to paymentDetails with transactionId=${transaction.transactionId}, amount=${transaction.transactionAmount.amount}, description=${description}, creditorName=${transaction.creditorName}, currency=${transaction.transactionAmount.currency}, bookingDateTime=${transaction.bookingDateTime}, remittanceInfo=${transaction.remittanceInformationUnstructured}")
+                                navController.navigate(
+                                    "paymentDetails/1/0?transactionId=${transaction.transactionId}&amount=${transaction.transactionAmount.amount}&description=${description}&creditorName=${transaction.creditorName}&currency=${transaction.transactionAmount.currency}&bookingDateTime=${transaction.bookingDateTime}&remittanceInfo=${transaction.remittanceInformationUnstructured}"
+                                )
+                            }
                         }
                     }
                 }
             }
-        }
-    )
+        )
+    }
 }

@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.splitter.splitter.components.GlobalTopAppBar
 import com.splitter.splitter.model.UserBalance
 import com.splitter.splitter.network.ApiService
 import com.splitter.splitter.network.RetrofitClient
@@ -47,7 +48,7 @@ fun GroupBalancesScreen(navController: NavController, context: Context, groupId:
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Group Balances") })
+            GlobalTopAppBar(title = { Text("Group Balances") })
         },
         content = { padding ->
             Column(

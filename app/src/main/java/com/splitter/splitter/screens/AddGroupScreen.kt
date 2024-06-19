@@ -9,6 +9,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import com.splitter.splitter.components.GlobalTopAppBar
 import com.splitter.splitter.model.Group
 import com.splitter.splitter.model.GroupMember
 import com.splitter.splitter.network.ApiService
@@ -31,7 +32,7 @@ fun AddGroupScreen(navController: NavController, context: Context) {
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Add New Group") })
+            GlobalTopAppBar(title = { Text("Add New Group") })
         },
         content = { padding ->
             Column(

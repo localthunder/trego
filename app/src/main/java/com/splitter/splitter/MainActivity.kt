@@ -17,7 +17,7 @@ import androidx.navigation.compose.rememberNavController
 import com.splitter.splitter.network.ApiService
 import com.splitter.splitter.network.RetrofitClient
 import com.splitter.splitter.screens.NavGraph
-import com.splitter.splitter.ui.theme.MyApplicationTheme
+import com.splitter.splitter.ui.theme.GlobalTheme
 import com.splitter.splitter.model.Requisition
 import com.splitter.splitter.utils.AuthUtils
 import com.splitter.splitter.utils.getUserIdFromPreferences
@@ -33,7 +33,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         Log.d("MainActivity", "onCreate called, intent: ${intent?.data}")
         setContent {
-            MyApplicationTheme {
+            GlobalTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background

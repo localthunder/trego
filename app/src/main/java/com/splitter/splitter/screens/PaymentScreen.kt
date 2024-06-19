@@ -5,17 +5,20 @@ import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material.*
+import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.splitter.splitter.components.GlobalFAB
+import com.splitter.splitter.components.GlobalTopAppBar
 import com.splitter.splitter.model.GroupMember
 import com.splitter.splitter.model.Payment
 import com.splitter.splitter.network.ApiService
+import com.splitter.splitter.ui.theme.GlobalTheme
 import com.splitter.splitter.utils.PaymentUtils.createPayment
 import com.splitter.splitter.utils.PaymentUtils.fetchPaymentSplits
 import com.splitter.splitter.utils.PaymentUtils.updatePayment
@@ -44,6 +47,7 @@ fun PaymentScreen(
     var paymentDate by remember { mutableStateOf(SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())) }
     var error by remember { mutableStateOf<String?>(null) }
     var splitMode by remember { mutableStateOf("equally") }
+    var paidByUser by remember { mutableStateOf("-") }
 
     // Retrieve transaction details from previous screen
     val transactionId = navController.currentBackStackEntry?.arguments?.getString("transactionId")
@@ -144,136 +148,153 @@ fun PaymentScreen(
         }
     }
 
-    // UI
-    Scaffold(
-        topBar = {
-            TopAppBar(title = { Text(if (paymentId == 0) "Add Payment" else "Edit Payment") })
-        },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = {
-                    val totalSplitAmount = splits.values.sum()
-                    Log.d("PaymentScreen", "Total split amount: $totalSplitAmount, Payment amount: $amount")
-                    if (totalSplitAmount == amount) {
-                        if (paymentId == 0) {
-                            Log.d("PaymentScreen", "Creating new payment")
-                            if (userId != null) {
-                                createPayment(apiService, groupId, amount, description, notes, splits, paymentDate, userId, transactionId, splitMode) {
-                                    navController.popBackStack()
+    GlobalTheme {
+        Scaffold(
+            topBar = {
+                GlobalTopAppBar(title = { Text(if (paymentId == 0) "Add Payment" else "Edit Payment") })
+            },
+            floatingActionButton = {
+                GlobalFAB(
+                    onClick = {
+                        val totalSplitAmount = splits.values.sum()
+                        Log.d("PaymentScreen", "Total split amount: $totalSplitAmount, Payment amount: $amount")
+                        if (totalSplitAmount == amount) {
+                            if (paymentId == 0) {
+                                Log.d("PaymentScreen", "Creating new payment")
+                                if (userId != null) {
+                                    createPayment(apiService, groupId, amount, description, notes, splits, paymentDate, userId, transactionId, splitMode) {
+                                        navController.popBackStack()
+                                    }
+                                }
+                            } else {
+                                Log.d("PaymentScreen", "Updating existing payment")
+                                if (userId != null) {
+                                    updatePayment(apiService, paymentId, groupId, amount, description, notes, splits, paymentDate, userId, splitMode) {
+                                        navController.popBackStack()
+                                    }
                                 }
                             }
                         } else {
-                            Log.d("PaymentScreen", "Updating existing payment")
-                            if (userId != null) {
-                                updatePayment(apiService, paymentId, groupId, amount, description, notes, splits, paymentDate, userId, splitMode) {
-                                    navController.popBackStack()
+                            showToast(context, "The total of the splits must equal the amount")
+                        }
+                    },
+                    icon = { Icon(Icons.Filled.Add, contentDescription = "Add") },
+                    text = "Add Payment"
+                )
+            },
+            content = { padding ->
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.Top
+                ) {
+                    item {
+                        if (error != null) {
+                            Text("Error: $error", color = MaterialTheme.colorScheme.error)
+                        }
+                        TextField(
+                            value = amount.toString(),
+                            onValueChange = {
+                                amount = it.toDoubleOrNull() ?: 0.0
+                                if (splitMode == "equally") {
+                                    updateEqualSplits(amount, groupMembers)
                                 }
+                            },
+                            label = { Text("Amount") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        TextField(
+                            value = description,
+                            onValueChange = { description = it },
+                            label = { Text("Description") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        TextField(
+                            value = notes,
+                            onValueChange = { notes = it },
+                            label = { Text("Notes") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        TextField(
+                            value = paymentDate,
+                            onValueChange = { paymentDate = it },
+                            label = { Text("Payment Date (yyyy-MM-dd)") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Split Mode Dropdown
+                        Text(
+                            "Split Mode:",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+                        var expanded by remember { mutableStateOf(false) }
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            TextButton(onClick = { expanded = true }) {
+                                Text(splitMode, color = MaterialTheme.colorScheme.primary)
+                            }
+                            DropdownMenu(
+                                expanded = expanded,
+                                onDismissRequest = { expanded = false }
+                            ) {
+                                DropdownMenuItem(
+                                    onClick = {
+                                        splitMode = "equally"
+                                        updateEqualSplits(amount, groupMembers)
+                                        expanded = false
+                                    },
+                                    text = { Text("Equally") }
+                                )
+                                DropdownMenuItem(
+                                    onClick = {
+                                        splitMode = "unequally"
+                                        expanded = false
+                                    },
+                                    text = {Text("Unequally")}
+                                )
                             }
                         }
-                    } else {
-                        showToast(context, "The total of the splits must equal the amount")
-                    }
-                }
-            ) {
-                Text(if (paymentId == 0) "Add Payment" else "Save Payment")
-            }
-        },
-        content = { padding ->
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.Top
-            ) {
-                item {
-                    if (error != null) {
-                        Text("Error: $error", color = MaterialTheme.colors.error)
-                    }
-                    TextField(
-                        value = amount.toString(),
-                        onValueChange = {
-                            amount = it.toDoubleOrNull() ?: 0.0
-                            if (splitMode == "equally") {
-                                updateEqualSplits(amount, groupMembers)
-                            }
-                        },
-                        label = { Text("Amount") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    TextField(
-                        value = description,
-                        onValueChange = { description = it },
-                        label = { Text("Description") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    TextField(
-                        value = notes,
-                        onValueChange = { notes = it },
-                        label = { Text("Notes") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    TextField(
-                        value = paymentDate,
-                        onValueChange = { paymentDate = it },
-                        label = { Text("Payment Date (yyyy-MM-dd)") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
 
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Split Mode Dropdown
-                    Text("Split Mode:", fontSize = 20.sp, color = Color.Black, modifier = Modifier.padding(vertical = 8.dp))
-                    var expanded by remember { mutableStateOf(false) }
-                    Box(modifier = Modifier.fillMaxWidth()) {
-                        TextButton(onClick = { expanded = true }) {
-                            Text(splitMode, color = MaterialTheme.colors.primary)
-                        }
-                        DropdownMenu(
-                            expanded = expanded,
-                            onDismissRequest = { expanded = false }
-                        ) {
-                            DropdownMenuItem(onClick = {
-                                splitMode = "equally"
-                                updateEqualSplits(amount, groupMembers)
-                                expanded = false
-                            }) {
-                                Text("Equally")
+                        // Display splits and allow overrides
+                        Text(
+                            "Splits:",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+                        groupMembers.forEach { member ->
+                            val splitAmount = splits[member.userId] ?: 0.0
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    "User ${member.userId}",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onBackground
+                                )
+                                TextField(
+                                    value = String.format("%.2f", splitAmount),
+                                    onValueChange = {
+                                        splits = splits.toMutableMap().apply {
+                                            this[member.userId] = it.toDoubleOrNull() ?: 0.0
+                                        }
+                                    },
+                                    modifier = Modifier.width(100.dp),
+                                    enabled = splitMode == "unequally"
+                                )
                             }
-                            DropdownMenuItem(onClick = {
-                                splitMode = "unequally"
-                                expanded = false
-                            }) {
-                                Text("Unequally")
-                            }
-                        }
-                    }
-
-                    // Display splits and allow overrides
-                    Text("Splits:", fontSize = 20.sp, color = Color.Black, modifier = Modifier.padding(vertical = 8.dp))
-                    groupMembers.forEach { member ->
-                        val splitAmount = splits[member.userId] ?: 0.0
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("User ${member.userId}")
-                            TextField(
-                                value = String.format("%.2f", splitAmount),
-                                onValueChange = {
-                                    splits = splits.toMutableMap().apply {
-                                        this[member.userId] = it.toDoubleOrNull() ?: 0.0
-                                    }
-                                },
-                                modifier = Modifier.width(100.dp),
-                                enabled = splitMode == "unequally"
-                            )
                         }
                     }
                 }
             }
-        }
-    )
+        )
+    }
 }
 
 fun showToast(context: Context, message: String) {

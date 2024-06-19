@@ -1,27 +1,28 @@
 package com.splitter.splitter.screens
 
-import android.content.Context
 import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.*
+import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import coil.compose.rememberImagePainter
+import com.splitter.splitter.components.GlobalFAB
+import com.splitter.splitter.components.GlobalTopAppBar
 import com.splitter.splitter.model.Group
 import com.splitter.splitter.model.GroupMember
-import com.splitter.splitter.model.User
 import com.splitter.splitter.model.Payment
 import com.splitter.splitter.network.ApiService
+import com.splitter.splitter.ui.theme.GlobalTheme
 import com.splitter.splitter.utils.GroupUtils.fetchUsernames
 import retrofit2.Call
 import retrofit2.Callback
@@ -103,112 +104,122 @@ fun GroupDetailsScreen(navController: NavController, groupId: Int, apiService: A
         })
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(title = { Text(group?.name ?: "Group Details") })
-        },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = {
-                    // Navigate to PaymentScreen for creating a new payment
-                    navController.navigate("addExpense/$groupId")
-                }
-            ) {
-                Text("+")
-            }
-        },
-        content = { padding ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Top
-            ) {
-                if (loading) {
-                    CircularProgressIndicator()
-                } else if (error != null) {
-                    Text("Error: $error", color = MaterialTheme.colors.error)
-                } else {
-                    group?.let { groupDetails ->
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Image(
-                                painter = rememberImagePainter(groupDetails.groupImg),
-                                contentDescription = null,
-                                modifier = Modifier
-                                    .size(80.dp)
-                                    .padding(bottom = 16.dp)
-                            )
-                            Text(groupDetails.name, fontSize = 24.sp, color = Color.Black)
-                            groupDetails.description?.let {
-                                Text(
-                                    it,
-                                    fontSize = 16.sp,
-                                    color = Color.Gray,
-                                    modifier = Modifier.padding(bottom = 16.dp)
+    GlobalTheme {
+        Scaffold(
+            topBar = {
+                GlobalTopAppBar { Text(group?.name ?: "Group Details") }
+            },
+            floatingActionButton = {
+                GlobalFAB(
+                    onClick = {
+                        // Navigate to PaymentScreen for creating a new payment
+                        navController.navigate("addExpense/$groupId")
+                    },
+                    icon = { Icon(Icons.Filled.Add, contentDescription = "Add") },
+                    text = "Add Expense"
+                )
+            },
+            content = { padding ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Top
+                ) {
+                    if (loading) {
+                        CircularProgressIndicator()
+                    } else if (error != null) {
+                        Text("Error: $error", color = MaterialTheme.colorScheme.error)
+                    } else {
+                        group?.let { groupDetails ->
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Image(
+                                    painter = rememberImagePainter(groupDetails.groupImg),
+                                    contentDescription = null,
+                                    modifier = Modifier
+                                        .size(80.dp)
+                                        .padding(bottom = 16.dp)
                                 )
-                            }
-                            Text(
-                                "Members",
-                                fontSize = 20.sp,
-                                color = Color.Black,
-                                modifier = Modifier.padding(vertical = 8.dp)
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceEvenly
-                            ) {
-                                groupMembers.forEach { member ->
-                                    val username = usernames[member.userId] ?: "Loading..."
-                                    Text(username, fontSize = 18.sp, color = Color.Black)
+                                Text(
+                                    groupDetails.name,
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    color = MaterialTheme.colorScheme.onBackground
+                                )
+                                groupDetails.description?.let {
+                                    Text(
+                                        it,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                                        modifier = Modifier.padding(bottom = 16.dp)
+                                    )
                                 }
-                            }
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceEvenly
-                            ) {
-                                CreateGroupInviteLink(navController, context, groupId)
-                                Button(
-                                    onClick = {
-                                        navController.navigate("inviteMembers/$groupId")
-                                    }
+                                Text(
+                                    "Members",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                    modifier = Modifier.padding(vertical = 8.dp)
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceEvenly
                                 ) {
-                                    Text("Invite Members")
-                                }
-                                Button(
-                                    onClick = {
-                                        navController.navigate("groupBalances/$groupId")
-                                    }
-                                ){
-                                    Text("Balances")
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                "Payments",
-                                fontSize = 20.sp,
-                                color = Color.Black,
-                                modifier = Modifier.padding(vertical = 8.dp)
-                            )
-                            LazyColumn {
-                                items(payments) { payment ->
-                                    PaymentItem(payment) {
-                                        navController.navigate("paymentDetails/${groupId}/${payment.id}")
+                                    groupMembers.forEach { member ->
+                                        val username = usernames[member.userId] ?: "Loading..."
+                                        Text(
+                                            username,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = MaterialTheme.colorScheme.onBackground
+                                        )
                                     }
                                 }
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceEvenly
+                                ) {
+                                    CreateGroupInviteLink(navController, context, groupId)
+                                    Button(
+                                        onClick = {
+                                            navController.navigate("inviteMembers/$groupId")
+                                        }
+                                    ) {
+                                        Text("Invite Members")
+                                    }
+                                    Button(
+                                        onClick = {
+                                            navController.navigate("groupBalances/$groupId")
+                                        }
+                                    ){
+                                        Text("Balances")
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(
+                                    "Payments",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                    modifier = Modifier.padding(vertical = 8.dp)
+                                )
+                                LazyColumn {
+                                    items(payments) { payment ->
+                                        PaymentItem(payment) {
+                                            navController.navigate("paymentDetails/${groupId}/${payment.id}")
+                                        }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(16.dp))
                             }
-                            Spacer(modifier = Modifier.height(16.dp))
                         }
                     }
                 }
             }
-        }
-    )
+        )
+    }
 }
 
 @Composable
@@ -248,8 +259,7 @@ fun PaymentItem(payment: Payment, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
-            .clickable(onClick = onClick),
-        elevation = 4.dp
+            .clickable(onClick = onClick)
     ) {
         Row(
             modifier = Modifier
@@ -258,19 +268,43 @@ fun PaymentItem(payment: Payment, onClick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
-                Text("Amount: ${payment.amount}", fontSize = 18.sp, color = Color.Black)
-                Text("Description: ${payment.description}", fontSize = 14.sp, color = Color.Gray)
+                Text(
+                    "Amount: ${payment.amount}",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Text(
+                    "Description: ${payment.description}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                )
                 parsedPaymentDate?.let {
-                    Text("Payment Date: $it", fontSize = 14.sp, color = Color.Gray)
+                    Text(
+                        "Payment Date: $it",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                    )
                 }
                 parsedCreatedAt?.let {
-                    Text("Created At: $it", fontSize = 14.sp, color = Color.Gray)
+                    Text(
+                        "Created At: $it",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                    )
                 }
                 parsedUpdatedAt?.let {
-                    Text("Updated At: $it", fontSize = 14.sp, color = Color.Gray)
+                    Text(
+                        "Updated At: $it",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                    )
                 }
                 payment.notes?.let {
-                    Text("Notes: $it", fontSize = 14.sp, color = Color.Gray)
+                    Text(
+                        "Notes: $it",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                    )
                 }
             }
         }

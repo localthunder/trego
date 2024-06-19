@@ -7,18 +7,19 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.*
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.splitter.splitter.components.GlobalTopAppBar
 import com.splitter.splitter.model.Group
 import com.splitter.splitter.model.GroupMember
-import com.splitter.splitter.model.User
 import com.splitter.splitter.network.ApiService
 import com.splitter.splitter.network.RetrofitClient
+import com.splitter.splitter.ui.theme.GlobalTheme
 import com.splitter.splitter.utils.GroupUtils.fetchUsernames
 import com.splitter.splitter.utils.getUserIdFromPreferences
 import retrofit2.Call
@@ -69,58 +70,60 @@ fun InviteMembersScreen(navController: NavController, context: Context, groupId:
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(title = { Text("Invite Members") })
-        },
-        content = { padding ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                if (loading) {
-                    CircularProgressIndicator()
-                } else if (error != null) {
-                    Text("Error: $error", color = MaterialTheme.colors.error)
-                } else {
-                    LazyColumn {
-                        val sortedUsernames = usernames.values.sorted()
-                        items(sortedUsernames) { username ->
-                            val userId = usernames.filterValues { it == username }.keys.first()
-                            Text(
-                                text = username,
-                                fontSize = 18.sp,
-                                color = MaterialTheme.colors.onSurface,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(8.dp)
-                                    .clickable {
-                                        // Handle member click
-                                        apiService.addMemberToGroup(groupId, GroupMember(0, groupId, userId, "", "", null)).enqueue(object : Callback<GroupMember> {
-                                            override fun onResponse(call: Call<GroupMember>, response: Response<GroupMember>) {
-                                                if (response.isSuccessful) {
-                                                    Toast.makeText(context, "$username added to group", Toast.LENGTH_SHORT).show()
-                                                } else {
-                                                    Toast.makeText(context, "Error: ${response.message()}", Toast.LENGTH_SHORT).show()
+    GlobalTheme {
+        Scaffold(
+            topBar = {
+                GlobalTopAppBar(title = { Text("Invite Members") })
+            },
+            content = { padding ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    if (loading) {
+                        CircularProgressIndicator()
+                    } else if (error != null) {
+                        Text("Error: $error", color = MaterialTheme.colorScheme.error)
+                    } else {
+                        LazyColumn {
+                            val sortedUsernames = usernames.values.sorted()
+                            items(sortedUsernames) { username ->
+                                val userId = usernames.filterValues { it == username }.keys.first()
+                                Text(
+                                    text = username,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(8.dp)
+                                        .clickable {
+                                            // Handle member click
+                                            apiService.addMemberToGroup(groupId, GroupMember(0, groupId, userId, "", "", null)).enqueue(object : Callback<GroupMember> {
+                                                override fun onResponse(call: Call<GroupMember>, response: Response<GroupMember>) {
+                                                    if (response.isSuccessful) {
+                                                        Toast.makeText(context, "$username added to group", Toast.LENGTH_SHORT).show()
+                                                    } else {
+                                                        Toast.makeText(context, "Error: ${response.message()}", Toast.LENGTH_SHORT).show()
+                                                    }
                                                 }
-                                            }
 
-                                            override fun onFailure(call: Call<GroupMember>, t: Throwable) {
-                                                Toast.makeText(context, "Failed to add member: ${t.message}", Toast.LENGTH_SHORT).show()
-                                            }
-                                        })
-                                    }
-                            )
+                                                override fun onFailure(call: Call<GroupMember>, t: Throwable) {
+                                                    Toast.makeText(context, "Failed to add member: ${t.message}", Toast.LENGTH_SHORT).show()
+                                                }
+                                            })
+                                        }
+                                )
+                            }
                         }
                     }
                 }
             }
-        }
-    )
+        )
+    }
 }
 
 private fun fetchGroupMembers(apiService: ApiService, groupIds: List<Int>, onResult: (Map<Int, List<GroupMember>>) -> Unit) {

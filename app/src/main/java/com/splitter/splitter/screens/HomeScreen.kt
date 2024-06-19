@@ -8,6 +8,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import com.splitter.splitter.components.GlobalTopAppBar
 import com.splitter.splitter.utils.getUserIdFromPreferences
 
 @Composable
@@ -16,7 +17,7 @@ fun HomeScreen(navController: NavController, context: Context) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            GlobalTopAppBar(
                 title = { Text("Home") }
             )
         },

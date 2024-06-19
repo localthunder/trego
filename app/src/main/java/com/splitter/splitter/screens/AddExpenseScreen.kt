@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.splitter.splitter.components.GlobalTopAppBar
 import com.splitter.splitter.components.TransactionItem
 import com.splitter.splitter.model.Transaction
 import com.splitter.splitter.network.ApiService
@@ -54,7 +55,7 @@ fun AddExpenseScreen(navController: NavController, context: Context, groupId: In
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Add Expense") })
+            GlobalTopAppBar(title = { Text("Add Expense") })
         },
         content = { padding ->
             Column(
