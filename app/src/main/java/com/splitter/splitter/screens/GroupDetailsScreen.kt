@@ -39,6 +39,7 @@ fun GroupDetailsScreen(navController: NavController, groupId: Int, apiService: A
     var payments by remember { mutableStateOf<List<Payment>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var showAddMembersDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(groupId) {
         Log.d("GroupDetailsScreen", "Fetching group details for groupId: $groupId")
@@ -107,7 +108,7 @@ fun GroupDetailsScreen(navController: NavController, groupId: Int, apiService: A
     GlobalTheme {
         Scaffold(
             topBar = {
-                GlobalTopAppBar { Text(group?.name ?: "Group Details") }
+                GlobalTopAppBar(title = { Text(group?.name ?: "Group Details") })
             },
             floatingActionButton = {
                 GlobalFAB(
@@ -182,19 +183,14 @@ fun GroupDetailsScreen(navController: NavController, groupId: Int, apiService: A
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceEvenly
                                 ) {
-                                    CreateGroupInviteLink(navController, context, groupId)
                                     Button(
-                                        onClick = {
-                                            navController.navigate("inviteMembers/$groupId")
-                                        }
+                                        onClick = { showAddMembersDialog = true }
                                     ) {
-                                        Text("Invite Members")
+                                        Text("Add People")
                                     }
                                     Button(
-                                        onClick = {
-                                            navController.navigate("groupBalances/$groupId")
-                                        }
-                                    ){
+                                        onClick = { navController.navigate("groupBalances/$groupId") }
+                                    ) {
                                         Text("Balances")
                                     }
                                 }
@@ -217,9 +213,44 @@ fun GroupDetailsScreen(navController: NavController, groupId: Int, apiService: A
                         }
                     }
                 }
+                if (showAddMembersDialog) {
+                    AddMembersDialog(
+                        onDismissRequest = { showAddMembersDialog = false },
+                        onCreateInviteLinkClick = { /* Handle create invite link */ },
+                        onInviteMembersClick = { navController.navigate("inviteMembers/$groupId") }
+                    )
+                }
             }
         )
     }
+}
+
+@Composable
+fun AddMembersDialog(
+    onDismissRequest: () -> Unit,
+    onCreateInviteLinkClick: () -> Unit,
+    onInviteMembersClick: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismissRequest,
+        title = { Text("Add Members") },
+        text = {
+            Column {
+                Button(onClick = onCreateInviteLinkClick) {
+                    Text("Create Invite Link")
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(onClick = onInviteMembersClick) {
+                    Text("Invite Members")
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismissRequest) {
+                Text("Close")
+            }
+        }
+    )
 }
 
 @Composable
@@ -302,6 +333,13 @@ fun PaymentItem(payment: Payment, onClick: () -> Unit) {
                 payment.notes?.let {
                     Text(
                         "Notes: $it",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                    )
+                }
+                payment.institutionName?.let {
+                    Text(
+                        "Institution: $it",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
                     )

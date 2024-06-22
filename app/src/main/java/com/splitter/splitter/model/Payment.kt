@@ -16,5 +16,6 @@ data class Payment(
     @SerializedName("updated_by") val updatedBy: Int,
     @SerializedName("created_at") val createdAt: String,
     @SerializedName("updated_at") val updatedAt: String,
-    @SerializedName("split_mode") val splitMode: String
+    @SerializedName("split_mode") val splitMode: String,
+    @SerializedName("institutionName") val institutionName: String?
 )

@@ -21,6 +21,7 @@ import retrofit2.http.PUT
 import retrofit2.http.Path
 import retrofit2.http.Query
 
+
 data class AuthResponse(val token: String?, val userId: Int, val success: Boolean = true, val message: String?, val refreshToken: String?)
 data class RequisitionRequest(
     val baseUrl: String,
@@ -39,6 +40,9 @@ interface ApiService {
 
     @GET("/api/gocardless/institutions")
     fun getInstitutions(@Query("country") country: String): Call<List<Institution>>
+
+    @GET("/api/gocardless/institution/{institutionId}")
+    fun getInstitutionById(@Path("institutionId") institutionId: String): Call<Institution>
 
     @POST("/api/auth/register")
     fun registerUser(@Body registerRequest: RegisterRequest): Call<AuthResponse>

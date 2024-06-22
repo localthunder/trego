@@ -48,6 +48,7 @@ fun PaymentScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var splitMode by remember { mutableStateOf("equally") }
     var paidByUser by remember { mutableStateOf("-") }
+    var institutionName by remember { mutableStateOf<String?>(null) }
 
     // Retrieve transaction details from previous screen
     val transactionId = navController.currentBackStackEntry?.arguments?.getString("transactionId")
@@ -118,6 +119,7 @@ fun PaymentScreen(
                             amount = it.amount
                             description = it.description ?: ""
                             notes = it.notes ?: ""
+                            institutionName = it.institutionName
                             paymentDate = it.paymentDate
                             fetchPaymentSplits(apiService, paymentId) { fetchedSplits ->
                                 // Ensure all group members have a split entry
@@ -162,14 +164,14 @@ fun PaymentScreen(
                             if (paymentId == 0) {
                                 Log.d("PaymentScreen", "Creating new payment")
                                 if (userId != null) {
-                                    createPayment(apiService, groupId, amount, description, notes, splits, paymentDate, userId, transactionId, splitMode) {
+                                    createPayment(apiService, groupId, amount, description, notes, splits, paymentDate, userId, transactionId, splitMode, institutionName) {
                                         navController.popBackStack()
                                     }
                                 }
                             } else {
                                 Log.d("PaymentScreen", "Updating existing payment")
                                 if (userId != null) {
-                                    updatePayment(apiService, paymentId, groupId, amount, description, notes, splits, paymentDate, userId, splitMode) {
+                                    updatePayment(apiService, paymentId, groupId, amount, description, notes, splits, paymentDate, userId, splitMode, institutionName) {
                                         navController.popBackStack()
                                     }
                                 }

@@ -1,55 +1,93 @@
 package com.splitter.splitter.components
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material.Card
-import androidx.compose.material.Text
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.splitter.splitter.model.Transaction
 
 @Composable
-fun TransactionItem(transaction: Transaction, onClick: () -> Unit = {}) {
+fun TransactionItem(
+    transaction: Transaction,
+    onClick: () -> Unit = {}
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
             .clickable(onClick = onClick),
-        elevation = 4.dp
     ) {
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("Transaction ID: ${transaction.transactionId ?: "N/A"}")
-            Text("Booking Date: ${transaction.bookingDate ?: "N/A"}")
-            Text("Booking DateTime: ${transaction.bookingDateTime ?: "N/A"}")
 
-            // Conditionally format the amount
-            val amount = transaction.transactionAmount?.amount ?: "N/A"
-            val formattedAmount = if (amount is Double && amount < 0) {
-                "+${-amount}" // Convert negative amount to positive with "+" sign
-            } else {
-                amount.toString()
+            Spacer(modifier = Modifier.width(16.dp))
+
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
+                val nameToShow = transaction.creditorName
+                    ?: transaction.debtorName
+                    ?: transaction.remittanceInformationUnstructured
+                    ?: "N/A"
+
+                Text(
+                    text = nameToShow,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+
+                Text(
+                    text = "You owe £6.40",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFFFFA726)
+                )
             }
-            val amountColor = if (amount is Double && amount < 0) Color.Green else Color.Black
 
-            Text(
-                text = "Amount: $formattedAmount",
-                color = amountColor
-            )
+            Column(
+                horizontalAlignment = Alignment.End
+            ) {
+                // Conditionally format the amount
+                val amount = transaction.transactionAmount.amount
+                val formattedAmount = if (amount < 0) {
+                    "+${-amount}" // Convert negative amount to positive with "+" sign
+                } else {
+                    "£$amount"
+                }
+                val amountColor = if (amount < 0) Color.Green else Color.Black
 
-            Text("Currency: ${transaction.transactionAmount?.currency ?: "N/A"}")
-            Text("Creditor Name: ${transaction.creditorName ?: "N/A"}")
-            Text("Creditor Account BBAN: ${transaction.creditorAccount?.bban ?: "N/A"}")
-            Text("Remittance Info: ${transaction.remittanceInformationUnstructured ?: "N/A"}")
-            Text("Proprietary Bank Transaction Code: ${transaction.proprietaryBankTransactionCode ?: "N/A"}")
-            Text("Internal Transaction ID: ${transaction.internalTransactionId ?: "N/A"}")
+                Text(
+                    text = formattedAmount,
+                    color = amountColor,
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                Text(
+                    text = "28th Dec 2024",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.Gray,
+                    fontSize = 12.sp
+                )
+
+                // Display institution name
+                Text(
+                    text = transaction.institutionName ?: "N/A",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
         }
     }
 }

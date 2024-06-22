@@ -6,7 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.*
+import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Add
@@ -55,7 +55,7 @@ fun AddExpenseScreen(navController: NavController, context: Context, groupId: In
 
     Scaffold(
         topBar = {
-            GlobalTopAppBar(title = { Text("Add Expense") })
+            GlobalTopAppBar(title = { Text("Add Expense", style = MaterialTheme.typography.headlineSmall) })
         },
         content = { padding ->
             Column(
@@ -115,7 +115,7 @@ fun AddExpenseScreen(navController: NavController, context: Context, groupId: In
                 if (loading) {
                     CircularProgressIndicator()
                 } else if (error != null) {
-                    Text("Error: $error", color = MaterialTheme.colors.error)
+                    Text("Error: $error", color = MaterialTheme.colorScheme.error)
                 } else {
                     LazyColumn {
                         items(transactions) { transaction ->
@@ -148,10 +148,12 @@ fun AddExpenseScreen(navController: NavController, context: Context, groupId: In
                                     bookingDateTime = transaction.bookingDateTime,
                                     transactionAmount = transaction.transactionAmount,
                                     creditorName = transaction.creditorName,
+                                    debtorName = transaction.debtorName,
                                     creditorAccount = transaction.creditorAccount,
                                     remittanceInformationUnstructured = transaction.remittanceInformationUnstructured,
                                     proprietaryBankTransactionCode = transaction.proprietaryBankTransactionCode,
-                                    internalTransactionId = transaction.internalTransactionId
+                                    internalTransactionId = transaction.internalTransactionId,
+                                    institutionName = transaction.institutionName
                                 )
 
                                 // Save the transaction first

@@ -16,9 +16,12 @@ data class Transaction(
     @SerializedName("transactionAmount") val transactionAmount: TransactionAmount,
     @SerializedName("creditorName") val creditorName: String?,
     @SerializedName("creditorAccount") val creditorAccount: CreditorAccount?,
+    @SerializedName("debtorName") val debtorName: String?,
     @SerializedName("remittanceInformationUnstructured") val remittanceInformationUnstructured: String?,
     @SerializedName("proprietaryBankTransactionCode") val proprietaryBankTransactionCode: String?,
-    @SerializedName("internalTransactionId") val internalTransactionId: String?
+    @SerializedName("internalTransactionId") val internalTransactionId: String?,
+    @SerializedName("institutionName") val institutionName: String?
+
 )
 
 data class TransactionAmount(
