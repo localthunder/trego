@@ -7,6 +7,7 @@ data class BankAccount(
     @SerializedName("requisition_id") val requisitionId: String,
     @SerializedName("user_id") val userId: Int,
     @SerializedName("iban") val iban: String?,
+    @SerializedName("institution_id") val institutionId: String,
     @SerializedName("currency") val currency: String?,
     @SerializedName("owner_name") val ownerName: String?,
     @SerializedName("name") val name: String?,

@@ -68,8 +68,13 @@ interface ApiService {
     @GET("/api/gocardless/listUserAccounts")
     fun listUserAccounts(): Call<List<BankAccount>>
 
-    @GET("/api/gocardless/transactions/{accountId}")
-    fun getTransactions(@Path("accountId") accountId: Int): Call<List<Transaction>>
+    @GET("/api/gocardless/transactions/{userId}")
+    fun getTransactions(@Path("userId") userId: Int): Call<List<Transaction>>
+    @GET("/api/gocardless/transactions/recent/{userId}")
+    fun getRecentTransactions(@Path("userId") userId: Int, @Query("date_from") dateFrom: String): Call<List<Transaction>>
+    @GET("/api/gocardless/transactions/non-recent/{userId}")
+    fun getNonRecentTransactions(@Path("userId") userId: Int, @Query("date_to") dateTo: String): Call<List<Transaction>>
+
     @POST("/api/gocardless/transactions")
     fun createTransaction(@Body transaction: Transaction): Call<Transaction>
     @GET("/api/gocardless/{userId}/accounts")

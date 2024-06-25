@@ -61,7 +61,7 @@ fun BankAccountsScreen(navController: NavController, context: Context, requisiti
                 items(bankAccounts) { account ->
                     BankAccountCard(account, context, navController, addedAccounts) { accountId ->
                         if (addedAccounts.contains(accountId)) {
-                            navController.navigate("transactions")
+                            navController.navigate("transactions/$userId")
                         } else {
                             handleAddAccount(context, navController, account) { success ->
                                 if (success) {

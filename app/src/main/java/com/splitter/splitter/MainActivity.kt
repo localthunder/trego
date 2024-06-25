@@ -2,6 +2,7 @@ package com.splitter.splitter
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -24,6 +25,8 @@ import com.splitter.splitter.utils.getUserIdFromPreferences
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 
 class MainActivity : ComponentActivity() {
 
@@ -32,6 +35,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Log.d("MainActivity", "onCreate called, intent: ${intent?.data}")
+        handleIntent(intent)
         setContent {
             GlobalTheme {
                 Surface(
@@ -53,7 +57,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-        handleIntent(intent)
     }
 
     override fun onNewIntent(intent: Intent?) {
@@ -69,9 +72,12 @@ class MainActivity : ComponentActivity() {
         val data = intent.data
         Log.d("MainActivity", "handleIntent called with data: $data")
         if (data != null) {
-            val scheme = data.scheme
-            val host = data.host
-            val reference = data.getQueryParameter("reference")
+            val uriString = data.toString().replace("&amp;", "&")
+            val decodedUri = Uri.parse(URLDecoder.decode(uriString, StandardCharsets.UTF_8.name()))
+            val scheme = decodedUri.scheme
+            val host = decodedUri.host
+            val reference = decodedUri.getQueryParameter("reference")
+            Log.d("MainActivity", "Decoded URI: $decodedUri")
             Log.d("MainActivity", "scheme: $scheme, host: $host, reference: $reference")
 
             if (scheme == "splitter" && host == "bankaccounts" && reference != null) {
@@ -121,6 +127,7 @@ class MainActivity : ComponentActivity() {
         Log.d("fetchRequisitionAndNavigate", "Fetching requisition for reference: $reference")
         apiService.getRequisitionByReference(reference).enqueue(object : Callback<Requisition> {
             override fun onResponse(call: Call<Requisition>, response: Response<Requisition>) {
+                Log.d("fetchRequisitionAndNavigate", "API response received")
                 if (response.isSuccessful) {
                     val requisition = response.body()
                     val requisitionId = requisition?.requisitionId

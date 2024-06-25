@@ -40,7 +40,6 @@ fun AddExpenseScreen(navController: NavController, context: Context, groupId: In
     LaunchedEffect(userId) {
         if (userId != null) {
             fetchTransactions(context, userId) { fetchedTransactions ->
-                // Multiply transaction amounts by -1
                 transactions = fetchedTransactions.map { transaction ->
                     transaction.copy(
                         transactionAmount = transaction.transactionAmount.copy(
@@ -117,8 +116,9 @@ fun AddExpenseScreen(navController: NavController, context: Context, groupId: In
                 } else if (error != null) {
                     Text("Error: $error", color = MaterialTheme.colorScheme.error)
                 } else {
+                    val sortedTransactions = transactions.distinct().sortedByDescending { it.bookingDateTime }
                     LazyColumn {
-                        items(transactions) { transaction ->
+                        items(sortedTransactions) { transaction ->
                             TransactionItem(transaction) {
                                 val description =
                                     if (!transaction.creditorName.isNullOrEmpty()) {

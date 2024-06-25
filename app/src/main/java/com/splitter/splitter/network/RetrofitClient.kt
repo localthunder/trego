@@ -7,9 +7,11 @@ import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.util.concurrent.TimeUnit
 
 object RetrofitClient {
     private const val BASE_URL = "http://10.0.2.2:3000"
+    private const val TIMEOUT_DURATION = 60L // Set timeout duration in seconds
 
     private fun getClient(context: Context): OkHttpClient {
         val logging = HttpLoggingInterceptor()
@@ -46,6 +48,9 @@ object RetrofitClient {
         return OkHttpClient.Builder()
             .addInterceptor(headerInterceptor)
             .addInterceptor(logging)
+            .connectTimeout(TIMEOUT_DURATION, TimeUnit.SECONDS)
+            .readTimeout(TIMEOUT_DURATION, TimeUnit.SECONDS)
+            .writeTimeout(TIMEOUT_DURATION, TimeUnit.SECONDS)
             .build()
     }
 
