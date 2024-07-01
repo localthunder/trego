@@ -43,7 +43,7 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
             arguments = listOf(navArgument("userId") { type = NavType.IntType })
         ) { backStackEntry ->
             val userId = backStackEntry.arguments?.getInt("userId") ?: return@composable
-            TransactionsScreen(navController, context, userId)
+            TransactionsScreen(navController, context, userId, apiService)
         }
         composable("addGroup") {
             AddGroupScreen(navController, LocalContext.current)

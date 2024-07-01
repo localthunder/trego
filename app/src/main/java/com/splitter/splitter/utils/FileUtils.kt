@@ -9,6 +9,11 @@ import coil.request.SuccessResult
 import java.io.File
 import java.io.FileOutputStream
 
+fun isLogoSaved(context: Context, institutionId: String): Boolean {
+    val logoFile = File(context.filesDir, "$institutionId.png")
+    return logoFile.exists()
+}
+
 suspend fun downloadAndSaveImage(context: Context, imageUrl: String, filename: String): File? {
     val loader = ImageLoader(context)
     val request = ImageRequest.Builder(context)

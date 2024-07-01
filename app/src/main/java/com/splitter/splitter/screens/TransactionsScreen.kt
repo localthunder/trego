@@ -14,11 +14,12 @@ import androidx.navigation.NavController
 import com.splitter.splitter.components.GlobalTopAppBar
 import com.splitter.splitter.components.TransactionItem
 import com.splitter.splitter.model.Transaction
+import com.splitter.splitter.network.ApiService
 import com.splitter.splitter.ui.theme.GlobalTheme
 import com.splitter.splitter.utils.GocardlessUtils.fetchTransactions
 
 @Composable
-fun TransactionsScreen(navController: NavController, context: Context, userId: Int) {
+fun TransactionsScreen(navController: NavController, context: Context, userId: Int, apiService: ApiService) {
     var transactions by remember { mutableStateOf<List<Transaction>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
 
@@ -52,7 +53,7 @@ fun TransactionsScreen(navController: NavController, context: Context, userId: I
                             .padding(16.dp)
                     ) {
                         items(transactions) { transaction ->
-                            TransactionItem(transaction) {
+                            TransactionItem(transaction, context, apiService) {
                                 val description =
                                     if (!transaction.creditorName.isNullOrEmpty()) {
                                         transaction.creditorName

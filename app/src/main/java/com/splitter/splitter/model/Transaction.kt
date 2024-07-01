@@ -20,8 +20,8 @@ data class Transaction(
     @SerializedName("remittanceInformationUnstructured") val remittanceInformationUnstructured: String?,
     @SerializedName("proprietaryBankTransactionCode") val proprietaryBankTransactionCode: String?,
     @SerializedName("internalTransactionId") val internalTransactionId: String?,
-    @SerializedName("institutionName") val institutionName: String?
-
+    @SerializedName("institutionName") val institutionName: String?,
+    @SerializedName("institutionId") val institutionId: String?
 )
 
 data class TransactionAmount(

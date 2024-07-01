@@ -119,7 +119,7 @@ fun AddExpenseScreen(navController: NavController, context: Context, groupId: In
                     val sortedTransactions = transactions.distinct().sortedByDescending { it.bookingDateTime }
                     LazyColumn {
                         items(sortedTransactions) { transaction ->
-                            TransactionItem(transaction) {
+                            TransactionItem(transaction, context, apiService) {
                                 val description =
                                     if (!transaction.creditorName.isNullOrEmpty()) {
                                         transaction.creditorName
@@ -153,7 +153,8 @@ fun AddExpenseScreen(navController: NavController, context: Context, groupId: In
                                     remittanceInformationUnstructured = transaction.remittanceInformationUnstructured,
                                     proprietaryBankTransactionCode = transaction.proprietaryBankTransactionCode,
                                     internalTransactionId = transaction.internalTransactionId,
-                                    institutionName = transaction.institutionName
+                                    institutionName = transaction.institutionName,
+                                    institutionId = transaction.institutionId
                                 )
 
                                 // Save the transaction first

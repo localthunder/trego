@@ -21,6 +21,11 @@ import com.splitter.splitter.network.ApiService
 import com.splitter.splitter.network.RequisitionRequest
 import com.splitter.splitter.network.RequisitionResponseWithRedirect
 import com.splitter.splitter.network.RetrofitClient
+import com.splitter.splitter.utils.GocardlessUtils.getInstitutionLogoUrl
+import downloadAndSaveImage
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
@@ -103,6 +108,14 @@ fun handleCreateRequisition(institutionId: String, context: Context) {
                 // Launch the GoCardless URL to redirect the user
                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse(requisitionResponse?.link))
                 context.startActivity(intent)
+
+                // Download and save the logo
+                CoroutineScope(Dispatchers.IO).launch {
+                    val logoUrl = getInstitutionLogoUrl(apiService, institutionId)
+                    if (logoUrl != null) {
+                        downloadAndSaveImage(context, logoUrl, "$institutionId.png")
+                    }
+                }
             } else {
                 Toast.makeText(context, "Failed to create requisition", Toast.LENGTH_SHORT).show()
             }
