@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
+import com.splitter.splitter.data.TransactionRepository
 import com.splitter.splitter.network.ApiService
 import com.splitter.splitter.network.RetrofitClient
 import com.splitter.splitter.screens.NavGraph
@@ -47,11 +48,13 @@ class MainActivity : ComponentActivity() {
                     val context = LocalContext.current
                     val userId = getUserIdFromPreferences(context)
                     val apiService = remember { RetrofitClient.getInstance(context).create(ApiService::class.java) }
+                    val repository = TransactionRepository(apiService)
+
 
                     Log.d("MainActivity", "User ID: $userId")
 
                     // Check login state and set navigation graph
-                    NavigationSetup(navController = navController, context = context, userId = userId, apiService = apiService)
+                    NavigationSetup(navController = navController, context = context, userId = userId, apiService = apiService, repository = repository)
                     // Handle deep links after navigation setup
                     HandleDeepLink(navController = navController, referenceState, apiService)
                 }
@@ -92,7 +95,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun NavigationSetup(navController: NavHostController, context: Context, userId: Int?, apiService: ApiService) {
+    private fun NavigationSetup(navController: NavHostController, context: Context, userId: Int?, apiService: ApiService, repository: TransactionRepository) {
         val token = AuthUtils.getLoginState(context)
         LaunchedEffect(Unit) {
             if (token != null) {
@@ -107,7 +110,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-        NavGraph(navController = navController, context = context, userId = userId ?: -1, apiService = apiService)
+        NavGraph(navController = navController, context = context, userId = userId ?: -1, apiService = apiService, repository = repository)
     }
 
     @Composable

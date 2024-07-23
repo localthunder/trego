@@ -95,4 +95,8 @@ dependencies {
     //Icons
     implementation ("androidx.compose.material:material-icons-extended:<latest_version>")
 
+    //Palette for gradient borders
+    implementation ("androidx.palette:palette-ktx:1.0.0")
+
+
 }

@@ -1,7 +1,7 @@
 package com.splitter.splitter.model
 
 import com.google.gson.annotations.SerializedName
-import java.sql.Date
+import java.sql.Timestamp
 
 data class Payment(
     val id: Int,
@@ -17,5 +17,8 @@ data class Payment(
     @SerializedName("created_at") val createdAt: String,
     @SerializedName("updated_at") val updatedAt: String,
     @SerializedName("split_mode") val splitMode: String,
-    @SerializedName("institutionName") val institutionName: String?
+    @SerializedName("institutionName") val institutionName: String?,
+    @SerializedName("payment_type") val paymentType: String,
+    val currency: String?,
+    @SerializedName("deleted_at") val deletedAt: Timestamp?
 )

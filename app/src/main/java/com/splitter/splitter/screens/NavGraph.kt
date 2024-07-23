@@ -10,10 +10,11 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.splitter.splitter.data.TransactionRepository
 import com.splitter.splitter.network.ApiService
 
 @Composable
-fun NavGraph(navController: NavHostController, context: Context, userId: Int, apiService: ApiService, modifier: Modifier = Modifier) {
+fun NavGraph(navController: NavHostController, context: Context, userId: Int, apiService: ApiService, modifier: Modifier = Modifier, repository: TransactionRepository) {
     NavHost(
         navController = navController,
         startDestination = "login",
@@ -29,7 +30,7 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
             HomeScreen(navController, context)
         }
         composable(route = "institutions") {
-            InstitutionsScreen(navController, context)
+            InstitutionsScreen(navController, context, apiService)
         }
         composable(
             route = "bankaccounts/{requisitionId}",
@@ -85,7 +86,12 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
             )
         ) { backStackEntry ->
             val groupId = backStackEntry.arguments?.getInt("groupId") ?: return@composable
-            AddExpenseScreen(navController, context, groupId)
+            AddExpenseScreen(navController, context, groupId, repository, apiService)
+        }
+        composable("currencySelection") {
+            CurrencySelectionScreen(navController) { selectedCurrency ->
+                navController.previousBackStackEntry?.savedStateHandle?.set("currency", selectedCurrency)
+            }
         }
         composable(
             route = "inviteMembers/{groupId}",

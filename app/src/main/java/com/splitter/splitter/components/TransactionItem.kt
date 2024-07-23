@@ -3,6 +3,7 @@ package com.splitter.splitter.components
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.util.Log
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -14,13 +15,20 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.splitter.splitter.model.Transaction
 import com.splitter.splitter.network.ApiService
+import com.splitter.splitter.utils.FormattingUtils.formatAmount
 import com.splitter.splitter.utils.GocardlessUtils.getInstitutionLogoUrl
+import com.splitter.splitter.utils.GradientBorderUtils.getAverageColor
+import com.splitter.splitter.utils.GradientBorderUtils.getDominantColors
 import downloadAndSaveImage
 import isLogoSaved
 import kotlinx.coroutines.Dispatchers
@@ -39,8 +47,7 @@ fun TransactionItem(
 ) {
 
     var logoFile by remember { mutableStateOf<File?>(null) }
-
-
+    var dominantColors by remember { mutableStateOf(listOf<Color>()) }
 
     LaunchedEffect(transaction.institutionId) {
         if (transaction.institutionId != null) {
@@ -65,107 +72,50 @@ fun TransactionItem(
                 Log.d("TransactionItem", "Logo already saved locally")
                 logoFile = File(context.filesDir, logoFilename)
             }
+
+            logoFile?.let { file ->
+                val bitmap = BitmapFactory.decodeFile(file.path)
+                if (bitmap != null) {
+                    Log.d("TransactionItem", "Bitmap width: ${bitmap.width}, height: ${bitmap.height}")
+                    dominantColors = getDominantColors(bitmap).map { Color(it) }
+                    if (dominantColors.size < 2) {
+                        // Use the average color and a slightly different shade of it to create a gradient
+                        val averageColor = Color(getAverageColor(bitmap))
+                        dominantColors = listOf(averageColor, averageColor.copy(alpha = 0.7f))
+                    }
+                    Log.d("TransactionItem", "Dominant colors: $dominantColors")
+                } else {
+                    Log.e("TransactionItem", "Failed to decode image file: ${file.path}")
+                }
+            }
         } else {
             Log.d("TransactionItem", "Institution ID is null")
         }
     }
 
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .clickable(onClick = onClick),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-
-            if (logoFile != null) {
-                val bitmap = BitmapFactory.decodeFile(logoFile?.path)
-                if (bitmap != null) {
-                    Log.d("TransactionItem", "Displaying logo from file: ${logoFile?.path}")
-                    Image(
-                        bitmap = bitmap.asImageBitmap(),
-                        contentDescription = "Institution Logo",
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                    )
-                } else {
-                    Log.e("TransactionItem", "Failed to decode image file: ${logoFile?.path}")
-                    Spacer(modifier = Modifier.size(40.dp))
-                }
-            } else {
-                Log.d("TransactionItem", "Logo file is null, displaying placeholder")
-                Spacer(modifier = Modifier.size(40.dp))
-            }
-
-            Spacer(modifier = Modifier.width(16.dp))
-
-            Column(
-                modifier = Modifier.weight(1f)
-            ) {
-                val nameToShow = transaction.creditorName
-                    ?: transaction.debtorName
-                    ?: transaction.remittanceInformationUnstructured
-                    ?: "N/A"
-
-                Text(
-                    text = nameToShow,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-
-                Text(
-                    text = "You owe £6.40",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFFFFA726)
-                )
-            }
-
-            Column(
-                horizontalAlignment = Alignment.End
-            ) {
-                // Conditionally format the amount
-                val amount = transaction.transactionAmount.amount
-                val formattedAmount = if (amount < 0) {
-                    "+${-amount}" // Convert negative amount to positive with "+" sign
-                } else {
-                    "£$amount"
-                }
-                val amountColor = if (amount < 0) Color.Green else Color.Black
-
-                Text(
-                    text = formattedAmount,
-                    color = amountColor,
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-
-                transaction.bookingDateTime?.let {
-                    Text(
-                        text = formatDate(it),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.Gray,
-                        fontSize = 12.sp
-                    )
-                }
-
-                // Display institution name
-                Text(
-                    text = transaction.institutionName ?: "N/A",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-        }
+    val borderSize = 2.dp
+    val borderBrush = if (dominantColors.size >= 2) {
+        Brush.linearGradient(dominantColors)
+    } else {
+        Brush.linearGradient(listOf(Color.Gray, Color.LightGray))
     }
+
+    val nameToShow = transaction.creditorName
+        ?: transaction.debtorName
+        ?: transaction.remittanceInformationUnstructured
+        ?: "N/A"
+
+
+    PaymentAndTransactionCard(
+        logoFile = logoFile,
+        nameToShow = nameToShow,
+        amount = transaction.transactionAmount.amount,
+        bookingDateTime = transaction.bookingDateTime,
+        institutionName = transaction.institutionName ?: "N/A",
+        borderSize = borderSize,
+        borderBrush = borderBrush,
+        onClick = onClick
+    )
 }
 
 @Composable
@@ -183,21 +133,5 @@ fun TransactionsList(
                 onClick(transaction)
             }
         }
-    }
-}
-
-fun formatDate(isoDate: String): String {
-    return try {
-        val formatter = DateTimeFormatter.ISO_OFFSET_DATE_TIME
-        val dateTime = OffsetDateTime.parse(isoDate, formatter)
-        val currentYear = OffsetDateTime.now().year
-        val formattedDate = if (dateTime.year == currentYear) {
-            dateTime.format(DateTimeFormatter.ofPattern("d MMM", Locale.getDefault()))
-        } else {
-            dateTime.format(DateTimeFormatter.ofPattern("d MMM yyyy", Locale.getDefault()))
-        }
-        formattedDate
-    } catch (e: Exception) {
-        "N/A"
     }
 }

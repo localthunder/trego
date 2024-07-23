@@ -16,8 +16,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import coil.compose.rememberImagePainter
+import com.splitter.splitter.components.AddMembersDialog
 import com.splitter.splitter.components.GlobalFAB
 import com.splitter.splitter.components.GlobalTopAppBar
+import com.splitter.splitter.components.PaymentItem
 import com.splitter.splitter.model.Group
 import com.splitter.splitter.model.GroupMember
 import com.splitter.splitter.model.Payment
@@ -203,7 +205,7 @@ fun GroupDetailsScreen(navController: NavController, groupId: Int, apiService: A
                                 )
                                 LazyColumn {
                                     items(payments) { payment ->
-                                        PaymentItem(payment) {
+                                        PaymentItem(payment, apiService, context) {
                                             navController.navigate("paymentDetails/${groupId}/${payment.id}")
                                         }
                                     }
@@ -222,129 +224,5 @@ fun GroupDetailsScreen(navController: NavController, groupId: Int, apiService: A
                 }
             }
         )
-    }
-}
-
-@Composable
-fun AddMembersDialog(
-    onDismissRequest: () -> Unit,
-    onCreateInviteLinkClick: () -> Unit,
-    onInviteMembersClick: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismissRequest,
-        title = { Text("Add Members") },
-        text = {
-            Column {
-                Button(onClick = onCreateInviteLinkClick) {
-                    Text("Create Invite Link")
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                Button(onClick = onInviteMembersClick) {
-                    Text("Invite Members")
-                }
-            }
-        },
-        confirmButton = {
-            Button(onClick = onDismissRequest) {
-                Text("Close")
-            }
-        }
-    )
-}
-
-@Composable
-fun PaymentItem(payment: Payment, onClick: () -> Unit) {
-    val paymentDateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-    val dateTimeFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.getDefault())
-    val displayDateFormat = SimpleDateFormat("MMMM dd, yyyy", Locale.getDefault())
-
-    val parsedPaymentDate: String? = payment.paymentDate?.let {
-        try {
-            paymentDateFormat.parse(it.toString())?.let { date -> displayDateFormat.format(date) }
-        } catch (e: Exception) {
-            Log.e("PaymentItem", "Error parsing payment date: $it", e)
-            null
-        }
-    }
-
-    val parsedCreatedAt: String? = payment.createdAt?.let {
-        try {
-            dateTimeFormat.parse(it)?.let { date -> displayDateFormat.format(date) }
-        } catch (e: Exception) {
-            Log.e("PaymentItem", "Error parsing created_at date: $it", e)
-            null
-        }
-    }
-
-    val parsedUpdatedAt: String? = payment.updatedAt?.let {
-        try {
-            dateTimeFormat.parse(it)?.let { date -> displayDateFormat.format(date) }
-        } catch (e: Exception) {
-            Log.e("PaymentItem", "Error parsing updated_at date: $it", e)
-            null
-        }
-    }
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .clickable(onClick = onClick)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column {
-                Text(
-                    "Amount: ${payment.amount}",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                Text(
-                    "Description: ${payment.description}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-                )
-                parsedPaymentDate?.let {
-                    Text(
-                        "Payment Date: $it",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-                    )
-                }
-                parsedCreatedAt?.let {
-                    Text(
-                        "Created At: $it",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-                    )
-                }
-                parsedUpdatedAt?.let {
-                    Text(
-                        "Updated At: $it",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-                    )
-                }
-                payment.notes?.let {
-                    Text(
-                        "Notes: $it",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-                    )
-                }
-                payment.institutionName?.let {
-                    Text(
-                        "Institution: $it",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-                    )
-                }
-            }
-        }
     }
 }

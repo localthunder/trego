@@ -13,6 +13,7 @@ import com.splitter.splitter.model.User
 import com.splitter.splitter.model.UserBalance
 import com.splitter.splitter.screens.LoginRequest
 import com.splitter.splitter.screens.RegisterRequest
+import com.splitter.splitter.screens.UserBalanceWithCurrency
 import retrofit2.Call
 import retrofit2.http.Body
 import retrofit2.http.GET
@@ -37,6 +38,9 @@ interface ApiService {
 
     @GET("/api/users/{userId}")
     fun getUserById(@Path("userId") userId: Int): Call<User>
+
+    @POST("/api/users/batch")
+    fun getUsersByIds(@Body userIds: List<Int>): Call<List<User>>
 
     @GET("/api/gocardless/institutions")
     fun getInstitutions(@Query("country") country: String): Call<List<Institution>>
@@ -69,7 +73,11 @@ interface ApiService {
     fun listUserAccounts(): Call<List<BankAccount>>
 
     @GET("/api/gocardless/transactions/{userId}")
-    fun getTransactions(@Path("userId") userId: Int): Call<List<Transaction>>
+    fun getTransactionByUserId(@Path("userId") userId: Int): Call<List<Transaction>>
+
+    @GET("api/transactions/{transactionId}")
+    fun getTransactionById(@Path("transactionId") transactionId: String): Call<Transaction>
+
     @GET("/api/gocardless/transactions/recent/{userId}")
     fun getRecentTransactions(@Path("userId") userId: Int, @Query("date_from") dateFrom: String): Call<List<Transaction>>
     @GET("/api/gocardless/transactions/non-recent/{userId}")
@@ -99,7 +107,7 @@ interface ApiService {
     fun removeMemberFromGroup(@Path("groupId") groupId: Int, @Path("userId") userId: Int): Call<GroupMember>
 
     @GET("api/groups/{groupId}/balances")
-    fun getGroupBalances(@Path("groupId") groupId: Int): Call<List<UserBalance>>
+    fun getGroupBalances(@Path("groupId") groupId: Int): Call<List<UserBalanceWithCurrency>>
 
     // Payments
     @POST("api/payments")
@@ -110,6 +118,9 @@ interface ApiService {
 
     @GET("api/payments/{paymentId}")
     fun getPaymentById(@Path("paymentId") paymentId: Int): Call<Payment>
+
+    @GET("api/payments/{transactionId}")
+    fun getPaymentByTransactionId(@Path("transactionId") transactionId: String): Call<Payment>
 
     @GET("api/payments/groups/{groupId}")
     fun getPaymentsByGroup(@Path("groupId") groupId: Int): Call<List<Payment>>
@@ -123,5 +134,11 @@ interface ApiService {
 
     @GET("api/payments/{paymentId}/splits")
     fun getPaymentSplitsByPayment(@Path("paymentId") paymentId: Int): Call<List<PaymentSplit>>
+
+    @POST("api/payments/{paymentId}/archive")
+    fun archivePayment(@Path("paymentId") paymentId: Int): Call<Void>
+
+    @POST("api/payments/{paymentId}/restore")
+    fun restorePayment(@Path("paymentId") paymentId: Int): Call<Void>
 
 }

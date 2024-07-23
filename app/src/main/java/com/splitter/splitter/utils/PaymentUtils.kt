@@ -1,6 +1,5 @@
 package com.splitter.splitter.utils
 
-import android.content.Context
 import android.util.Log
 import com.splitter.splitter.model.Payment
 import com.splitter.splitter.model.PaymentSplit
@@ -8,6 +7,7 @@ import com.splitter.splitter.network.ApiService
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
+import java.sql.Timestamp
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -26,6 +26,8 @@ object PaymentUtils {
         transactionId: String?,
         splitMode: String,
         institutionName: String?,
+        paymentType: String,
+        currency: String,
         onComplete: () -> Unit
     ) {
         val payment = Payment(
@@ -48,7 +50,10 @@ object PaymentUtils {
                 Locale.getDefault()
             ).format(Date()),
             splitMode = splitMode,
-            institutionName = institutionName
+            institutionName = institutionName,
+            paymentType = paymentType,
+            currency = currency,
+            deletedAt = null  //
         )
 
         apiService.createPayment(payment).enqueue(object : Callback<Payment> {
@@ -57,7 +62,7 @@ object PaymentUtils {
                     val createdPayment = response.body()
                     createdPayment?.id?.let { paymentId ->
                         splits.forEach { (userId, splitAmount) ->
-                            createPaymentSplit(apiService, paymentId, userId, splitAmount, userId)
+                            createPaymentSplit(apiService, paymentId, userId, splitAmount, userId, currency)
                         }
                     }
                     onComplete()
@@ -84,6 +89,8 @@ object PaymentUtils {
         userId: Int,
         splitMode: String,
         institutionName: String?,
+        paymentType: String,
+        currency: String,
         onComplete: () -> Unit
     ) {
         val payment = Payment(
@@ -103,7 +110,10 @@ object PaymentUtils {
                 Locale.getDefault()
             ).format(Date()),
             splitMode = splitMode,
-            institutionName = institutionName
+            institutionName = institutionName,
+            paymentType = paymentType,
+            currency = currency,
+            deletedAt = null
         )
 
         apiService.updatePayment(paymentId, payment).enqueue(object : Callback<Payment> {
@@ -126,7 +136,8 @@ object PaymentUtils {
                                                     paymentSplit.id,
                                                     userId,
                                                     splitAmount,
-                                                    userId
+                                                    userId,
+                                                    currency
                                                 )
                                             }
                                         }
@@ -166,7 +177,8 @@ object PaymentUtils {
         paymentId: Int,
         userId: Int,
         amount: Double,
-        createdBy: Int
+        createdBy: Int,
+        currency: String
     ) {
         val currentDateTime =
             SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.getDefault()).format(Date())
@@ -178,7 +190,9 @@ object PaymentUtils {
             createdAt = currentDateTime,
             createdBy = createdBy,
             updatedAt = currentDateTime,
-            updatedBy = createdBy
+            updatedBy = createdBy,
+            currency = currency,
+            deletedAt = null
         )
 
         apiService.createPaymentSplit(paymentId, paymentSplit)
@@ -204,7 +218,8 @@ object PaymentUtils {
         splitId: Int,
         userId: Int,
         amount: Double,
-        updatedBy: Int
+        updatedBy: Int,
+        currency: String
     ) {
         val currentDateTime =
             SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.getDefault()).format(Date())
@@ -216,7 +231,9 @@ object PaymentUtils {
             createdAt = "",  // This field is not used for update, but must be set
             createdBy = 0,  // This field is not used for update, but must be set
             updatedAt = currentDateTime,
-            updatedBy = updatedBy
+            updatedBy = updatedBy,
+            currency = currency,
+            deletedAt = null
         )
 
         apiService.updatePaymentSplit(paymentId, splitId, paymentSplit)

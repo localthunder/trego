@@ -16,17 +16,36 @@ import com.splitter.splitter.components.TransactionItem
 import com.splitter.splitter.model.Transaction
 import com.splitter.splitter.network.ApiService
 import com.splitter.splitter.ui.theme.GlobalTheme
-import com.splitter.splitter.utils.GocardlessUtils.fetchTransactions
+import com.splitter.splitter.utils.GocardlessUtils.fetchRecentTransactions
+import com.splitter.splitter.utils.GocardlessUtils.fetchNonRecentTransactions
 
 @Composable
 fun TransactionsScreen(navController: NavController, context: Context, userId: Int, apiService: ApiService) {
-    var transactions by remember { mutableStateOf<List<Transaction>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
+    var recentTransactions by remember { mutableStateOf<List<Transaction>>(emptyList()) }
+    var nonRecentTransactions by remember { mutableStateOf<List<Transaction>>(emptyList()) }
+    var loadingRecent by remember { mutableStateOf(true) }
+    var loadingNonRecent by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(Unit) {
-        fetchTransactions(context, userId) { fetchedTransactions ->
-            transactions = fetchedTransactions
-            loading = false
+    LaunchedEffect(userId) {
+        if (userId != null) {
+            // Fetch recent transactions
+            fetchRecentTransactions(context, userId, onRecentTransactionsFetched = { transactions ->
+                recentTransactions = transactions
+                loadingRecent = false
+            }, onError = { errorMessage ->
+                error = errorMessage
+                loadingRecent = false
+            })
+
+            // Fetch non-recent transactions
+            fetchNonRecentTransactions(context, userId, onNonRecentTransactionsFetched = { transactions ->
+                nonRecentTransactions = transactions
+                loadingNonRecent = false
+            }, onError = { errorMessage ->
+                error = errorMessage
+                loadingNonRecent = false
+            })
         }
     }
 
@@ -38,21 +57,24 @@ fun TransactionsScreen(navController: NavController, context: Context, userId: I
                 )
             },
             content = { padding ->
-                if (loading) {
+                if (loadingRecent && loadingNonRecent) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
                         CircularProgressIndicator()
                     }
+                } else if (error != null) {
+                    Text("Error: $error", color = MaterialTheme.colorScheme.error)
                 } else {
+                    val combinedTransactions = (recentTransactions + nonRecentTransactions).distinct().sortedByDescending { it.bookingDateTime }
                     LazyColumn(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(padding)
                             .padding(16.dp)
                     ) {
-                        items(transactions) { transaction ->
+                        items(combinedTransactions) { transaction ->
                             TransactionItem(transaction, context, apiService) {
                                 val description =
                                     if (!transaction.creditorName.isNullOrEmpty()) {

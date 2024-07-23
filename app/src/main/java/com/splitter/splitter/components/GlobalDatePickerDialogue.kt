@@ -9,7 +9,7 @@ import androidx.compose.ui.platform.LocalContext
 import java.util.*
 
 @Composable
-fun DatePickerDialog(date: String, onDateChange: (String) -> Unit) {
+fun GlobalDatePickerDialog(date: String, onDateChange: (String) -> Unit) {
     val context = LocalContext.current
     val calendar = remember { Calendar.getInstance() }
     val year = calendar.get(Calendar.YEAR)
