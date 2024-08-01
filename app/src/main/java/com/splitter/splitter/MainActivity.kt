@@ -13,6 +13,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.fragment.app.FragmentActivity
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
 import com.splitter.splitter.data.TransactionRepository
@@ -21,6 +22,7 @@ import com.splitter.splitter.network.RetrofitClient
 import com.splitter.splitter.screens.NavGraph
 import com.splitter.splitter.ui.theme.GlobalTheme
 import com.splitter.splitter.model.Requisition
+import com.splitter.splitter.utils.AuthManager
 import com.splitter.splitter.utils.AuthUtils
 import com.splitter.splitter.utils.getUserIdFromPreferences
 import retrofit2.Call
@@ -29,7 +31,7 @@ import retrofit2.Response
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
 
     private var referenceState: MutableState<String?> = mutableStateOf(null)
 
@@ -44,19 +46,26 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     val navController = rememberNavController()
-                    Log.d("MainActivity", "NavController created: $navController")
                     val context = LocalContext.current
                     val userId = getUserIdFromPreferences(context)
                     val apiService = remember { RetrofitClient.getInstance(context).create(ApiService::class.java) }
                     val repository = TransactionRepository(apiService)
 
-
                     Log.d("MainActivity", "User ID: $userId")
 
-                    // Check login state and set navigation graph
-                    NavigationSetup(navController = navController, context = context, userId = userId, apiService = apiService, repository = repository)
-                    // Handle deep links after navigation setup
-                    HandleDeepLink(navController = navController, referenceState, apiService)
+                    // Pass the required variables to composables
+                        NavigationSetup(
+                            navController = navController,
+                            context = context,
+                            userId = userId ?: -1,
+                            apiService = apiService,
+                            repository = repository
+                        )
+                    HandleDeepLink(
+                        navController = navController,
+                        referenceState = referenceState,
+                        apiService = apiService
+                    )
                 }
             }
         }
@@ -95,23 +104,39 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun NavigationSetup(navController: NavHostController, context: Context, userId: Int?, apiService: ApiService, repository: TransactionRepository) {
-        val token = AuthUtils.getLoginState(context)
+    private fun NavigationSetup(
+        navController: NavHostController,
+        context: Context,
+        userId: Int,
+        apiService: ApiService,
+        repository: TransactionRepository
+    ) {
         LaunchedEffect(Unit) {
-            if (token != null) {
-                // User is logged in, set the navigation graph to home screen
-                navController.navigate("home") {
-                    popUpTo("login") { inclusive = true }
-                }
+            if (AuthManager.isUserLoggedIn(context)) {
+                AuthManager.promptForBiometrics(
+                    this@MainActivity,
+                    onSuccess = {
+                        Log.d("MainActivity", "Biometric authentication succeeded")
+                        navController.navigate("home") {
+                            popUpTo("login") { inclusive = true }
+                        }
+                    },
+                    onFailure = {
+                        Log.e("MainActivity", "Biometric authentication failed")
+                        navController.navigate("login") {
+                            popUpTo("home") { inclusive = true }
+                        }
+                    }
+                )
             } else {
-                // User is not logged in, navigate to login screen
                 navController.navigate("login") {
                     popUpTo("home") { inclusive = true }
                 }
             }
         }
-        NavGraph(navController = navController, context = context, userId = userId ?: -1, apiService = apiService, repository = repository)
+        NavGraph(navController = navController, context = context, userId = userId, apiService = apiService, repository = repository)
     }
+
 
     @Composable
     private fun HandleDeepLink(navController: NavHostController, referenceState: MutableState<String?>, apiService: ApiService) {

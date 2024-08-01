@@ -1,6 +1,10 @@
 package com.splitter.splitter.screens
 
+import android.content.Context
+import android.net.Uri
 import android.util.Log
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -9,9 +13,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
@@ -26,6 +32,7 @@ import com.splitter.splitter.model.Payment
 import com.splitter.splitter.network.ApiService
 import com.splitter.splitter.ui.theme.GlobalTheme
 import com.splitter.splitter.utils.GroupUtils.fetchUsernames
+import com.splitter.splitter.utils.ImageUtils
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
@@ -42,6 +49,36 @@ fun GroupDetailsScreen(navController: NavController, groupId: Int, apiService: A
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var showAddMembersDialog by remember { mutableStateOf(false) }
+    var groupImage by remember { mutableStateOf<String?>(null) }
+
+    // Handle image upload
+    var imageUri by remember { mutableStateOf<Uri?>(null) }
+    var isUploading by remember { mutableStateOf(false) }
+    var uploadError by remember { mutableStateOf<String?>(null) }
+
+    // Function to upload image
+    fun uploadImage(context: Context, apiService: ApiService, groupId: Int, uri: Uri) {
+        isUploading = true
+        ImageUtils.uploadGroupImage(apiService, context, groupId, uri) { success, path, error ->
+            isUploading = false
+            if (success) {
+                Log.d("GroupDetailsScreen", "Image uploaded successfully: $path")
+                groupImage = path // Update the image path if needed
+            } else {
+                Log.e("GroupDetailsScreen", "Image upload failed: $error")
+                uploadError = error
+            }
+        }
+    }
+
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            imageUri = it
+            uploadImage(context, apiService, groupId, it)
+        }
+    }
 
     LaunchedEffect(groupId) {
         Log.d("GroupDetailsScreen", "Fetching group details for groupId: $groupId")
@@ -141,13 +178,35 @@ fun GroupDetailsScreen(navController: NavController, groupId: Int, apiService: A
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.Center
                             ) {
-                                Image(
-                                    painter = rememberImagePainter(groupDetails.groupImg),
-                                    contentDescription = null,
+                                // Display the group image if available
+                                Box(
                                     modifier = Modifier
-                                        .size(80.dp)
-                                        .padding(bottom = 16.dp)
-                                )
+                                        .size(128.dp)
+                                        .clickable {
+                                            launcher.launch("image/*")
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (isUploading) {
+                                        // Show loading indicator
+                                        Text("Uploading...", style = MaterialTheme.typography.displaySmall)
+                                    } else if (uploadError != null) {
+                                        // Show error message
+                                        Text("Error: $uploadError", style = MaterialTheme.typography.displaySmall)
+                                    } else if (groupImage != null) {
+                                        // Display uploaded image
+                                        val imagePath = ImageUtils.getImageFile(context, groupImage!!).absolutePath
+                                        Log.d("GroupDetailsScreen", "Displaying image: $imagePath")
+                                        Image(
+                                            painter = rememberImagePainter(imagePath),
+                                            contentDescription = "Group Image",
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    } else {
+                                        // Placeholder text
+                                        Text("Upload Image", style = MaterialTheme.typography.displaySmall)
+                                    }
+                                }
                                 Text(
                                     groupDetails.name,
                                     style = MaterialTheme.typography.headlineMedium,

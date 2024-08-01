@@ -14,6 +14,7 @@ import com.splitter.splitter.model.User
 import com.splitter.splitter.network.ApiService
 import com.splitter.splitter.network.AuthResponse
 import com.splitter.splitter.network.RetrofitClient
+import com.splitter.splitter.utils.AuthUtils
 import com.splitter.splitter.utils.TokenManager
 import com.splitter.splitter.utils.storeUserIdInPreferences
 import retrofit2.Call
@@ -25,8 +26,9 @@ data class LoginRequest(
     val password: String
 )
 
-fun handleLoginSuccess(context: Context, userId: Int) {
+fun handleLoginSuccess(context: Context, userId: Int, token: String) {
     storeUserIdInPreferences(context, userId)
+    AuthUtils.storeLoginState(context, token)
     Toast.makeText(context, "Login Successful", Toast.LENGTH_SHORT).show()
     // Continue with other login success actions, such as navigating to the home screen
 }
@@ -72,15 +74,17 @@ fun LoginScreen(navController: NavController, context: Context) {
                                 val userId = authResponse.userId
                                 if (token != null) {
                                     TokenManager.saveAccessToken(context, token)
+                                    handleLoginSuccess(context, userId, token)
+                                    loginState = "Login successful!"
+                                    navController.navigate("home") // Navigate to HomeScreen
+                                } else {
+                                    loginState = "Login failed: Token is null"
                                 }
-                                handleLoginSuccess(context, userId)
-                                loginState = "Login successful!"
-                                navController.navigate("home") // Navigate to HomeScreen
                             } else {
                                 loginState = "Login failed: ${response.body()?.message ?: "Unknown error"}"
                             }
                         } else {
-                            loginState = "Login failed: ${response.body()?.message ?: "Unknown error"}"
+                            loginState = "Login failed: ${response.message()}"
                         }
                     }
 

@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId = "com.splitter.splitter"
-        minSdk = 26
+        minSdk = 29
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
@@ -42,6 +42,7 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "/META-INF/DEPENDENCIES"
         }
     }
 }
@@ -57,6 +58,7 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.navigation:navigation-runtime-ktx:2.7.7")
+    implementation("androidx.fragment:fragment-ktx:1.8.2")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
@@ -97,6 +99,10 @@ dependencies {
 
     //Palette for gradient borders
     implementation ("androidx.palette:palette-ktx:1.0.0")
+
+    //Biometrics
+    implementation ("androidx.biometric:biometric:1.2.0-alpha03")
+
 
 
 }

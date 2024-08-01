@@ -65,6 +65,7 @@ fun PaymentScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var splitMode by remember { mutableStateOf("equally") }
     var paidByUser by remember { mutableStateOf(userId) }
+    var paidToUser by remember { mutableStateOf<Int?>(null) } // New state for paid to user
     var currency by remember { mutableStateOf("GBP") }
     var institutionName by remember { mutableStateOf<String?>(null) }
     var isTransaction by remember { mutableStateOf(false) }
@@ -72,6 +73,7 @@ fun PaymentScreen(
     val focusRequesterDescription = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     var expandedPaidByUserList by remember { mutableStateOf(false) }
+    var expandedPaidToUserList by remember { mutableStateOf(false) } // New state for expanded paid to user list
     var expandedPaymentTypeList by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
 
@@ -106,6 +108,16 @@ fun PaymentScreen(
 
             splits = members.mapIndexed { index, member -> member.userId to splitList[index] / 100.0 }.toMap()
             Log.d("PaymentScreen", "Split amounts: $splits")
+        }
+    }
+
+    fun updateTransferSplits(amount: Double, members: List<GroupMember>, paidToUser: Int?) {
+        if ( paymentType == "transferred" ) {
+            splitMode = "unequally"
+        }
+        if (paidToUser != null) {
+            splits = members.associate { it.userId to if (it.userId == paidToUser) amount else 0.0 }
+            Log.d("PaymentScreen", "Transfer split amounts: $splits")
         }
     }
 
@@ -192,12 +204,21 @@ fun PaymentScreen(
                             notes = it.notes ?: ""
                             institutionName = it.institutionName
                             paymentDate = it.paymentDate
+                            paidByUser = it.paidByUserId
+                            splitMode = it.splitMode
                             paymentType = it.paymentType ?: "spent"
                             isTransaction = it.transactionId != null
                             fetchPaymentSplits(apiService, paymentId) { fetchedSplits ->
                                 // Ensure all group members have a split entry
                                 splits = groupMembers.associate { it.userId to kotlin.math.abs(fetchedSplits[it.userId] ?: 0.0) }
                                 Log.d("PaymentScreen", "Fetched payment splits: $splits")
+
+                                // If paymentType is "transferred", set paidToUser to the user with the largest absolute split amount
+                                if (paymentType == "transferred") {
+                                    val maxSplitUser = splits.maxByOrNull { kotlin.math.abs(it.value) }?.key
+                                    paidToUser = maxSplitUser
+                                    Log.d("PaymentScreen", "Paid to user set to: $paidToUser")
+                                }
                             }
                         }
                     } else {
@@ -229,6 +250,39 @@ fun PaymentScreen(
         }
     }
 
+
+    // Observe changes to paymentType
+    LaunchedEffect(paymentType) {
+        if (paymentType == "transferred" && groupMembers.isNotEmpty()) {
+            updateTransferSplits(amount.toDoubleOrNull() ?: 0.0, groupMembers, paidToUser)
+        } else if (splitMode == "equally") {
+            updateEqualSplits(amount.toDoubleOrNull() ?: 0.0, groupMembers)
+        }
+    }
+
+    // Observe changes to amount
+    LaunchedEffect(amount) {
+        if (paymentType == "transferred") {
+            updateTransferSplits(amount.toDoubleOrNull() ?: 0.0, groupMembers, paidToUser)
+        } else if (splitMode == "equally" && paymentType != "transferred") {
+            updateEqualSplits(amount.toDoubleOrNull() ?: 0.0, groupMembers)
+        }
+    }
+
+    // Observe changes to splitMode
+    LaunchedEffect(splitMode) {
+        if (splitMode == "equally" && paymentType != "transferred") {
+            updateEqualSplits(amount.toDoubleOrNull() ?: 0.0, groupMembers)
+        }
+    }
+
+    // Observe changes to paidToUser
+    LaunchedEffect(paidToUser) {
+        if (paymentType == "transferred" && groupMembers.isNotEmpty()) {
+            updateTransferSplits(amount.toDoubleOrNull() ?: 0.0, groupMembers, paidToUser)
+        }
+    }
+
     // Handle result from currency selection screen
     val savedStateHandle = navController.currentBackStackEntry?.savedStateHandle
     savedStateHandle?.getLiveData<String>("currency")?.observe(navController.currentBackStackEntry!!) { selectedCurrency ->
@@ -240,7 +294,7 @@ fun PaymentScreen(
         return CurrencyUtils.currencySymbols[currencyCode] ?: currencyCode
     }
 
-    val handlePaymentCreationOrUpdate = {
+    val handlePaymentCreationOrUpdate = handlePaymentCreationOrUpdate@{
         val totalSplitAmount = splits.values.sum()
         Log.d("PaymentScreen", "Total split amount: $totalSplitAmount, Payment amount: ${amount.toDoubleOrNull() ?: 0.0}")
         if (kotlin.math.abs(totalSplitAmount - (amount.toDoubleOrNull() ?: 0.0)) < 0.01) { // Allow a small tolerance for floating-point precision issues
@@ -250,19 +304,40 @@ fun PaymentScreen(
                 userId to kotlin.math.abs(splitAmount)
             }.toMap()
 
+            val finalSplitMode = if (paymentType == "transferred") "unequally" else splitMode
+
+            val finalSplits = if (paymentType == "transferred" && paidToUser != null) {
+                users.associate { it.userId to if (it.userId == paidToUser) paymentAmount else 0.0 }
+            } else {
+                splits.map { (userId, splitAmount) ->
+                    userId to kotlin.math.abs(splitAmount)
+                }.toMap()
+            }
+
+            if (paidToUser == paidByUser) {
+                showToast(context, "You cannot save transfers of money to and from the same person")
+                return@handlePaymentCreationOrUpdate
+            }
+
             Log.d("PaymentScreen", "Split Values: $splitValues")
+
+            val finalDescription = if (paymentType == "transferred" && paidByUser != null && paidToUser != null) {
+                "${users.firstOrNull { it.userId == paidByUser }?.username} transferred $paymentAmount to ${users.firstOrNull { it.userId == paidToUser }?.username} outside this app."
+            } else {
+                description
+            }
 
             if (paymentId == 0) {
                 Log.d("PaymentScreen", "Creating new payment")
                 if (userId != null) {
-                    createPayment(apiService, groupId, paymentAmount, description, notes, splitValues, paymentDate, userId, transactionId, splitMode, institutionName, paymentType, currency ) {
+                    createPayment(apiService, groupId, paymentAmount, finalDescription, notes, finalSplits, paymentDate, userId, transactionId, finalSplitMode, institutionName, paymentType, currency, paidByUser) {
                         navController.popBackStack()
                     }
                 }
             } else {
                 Log.d("PaymentScreen", "Updating existing payment")
                 if (userId != null) {
-                    updatePayment(apiService, paymentId, groupId, paymentAmount, description, notes, splitValues, paymentDate, userId, splitMode, institutionName, paymentType, currency ) {
+                    updatePayment(apiService, paymentId, groupId, paymentAmount, finalDescription, notes, finalSplits, paymentDate, userId, finalSplitMode, institutionName, paymentType, currency, paidByUser) {
                         navController.popBackStack()
                     }
                 }
@@ -436,23 +511,56 @@ fun PaymentScreen(
                             }
                         }
 
-                        TextField(
-                            value = description,
-                            onValueChange = { description = it },
-                            label = { Text("Description") },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .focusRequester(focusRequesterDescription),
-                            enabled = !isTransaction,
-                            keyboardOptions = KeyboardOptions.Default.copy(
-                                imeAction = ImeAction.Done
-                            ),
-                            keyboardActions = KeyboardActions(
-                                onDone = {
-                                    focusManager.clearFocus()
-                                }
+                        if (paymentType == "transferred") {
+                            Text(
+                                text = if (paidToUser == userId) {
+                                    "me"
+                                } else {
+                                    users.find { it.userId == paidToUser }?.username ?: users.find { it.userId != userId }?.username ?: ""
+                                },
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier
+                                    .clickable { expandedPaidToUserList = true }
+                                    .padding(end = 8.dp)
                             )
-                        )
+                            DropdownMenu(
+                                expanded = expandedPaidToUserList,
+                                onDismissRequest = { expandedPaidToUserList = false }
+                            ) {
+                                // Use derivedStateOf to ensure we are reacting to changes in the users list
+                                val userMap by remember { derivedStateOf { users.associateBy { it.userId } } }
+
+                                groupMembers.forEach { member ->
+                                    val user = userMap[member.userId]
+                                    val username = user?.username ?: member.userId.toString()
+                                    DropdownMenuItem(
+                                        text = { Text(text = if (member.userId == userId) "I" else username) },
+                                        onClick = {
+                                            paidToUser = member.userId
+                                            expandedPaidToUserList = false
+                                        }
+                                    )
+                                }
+                            }
+                        } else {
+                            TextField(
+                                value = description,
+                                onValueChange = { description = it },
+                                label = { Text("Description") },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(focusRequesterDescription),
+                                enabled = !isTransaction,
+                                keyboardOptions = KeyboardOptions.Default.copy(
+                                    imeAction = ImeAction.Done
+                                ),
+                                keyboardActions = KeyboardActions(
+                                    onDone = {
+                                        focusManager.clearFocus()
+                                    }
+                                )
+                            )
+                        }
 
                         TextField(
                             value = notes,
@@ -500,14 +608,14 @@ fun PaymentScreen(
                                         updateEqualSplits(amount.toDoubleOrNull() ?: 0.0, groupMembers)
                                         expanded = false
                                     },
-                                    text = { Text("Equally") }
+                                    text = { Text("equally") }
                                 )
                                 DropdownMenuItem(
                                     onClick = {
                                         splitMode = "unequally"
                                         expanded = false
                                     },
-                                    text = { Text("Unequally") }
+                                    text = { Text("unequally") }
                                 )
                             }
                         }

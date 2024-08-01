@@ -7,7 +7,6 @@ import com.splitter.splitter.network.ApiService
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
-import java.sql.Timestamp
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -28,12 +27,13 @@ object PaymentUtils {
         institutionName: String?,
         paymentType: String,
         currency: String,
+        paidByUserId: Int?,
         onComplete: () -> Unit
     ) {
         val payment = Payment(
             id = 0,  // New payment will get its ID from the backend
             groupId = groupId,
-            paidByUserId = userId,
+            paidByUserId = paidByUserId ?: userId,
             transactionId = transactionId,
             amount = amount,
             description = description,
@@ -91,12 +91,13 @@ object PaymentUtils {
         institutionName: String?,
         paymentType: String,
         currency: String,
+        paidByUserId: Int?,
         onComplete: () -> Unit
     ) {
         val payment = Payment(
             id = paymentId,
             groupId = groupId,
-            paidByUserId = userId,
+            paidByUserId = paidByUserId ?: userId,
             transactionId = null,
             amount = amount,
             description = description,
