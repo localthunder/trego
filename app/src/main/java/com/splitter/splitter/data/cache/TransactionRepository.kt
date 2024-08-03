@@ -1,7 +1,7 @@
-package com.splitter.splitter.data
+package com.splitter.splitter.data.cache
 
 import com.splitter.splitter.model.Transaction
-import com.splitter.splitter.network.ApiService
+import com.splitter.splitter.data.network.ApiService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import retrofit2.await

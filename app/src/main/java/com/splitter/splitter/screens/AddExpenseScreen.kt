@@ -20,12 +20,11 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.splitter.splitter.components.GlobalTopAppBar
 import com.splitter.splitter.components.TransactionItem
-import com.splitter.splitter.data.TransactionRepository
+import com.splitter.splitter.data.cache.TransactionRepository
 import com.splitter.splitter.model.Transaction
-import com.splitter.splitter.network.ApiService
+import com.splitter.splitter.data.network.ApiService
 import com.splitter.splitter.utils.getUserIdFromPreferences
 import kotlinx.coroutines.async
-import kotlinx.coroutines.launch
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response

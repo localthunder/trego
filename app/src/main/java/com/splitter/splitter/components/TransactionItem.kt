@@ -24,7 +24,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.splitter.splitter.model.Transaction
-import com.splitter.splitter.network.ApiService
+import com.splitter.splitter.data.network.ApiService
 import com.splitter.splitter.utils.FormattingUtils.formatAmount
 import com.splitter.splitter.utils.GocardlessUtils.getInstitutionLogoUrl
 import com.splitter.splitter.utils.GradientBorderUtils.getAverageColor

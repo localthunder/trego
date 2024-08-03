@@ -29,7 +29,7 @@ import com.splitter.splitter.components.PaymentItem
 import com.splitter.splitter.model.Group
 import com.splitter.splitter.model.GroupMember
 import com.splitter.splitter.model.Payment
-import com.splitter.splitter.network.ApiService
+import com.splitter.splitter.data.network.ApiService
 import com.splitter.splitter.ui.theme.GlobalTheme
 import com.splitter.splitter.utils.GroupUtils.fetchUsernames
 import com.splitter.splitter.utils.ImageUtils

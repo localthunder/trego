@@ -5,7 +5,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -16,14 +15,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.fragment.app.FragmentActivity
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
-import com.splitter.splitter.data.TransactionRepository
-import com.splitter.splitter.network.ApiService
-import com.splitter.splitter.network.RetrofitClient
+import com.splitter.splitter.data.cache.TransactionRepository
+import com.splitter.splitter.data.network.ApiService
+import com.splitter.splitter.data.network.RetrofitClient
 import com.splitter.splitter.screens.NavGraph
 import com.splitter.splitter.ui.theme.GlobalTheme
 import com.splitter.splitter.model.Requisition
 import com.splitter.splitter.utils.AuthManager
-import com.splitter.splitter.utils.AuthUtils
 import com.splitter.splitter.utils.getUserIdFromPreferences
 import retrofit2.Call
 import retrofit2.Callback
@@ -48,7 +46,8 @@ class MainActivity : FragmentActivity() {
                     val navController = rememberNavController()
                     val context = LocalContext.current
                     val userId = getUserIdFromPreferences(context)
-                    val apiService = remember { RetrofitClient.getInstance(context).create(ApiService::class.java) }
+                    val apiService = remember { RetrofitClient.getInstance(context).create(
+                        ApiService::class.java) }
                     val repository = TransactionRepository(apiService)
 
                     Log.d("MainActivity", "User ID: $userId")

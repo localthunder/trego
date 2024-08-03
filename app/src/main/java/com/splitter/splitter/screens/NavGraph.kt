@@ -8,10 +8,9 @@ import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.splitter.splitter.data.TransactionRepository
-import com.splitter.splitter.network.ApiService
+import com.splitter.splitter.data.cache.TransactionRepository
+import com.splitter.splitter.data.network.ApiService
 
 @Composable
 fun NavGraph(navController: NavHostController, context: Context, userId: Int, apiService: ApiService, modifier: Modifier = Modifier, repository: TransactionRepository) {

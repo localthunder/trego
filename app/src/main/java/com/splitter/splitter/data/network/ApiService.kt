@@ -1,4 +1,4 @@
-package com.splitter.splitter.network
+package com.splitter.splitter.data.network
 
 import com.google.gson.annotations.SerializedName
 import com.splitter.splitter.model.BankAccount

@@ -1,4 +1,4 @@
-package com.splitter.splitter.network
+package com.splitter.splitter.data.network
 
 import android.content.Context
 import com.splitter.splitter.utils.TokenManager

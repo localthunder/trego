@@ -12,8 +12,8 @@ import androidx.navigation.NavController
 import com.splitter.splitter.components.GlobalTopAppBar
 import com.splitter.splitter.model.Group
 import com.splitter.splitter.model.GroupMember
-import com.splitter.splitter.network.ApiService
-import com.splitter.splitter.network.RetrofitClient
+import com.splitter.splitter.data.network.ApiService
+import com.splitter.splitter.data.network.RetrofitClient
 import com.splitter.splitter.utils.getUserIdFromPreferences
 import retrofit2.Call
 import retrofit2.Callback

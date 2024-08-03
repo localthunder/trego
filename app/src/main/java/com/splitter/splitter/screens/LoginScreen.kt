@@ -11,9 +11,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.splitter.splitter.model.User
-import com.splitter.splitter.network.ApiService
-import com.splitter.splitter.network.AuthResponse
-import com.splitter.splitter.network.RetrofitClient
+import com.splitter.splitter.data.network.ApiService
+import com.splitter.splitter.data.network.AuthResponse
+import com.splitter.splitter.data.network.RetrofitClient
 import com.splitter.splitter.utils.AuthUtils
 import com.splitter.splitter.utils.TokenManager
 import com.splitter.splitter.utils.storeUserIdInPreferences

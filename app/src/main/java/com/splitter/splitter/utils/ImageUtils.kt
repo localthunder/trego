@@ -3,8 +3,8 @@ package com.splitter.splitter.utils
 import android.content.Context
 import android.net.Uri
 import android.util.Log
-import com.splitter.splitter.network.ApiService
-import com.splitter.splitter.network.UploadResponsed
+import com.splitter.splitter.data.network.ApiService
+import com.splitter.splitter.data.network.UploadResponsed
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.RequestBody

@@ -8,8 +8,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
-import com.splitter.splitter.network.ApiService
-import com.splitter.splitter.network.RetrofitClient
+import com.splitter.splitter.data.network.ApiService
+import com.splitter.splitter.data.network.RetrofitClient
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response

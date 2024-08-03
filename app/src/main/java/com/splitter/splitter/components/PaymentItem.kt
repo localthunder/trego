@@ -14,7 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.splitter.splitter.model.Payment
 import com.splitter.splitter.model.User
-import com.splitter.splitter.network.ApiService
+import com.splitter.splitter.data.network.ApiService
 import com.splitter.splitter.utils.GocardlessUtils
 import com.splitter.splitter.utils.GradientBorderUtils
 import downloadAndSaveImage

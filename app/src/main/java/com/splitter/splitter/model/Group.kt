@@ -8,5 +8,6 @@ data class Group(
     val description: String?,
     @SerializedName("group_img") val groupImg: String?,
     @SerializedName("created_at") val createdAt: String,
-    @SerializedName("updated_at") val updatedAt: String
+    @SerializedName("updated_at") val updatedAt: String,
+    @SerializedName("invite_link") val inviteLink: String?
 )

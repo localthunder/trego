@@ -14,8 +14,8 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.splitter.splitter.components.GlobalTopAppBar
 import com.splitter.splitter.model.UserBalance
-import com.splitter.splitter.network.ApiService
-import com.splitter.splitter.network.RetrofitClient
+import com.splitter.splitter.data.network.ApiService
+import com.splitter.splitter.data.network.RetrofitClient
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response

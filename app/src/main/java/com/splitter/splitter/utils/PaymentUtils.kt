@@ -3,7 +3,7 @@ package com.splitter.splitter.utils
 import android.util.Log
 import com.splitter.splitter.model.Payment
 import com.splitter.splitter.model.PaymentSplit
-import com.splitter.splitter.network.ApiService
+import com.splitter.splitter.data.network.ApiService
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response

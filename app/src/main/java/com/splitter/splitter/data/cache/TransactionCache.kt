@@ -1,4 +1,4 @@
-package com.splitter.splitter.data
+package com.splitter.splitter.data.cache
 
 import com.splitter.splitter.model.Transaction
 

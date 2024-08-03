@@ -5,8 +5,8 @@ import android.util.Log
 import com.splitter.splitter.model.Group
 import com.splitter.splitter.model.GroupMember
 import com.splitter.splitter.model.User
-import com.splitter.splitter.network.ApiService
-import com.splitter.splitter.network.RetrofitClient
+import com.splitter.splitter.data.network.ApiService
+import com.splitter.splitter.data.network.RetrofitClient
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response

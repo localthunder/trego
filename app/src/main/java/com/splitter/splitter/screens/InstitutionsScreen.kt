@@ -26,10 +26,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.splitter.splitter.model.Institution
-import com.splitter.splitter.network.ApiService
-import com.splitter.splitter.network.RequisitionRequest
-import com.splitter.splitter.network.RequisitionResponseWithRedirect
-import com.splitter.splitter.network.RetrofitClient
+import com.splitter.splitter.data.network.ApiService
+import com.splitter.splitter.data.network.RequisitionRequest
+import com.splitter.splitter.data.network.RequisitionResponseWithRedirect
+import com.splitter.splitter.data.network.RetrofitClient
 import com.splitter.splitter.utils.GocardlessUtils.getInstitutionLogoUrl
 import com.splitter.splitter.utils.GradientBorderUtils
 import downloadAndSaveImage
