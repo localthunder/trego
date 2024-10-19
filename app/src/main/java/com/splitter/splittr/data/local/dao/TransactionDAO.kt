@@ -1,0 +1,31 @@
+package com.splitter.splittr.data.local.dao
+
+import androidx.room.*
+import com.splitter.splittr.data.local.entities.TransactionEntity
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface TransactionDao {
+    @Query("SELECT * FROM transactions WHERE user_id = :userId")
+    fun getTransactionsByUserId(userId: Int): Flow<List<TransactionEntity>>
+
+    @Query("SELECT * FROM transactions WHERE transaction_id = :transactionId")
+    fun getTransactionById(transactionId: String): Flow<TransactionEntity?>
+
+    @Query("SELECT * FROM transactions WHERE user_id = :userId AND booking_date >= :dateFrom")
+    fun getRecentTransactions(userId: Int, dateFrom: String): Flow<List<TransactionEntity>>
+
+    @Query("SELECT * FROM transactions WHERE user_id = :userId AND booking_date < :dateTo")
+    fun getNonRecentTransactions(userId: Int, dateTo: String): Flow<List<TransactionEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTransaction(transaction: TransactionEntity)
+
+    @Update
+    suspend fun updateTransaction(transaction: TransactionEntity)
+    @Query("SELECT * FROM transactions WHERE sync_status != 'SYNCED'")
+    fun getUnsyncedTransactions(): Flow<List<TransactionEntity>>
+
+    @Query("UPDATE transactions SET sync_status = :status WHERE transaction_id = :transactionId")
+    suspend fun updateTransactionSyncStatus(transactionId: String, status: String)
+}

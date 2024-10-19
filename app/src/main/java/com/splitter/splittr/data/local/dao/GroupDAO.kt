@@ -1,0 +1,61 @@
+package com.splitter.splittr.data.local.dao
+
+import androidx.room.*
+import com.splitter.splittr.data.local.entities.GroupEntity
+import com.splitter.splittr.data.sync.SyncStatus
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface GroupDao {
+
+    @Transaction
+    open suspend fun <R> runInTransaction(block: suspend () -> R): R {
+        // Room automatically handles transactions for suspend functions
+        return block()
+    }
+    @Query("SELECT * FROM groups")
+    fun getAllGroups(): Flow<List<GroupEntity>>
+
+    @Query("SELECT * FROM groups WHERE id = :groupId")
+    fun getGroupById(groupId: Int): Flow<GroupEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertGroup(group: GroupEntity): Long
+
+    @Transaction
+    suspend fun insertGroups(groups: List<GroupEntity>) {
+        for (group in groups) {
+            val existingGroup = group.serverId?.let { getGroupByServerId(it) }
+            if (existingGroup == null) {
+                insertGroup(group)
+            } else {
+                // Optionally, you can update the group if needed
+                updateGroup(group)
+            }
+        }
+    }
+
+    @Update
+    suspend fun updateGroup(group: GroupEntity)
+
+    @Delete
+    suspend fun deleteGroup(group: GroupEntity)
+
+    @Query("SELECT * FROM groups WHERE id IN (SELECT group_id FROM group_members WHERE user_id = :userId)")
+    fun getGroupsByUserId(userId: Int): Flow<List<GroupEntity>>
+
+    @Query("SELECT * FROM groups WHERE server_id = :serverId")
+    suspend fun getGroupByServerId(serverId: Int): GroupEntity?
+
+    @Query("SELECT * FROM groups WHERE sync_status != 'SYNCED'")
+    fun getUnsyncedGroups(): Flow<List<GroupEntity>>
+
+    @Query("UPDATE groups SET sync_status = :status WHERE id = :groupId")
+    suspend fun updateGroupSyncStatus(groupId: kotlin.Int, status: SyncStatus)
+
+    @Query("UPDATE groups SET invite_link = :inviteLink WHERE id = :groupId")
+    suspend fun updateGroupInviteLink(groupId: Int, inviteLink: String)
+
+    @Query("UPDATE groups SET group_img = :groupImg WHERE id = :groupId")
+    suspend fun updateGroupImage(groupId: Int, groupImg: String)
+}
