@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.format.DateTimeFormatter
@@ -141,7 +142,8 @@ class PaymentsViewModel(
             amount = transactionDetails.amount ?: 0.0,
             description = transactionDetails.description,
             notes = "",
-            paymentDate = transactionDetails.bookingDateTime ?: System.currentTimeMillis().toString(),
+            paymentDate = transactionDetails.bookingDateTime ?: System.currentTimeMillis()
+                .toString(),
             currency = transactionDetails.currency,
             splitMode = "equally",
             paymentType = "spent",
@@ -152,12 +154,17 @@ class PaymentsViewModel(
             updatedAt = System.currentTimeMillis().toString(),
             deletedAt = null
         )
-        _paymentScreenState.value = _paymentScreenState.value.copy(
-            editablePayment = newPayment,
-            isTransaction = true
-        )
-        loadGroupMembers(groupId)
-        recalculateSplits(currentUserId)
+        viewModelScope.launch {
+            loadGroupMembers(groupId)
+            _paymentScreenState.update { currentState ->
+                currentState.copy(
+                    editablePayment = newPayment,
+                    payment = newPayment,
+                    isTransaction = true
+                )
+            }
+            recalculateSplits(currentUserId)
+        }
     }
 
     //Sort default currency here
@@ -181,30 +188,29 @@ class PaymentsViewModel(
             updatedAt = System.currentTimeMillis().toString(),
             deletedAt = null
         )
-        _paymentScreenState.value = _paymentScreenState.value.copy(
-            editablePayment = newPayment
-        )
-        loadGroupMembers(groupId)
-        recalculateSplits(userId)
-    }
-
-    private fun loadGroupMembers(groupId: Int) {
         viewModelScope.launch {
-            try {
-                val members = groupRepository.getGroupMembers(groupId)
-                    .map { entities -> entities.map { it.toModel() } }
-                    .first()
-
-                _paymentScreenState.value = _paymentScreenState.value.copy(
-                    groupMembers = members
-                )
-            } catch (e: Exception) {
-                Log.e("PaymentsViewModel", "Error loading group members", e)
-                // Optionally update state to show an error
-                _paymentScreenState.value = _paymentScreenState.value.copy(
-                    paymentOperationStatus = PaymentOperationStatus.Error("Failed to load group members")
+            loadGroupMembers(groupId)
+            _paymentScreenState.update { currentState ->
+                currentState.copy(
+                    editablePayment = newPayment,
+                    payment = newPayment
                 )
             }
+            recalculateSplits(userId)
+        }
+    }
+
+    private suspend fun loadGroupMembers(groupId: Int) {
+        try {
+            val members = groupRepository.getGroupMembers(groupId)
+                .map { entities -> entities.map { it.toModel() } }
+                .first()
+
+            _paymentScreenState.update { currentState ->
+                currentState.copy(groupMembers = members)
+            }
+        } catch (e: Exception) {
+            Log.e("PaymentsViewModel", "Error loading group members", e)
         }
     }
 
@@ -279,18 +285,23 @@ class PaymentsViewModel(
             else -> emptyList()
         }
 
-        _paymentScreenState.value = _paymentScreenState.value.copy(editableSplits = newSplits)
+        _paymentScreenState.update { currentState ->
+            currentState.copy(editableSplits = newSplits)
+        }
     }
 
     private fun calculateEqualSplits(amount: Double, members: List<GroupMember>, userId: Int): List<PaymentSplit> {
-        val perPerson = amount / members.size
+        if (members.isEmpty()) return emptyList()
+
+        val perPerson = if (amount != 0.0) amount / members.size else 0.0
+
         return members.map { member ->
             PaymentSplit(
-                id = 0, // New split
+                id = 0,
                 paymentId = _paymentScreenState.value.editablePayment?.id ?: 0,
                 userId = member.userId,
                 amount = perPerson,
-                currency = _paymentScreenState.value.editablePayment?.currency ?: "USD",
+                currency = _paymentScreenState.value.editablePayment?.currency ?: "GBP",
                 createdAt = System.currentTimeMillis().toString(),
                 updatedAt = System.currentTimeMillis().toString(),
                 createdBy = userId,
