@@ -1,3 +1,4 @@
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.splitter.splittr.data.extensions.toModel
@@ -6,6 +7,8 @@ import com.splitter.splittr.model.BankAccount
 import com.splitter.splittr.utils.CoroutineDispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 
 class BankAccountViewModel(
@@ -22,17 +25,23 @@ class BankAccountViewModel(
     val error: StateFlow<String?> = _error
 
     fun loadBankAccounts(userId: Int) {
-        viewModelScope.launch(dispatchers.io) {
-            _loading.value = (true)
+        viewModelScope.launch {
+            _loading.value = true
+            _error.value = null
+
             try {
-                bankAccountRepository.getUserAccounts(userId).collect { bankAccountEntities ->
-                    val bankAccountModels = bankAccountEntities.map { it.toModel() }
-                    _bankAccounts.value = (bankAccountModels)
-                }
-            } catch (e: Exception) {
-                _error.value = ("Failed to load bank accounts: ${e.message}")
+                // Launch a new coroutine for collecting the flow
+                bankAccountRepository.getUserAccounts(userId)
+                    .flowOn(dispatchers.io)
+                    .catch { e ->
+                        _error.value = "Failed to load bank accounts: ${e.message}"
+                        Log.e("BankAccountViewModel", "Error loading bank accounts", e)
+                    }
+                    .collect { accounts ->
+                        _bankAccounts.value = accounts
+                    }
             } finally {
-                _loading.value = (false)
+                _loading.value = false
             }
         }
     }
@@ -53,6 +62,25 @@ class BankAccountViewModel(
             false
         } finally {
             _loading.value = (false)
+        }
+    }
+
+    fun updateAccountAfterReauth(accountId: String, newRequisitionId: String) {
+        viewModelScope.launch {
+            _loading.value = true
+            try {
+                val result = bankAccountRepository.updateAccountAfterReauth(accountId, newRequisitionId)
+                result.onSuccess {
+                    // Handle success - maybe refresh some UI state
+                    _error.value = null
+                }.onFailure { e ->
+                    _error.value = "Failed to update account after reauth: ${e.message}"
+                }
+            } catch (e: Exception) {
+                _error.value = "Error updating account: ${e.message}"
+            } finally {
+                _loading.value = false
+            }
         }
     }
 }

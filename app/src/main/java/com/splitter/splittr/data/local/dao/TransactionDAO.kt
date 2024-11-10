@@ -2,6 +2,7 @@ package com.splitter.splittr.data.local.dao
 
 import androidx.room.*
 import com.splitter.splittr.data.local.entities.TransactionEntity
+import com.splitter.splittr.data.sync.SyncStatus
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -27,5 +28,5 @@ interface TransactionDao {
     fun getUnsyncedTransactions(): Flow<List<TransactionEntity>>
 
     @Query("UPDATE transactions SET sync_status = :status WHERE transaction_id = :transactionId")
-    suspend fun updateTransactionSyncStatus(transactionId: String, status: String)
+    suspend fun updateTransactionSyncStatus(transactionId: String, status: SyncStatus)
 }

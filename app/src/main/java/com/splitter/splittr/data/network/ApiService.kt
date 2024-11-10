@@ -2,11 +2,13 @@ package com.splitter.splittr.data.network
 
 import com.google.gson.annotations.SerializedName
 import com.splitter.splittr.data.local.entities.GroupMemberEntity
+import com.splitter.splittr.data.local.repositories.TransactionRepository
 import com.splitter.splittr.model.*
 import com.splitter.splittr.ui.screens.LoginRequest
 import com.splitter.splittr.ui.screens.RegisterRequest
 import com.splitter.splittr.ui.screens.UserBalanceWithCurrency
 import okhttp3.MultipartBody
+import retrofit2.Response
 import retrofit2.http.*
 
 data class AuthResponse(
@@ -76,7 +78,7 @@ interface ApiService {
     suspend fun getBankAccounts(@Path("requisitionId") requisitionId: String): List<BankAccount>
 
     @POST("/api/gocardless/addAccount")
-    suspend fun addAccount(@Body account: BankAccount)
+    suspend fun addAccount(@Body account: BankAccount): BankAccount
 
     @GET("/api/gocardless/requisition/{reference}")
     suspend fun getRequisitionByReference(@Path("reference") reference: String): Requisition
@@ -88,7 +90,7 @@ interface ApiService {
     suspend fun listUserAccounts(): List<BankAccount>
 
     @GET("/api/gocardless/transactions/{userId}")
-    suspend fun getTransactionByUserId(@Path("userId") userId: Int): List<Transaction>
+    suspend fun getTransactionsByUserId(@Path("userId") userId: Int): TransactionRepository.TransactionsApiResponse
 
     @GET("api/transactions/{transactionId}")
     suspend fun getTransactionById(@Path("transactionId") transactionId: String): Transaction
@@ -190,4 +192,22 @@ interface ApiService {
         @Path("groupId") groupId: Int,
         @Part image: MultipartBody.Part
     ): UploadResponsed
+
+    @PUT("accounts/{accountId}/needs-reauthentication")
+    suspend fun updateNeedsReauthentication(
+        @Path("accountId") accountId: String,
+        @Body needsReauthentication: Boolean
+    ): Unit
+
+    @GET("accounts/reauthentication")
+    suspend fun getAccountsNeedingReauthentication(): List<BankAccount>
+
+    @GET("accounts/{accountId}/reauthentication")
+    suspend fun getNeedsReauthentication(@Path("accountId") accountId: String): Map<String, Boolean>
+
+    @PUT("accounts/{accountId}/reauth")
+    suspend fun updateAccountAfterReauth(
+        @Path("accountId") accountId: String,
+        @Body newRequisitionId: Map<String, String>
+    ): Response<Unit>
 }

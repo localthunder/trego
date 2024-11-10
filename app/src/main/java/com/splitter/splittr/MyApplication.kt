@@ -42,11 +42,11 @@ class MyApplication : Application(), Configuration.Provider {
     // Initialize repositories
     val bankAccountRepository: BankAccountRepository by lazy { BankAccountRepository(database.bankAccountDao(), database.requisitionDao(), apiService, dispatchers, this)}
     val groupRepository: GroupRepository by lazy { GroupRepository(database.groupDao(), database.groupMemberDao(), database.userDao(), database.paymentDao(), database.paymentSplitDao(), apiService, this, dispatchers) }
-    val institutionRepository: InstitutionRepository by lazy { InstitutionRepository(database.institutionDao(), apiService, dispatchers)}
+    val institutionRepository: InstitutionRepository by lazy { InstitutionRepository(database.institutionDao(), apiService, dispatchers, this)}
     val paymentRepository: PaymentRepository by lazy { PaymentRepository(database.paymentDao(), database.paymentSplitDao(), database.groupDao(), apiService, dispatchers, this) }
     val paymentSplitRepository: PaymentSplitRepository by lazy { PaymentSplitRepository(database.paymentSplitDao(), database.paymentDao(), database.groupDao(), apiService, dispatchers, this) }
     val requisitionRepository: RequisitionRepository by lazy { RequisitionRepository(database.requisitionDao(), apiService, dispatchers, this)}
-    val transactionRepository: TransactionRepository by lazy { TransactionRepository(database.transactionDao(), apiService, dispatchers, this)}
+    val transactionRepository: TransactionRepository by lazy { TransactionRepository(database.transactionDao(), database.bankAccountDao(), apiService, dispatchers, this)}
     val userRepository: UserRepository by lazy { UserRepository(database.userDao(), apiService, dispatchers) }
 
     val dispatchers = AppCoroutineDispatchers()

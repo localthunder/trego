@@ -127,6 +127,7 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
             val transactionRepository = remember {
                 TransactionRepository(
                     transactionDao = transactionDao,
+                    bankAccountDao = bankAccountDao,
                     apiService = apiService,
                     dispatchers = AppCoroutineDispatchers(),
                     context = context

@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Update
 import com.splitter.splittr.data.local.entities.RequisitionEntity
+import com.splitter.splittr.data.sync.SyncStatus
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -32,6 +33,6 @@ interface RequisitionDao {
     suspend fun updateRequisition(requisition: RequisitionEntity)
 
     @Query("UPDATE requisitions SET sync_status = :status WHERE requisition_id = :requisitionId")
-    suspend fun updateRequisitionSyncStatus(requisitionId: String, status: String)
+    suspend fun updateRequisitionSyncStatus(requisitionId: String, status: SyncStatus)
 }
 

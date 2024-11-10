@@ -13,6 +13,9 @@ interface BankAccountDao {
     @Query("SELECT * FROM accounts WHERE requisition_id = :requisitionId")
     fun getBankAccountsByRequisition(requisitionId: String): Flow<List<BankAccountEntity>>
 
+    @Query("SELECT * FROM accounts WHERE account_id = :accountId")
+    suspend fun getAccountById(accountId: String): BankAccountEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertBankAccount(account: BankAccountEntity)
 
@@ -21,4 +24,16 @@ interface BankAccountDao {
 
     @Query("UPDATE accounts SET sync_status = :status WHERE account_id = :accountId")
     suspend fun updateBankAccountSyncStatus(accountId: String, status: SyncStatus)
+
+    @Query("UPDATE accounts SET needsReauthentication = :needsReauthentication WHERE account_id = :accountId")
+    suspend fun updateNeedsReauthentication(accountId: String, needsReauthentication: Boolean)
+
+    @Query("SELECT * FROM accounts WHERE needsReauthentication = 1")
+    fun getAccountsNeedingReauthentication(): Flow<List<BankAccountEntity>>
+
+    @Query("SELECT * FROM accounts WHERE needsReauthentication = 1 AND user_id = :userId ")
+    fun getAccountsNeedingReauthByUserId(userId: Int): Flow<List<BankAccountEntity>>
+
+    @Query("SELECT needsReauthentication FROM accounts WHERE account_id = :accountId")
+    fun getNeedsReauthentication(accountId: String): Flow<Boolean>
 }

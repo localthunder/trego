@@ -1,5 +1,6 @@
 package com.splitter.splittr.ui.viewmodels
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.splitter.splittr.data.extensions.toModel
@@ -9,6 +10,7 @@ import com.splitter.splittr.utils.CoroutineDispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class TransactionViewModel(
     private val transactionRepository: TransactionRepository,
@@ -31,6 +33,16 @@ class TransactionViewModel(
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
+
+    data class TransactionResponse(
+        val transactions: List<Transaction>,
+        val accountsNeedingReauthentication: List<AccountReauthState>
+    )
+
+    data class AccountReauthState(
+        val accountId: String,
+        val institutionId: String?
+    )
 
     fun loadTransactions(userId: Int) {
         viewModelScope.launch(dispatchers.io) {
@@ -60,6 +72,20 @@ class TransactionViewModel(
             } finally {
                 _loading.value = false
             }
+        }
+    }
+
+    suspend fun fetchTransactions(userId: Int): List<Transaction>? {
+        return try {
+            withContext(dispatchers.io) {
+                val fetchedTransactions = transactionRepository.fetchTransactions(userId)
+                Log.d("TransactionViewModel", "Fetched ${fetchedTransactions?.size} transactions")
+                fetchedTransactions?.distinct()?.sortedByDescending { it.bookingDateTime }
+            }
+        } catch (e: Exception) {
+            Log.e("TransactionViewModel", "Error fetching transactions", e)
+            _error.value = e.message
+            null
         }
     }
 
@@ -117,20 +143,24 @@ class TransactionViewModel(
         }
     }
 
+    suspend fun getAccountsNeedingReauth(userId: Int): List<AccountReauthState> {
+        return try {
+            withContext(dispatchers.io) {
+                transactionRepository.getAccountsNeedingReauth(userId)
+            }
+        } catch (e: Exception) {
+            Log.e("TransactionViewModel", "Error getting accounts needing reauth", e)
+            _error.value = e.message
+            emptyList()
+        }
+    }
+
     fun saveTransaction(transaction: Transaction) {
-        viewModelScope.launch(dispatchers.io) {
-            _loading.value = (true)
+        viewModelScope.launch {
             try {
-                val savedTransaction = transactionRepository.saveTransaction(transaction)
-                if (savedTransaction != null) {
-                    _transaction.value = (savedTransaction)
-                } else {
-                    _error.value = ("Failed to save transaction")
-                }
+                transactionRepository.saveTransaction(transaction)
             } catch (e: Exception) {
-                _error.value = ("Error saving transaction: ${e.message}")
-            } finally {
-                _loading.value = (false)
+                _error.value = "Failed to save transaction: ${e.message}"
             }
         }
     }

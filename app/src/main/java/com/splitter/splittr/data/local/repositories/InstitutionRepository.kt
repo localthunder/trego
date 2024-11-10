@@ -1,5 +1,7 @@
 package com.splitter.splittr.data.local.repositories
 
+import android.content.Context
+import android.graphics.BitmapFactory
 import android.util.Log
 import com.splitter.splittr.data.extensions.toEntity
 import com.splitter.splittr.data.extensions.toModel
@@ -9,14 +11,24 @@ import com.splitter.splittr.data.network.RequisitionRequest
 import com.splitter.splittr.data.network.RequisitionResponseWithRedirect
 import com.splitter.splittr.model.Institution
 import com.splitter.splittr.utils.CoroutineDispatchers
+import com.splitter.splittr.utils.GradientBorderUtils
+import downloadAndSaveImage
+import isLogoSaved
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 
 class InstitutionRepository(
     private val institutionDao: InstitutionDao,
     private val apiService: ApiService,
-    private val dispatchers: CoroutineDispatchers
+    private val dispatchers: CoroutineDispatchers,
+    private val context: Context
 ) {
+    data class LogoInfo(
+        val file: File,
+        val dominantColors: List<Int>,
+        val logo: String? = null
+    )
 
     suspend fun insert(institution: Institution) {
         institutionDao.insert(institution.toEntity())
@@ -58,6 +70,19 @@ class InstitutionRepository(
         apiService.createRequisition(requisitionRequest)
     }
 
+    suspend fun createRequisitionAndGetLink(
+        institutionId: String,
+        baseUrl: String = "splitter://bankaccounts"
+    ): RequisitionResponseWithRedirect = withContext(dispatchers.io) {
+        val requisitionRequest = RequisitionRequest(
+            baseUrl = baseUrl,
+            institutionId = institutionId,
+            reference = "ref_${System.currentTimeMillis()}",
+            userLanguage = "EN"
+        )
+        createRequisition(requisitionRequest)
+    }
+
     suspend fun getInstitutionLogoUrl(institutionId: String): String? = withContext(dispatchers.io) {
         val institution = institutionDao.getInstitutionById(institutionId)
         return@withContext institution?.logo ?: fetchLogoUrlFromApi(institutionId)
@@ -75,6 +100,41 @@ class InstitutionRepository(
         } catch (e: Exception) {
             Log.e("InstitutionRepository", "Error fetching institution logo from API", e)
             null
+        }
+    }
+
+    suspend fun downloadAndSaveInstitutionLogo(institutionId: String): Result<LogoInfo> = withContext(dispatchers.io) {
+        try {
+            val logoFilename = "${institutionId}.png"
+            if (!isLogoSaved(context, institutionId)) {
+                val logoUrl = getInstitutionLogoUrl(institutionId)
+                logoUrl?.let {
+                    val file = downloadAndSaveImage(context, it, logoFilename)
+                    file?.let { savedFile ->
+                        val bitmap = BitmapFactory.decodeFile(savedFile.path)
+                        if (bitmap != null) {
+                            val dominantColors = GradientBorderUtils.getDominantColors(bitmap)
+                            return@withContext Result.success(LogoInfo(
+                                file = savedFile,
+                                dominantColors = dominantColors
+                            ))
+                        }
+                    }
+                }
+            } else {
+                val file = File(context.filesDir, logoFilename)
+                val bitmap = BitmapFactory.decodeFile(file.path)
+                if (bitmap != null) {
+                    val dominantColors = GradientBorderUtils.getDominantColors(bitmap)
+                    return@withContext Result.success(LogoInfo(
+                        file = file,
+                        dominantColors = dominantColors
+                    ))
+                }
+            }
+            Result.failure(Exception("Failed to process logo"))
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 
