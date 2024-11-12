@@ -1,8 +1,9 @@
 package com.splitter.splittr.data.extensions
 
+import com.splitter.splittr.data.local.DataClasses.UserGroupListItem
 import com.splitter.splittr.data.local.entities.GroupEntity
 import com.splitter.splittr.data.sync.SyncStatus
-import com.splitter.splittr.model.Group
+import com.splitter.splittr.data.model.Group
 
 
 fun Group.toEntity(syncStatus: SyncStatus = SyncStatus.PENDING_SYNC): GroupEntity {
@@ -12,10 +13,11 @@ fun Group.toEntity(syncStatus: SyncStatus = SyncStatus.PENDING_SYNC): GroupEntit
         name = this.name,
         description = this.description,
         groupImg = this.groupImg,
+        localImagePath = null,
         createdAt = this.createdAt,
         updatedAt = this.updatedAt,
         inviteLink = this.inviteLink,
-        syncStatus = syncStatus
+        syncStatus = syncStatus,
     )
 }
 
@@ -31,9 +33,19 @@ fun GroupEntity.toModel(): Group {
     )
 }
 
+fun GroupEntity.toListItem(): UserGroupListItem {
+    return UserGroupListItem(
+        id = this.id,
+        name = this.name,
+        description = this.description,
+        groupImg = this.groupImg
+    )
+}
+
 // Optional: Add an extension property to Group for easy access to sync status
 val Group.syncStatus: SyncStatus
     get() = when {
         id <= 0 -> SyncStatus.PENDING_SYNC
         else -> SyncStatus.SYNCED
     }
+

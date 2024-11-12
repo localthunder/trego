@@ -9,14 +9,16 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.asLiveData
 import com.splitter.splittr.data.extensions.toModel
+import com.splitter.splittr.data.local.DataClasses.UserGroupListItem
 import com.splitter.splittr.data.local.entities.GroupMemberEntity
-import com.splitter.splittr.data.local.repositories.GroupRepository
-import com.splitter.splittr.data.local.repositories.PaymentRepository
-import com.splitter.splittr.data.local.repositories.UserRepository
-import com.splitter.splittr.model.Group
-import com.splitter.splittr.model.GroupMember
-import com.splitter.splittr.model.Payment
+import com.splitter.splittr.data.repositories.GroupRepository
+import com.splitter.splittr.data.repositories.PaymentRepository
+import com.splitter.splittr.data.repositories.UserRepository
+import com.splitter.splittr.data.model.Group
+import com.splitter.splittr.data.model.GroupMember
+import com.splitter.splittr.data.model.Payment
 import com.splitter.splittr.ui.screens.UserBalanceWithCurrency
+import com.splitter.splittr.utils.ImageUtils
 import com.splitter.splittr.utils.getUserIdFromPreferences
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
@@ -48,8 +50,20 @@ class GroupViewModel(
         val groupImage: String? = null,
         val uploadStatus: UploadStatus = UploadStatus.Idle,
         val isLoading: Boolean = false,
-        val error: String? = null
+        val error: String? = null,
+        val imageLoadingState: ImageLoadingState = ImageLoadingState.Idle,
+        val localImagePath: String? = null,
+        val isDownloadingImage: Boolean = false
     )
+
+    // Add this sealed class inside your GroupViewModel
+    sealed class ImageLoadingState {
+        object Idle : ImageLoadingState()
+        object Loading : ImageLoadingState()
+        object Success : ImageLoadingState()
+        data class Error(val message: String) : ImageLoadingState()
+    }
+
 
     private val _groupDetailsState = MutableStateFlow(GroupDetailsState())
     val groupDetailsState: StateFlow<GroupDetailsState> = _groupDetailsState.asStateFlow()
@@ -98,6 +112,9 @@ class GroupViewModel(
     private val _groupBalances = MutableStateFlow<List<UserBalanceWithCurrency>>(emptyList())
     val groupBalances: StateFlow<List<UserBalanceWithCurrency>> = _groupBalances.asStateFlow()
 
+    private val _userGroupItems = MutableStateFlow<List<UserGroupListItem>>(emptyList())
+    val userGroupItems: StateFlow<List<UserGroupListItem>> = _userGroupItems.asStateFlow()
+
     fun loadGroupDetails(groupId: Int) {
         viewModelScope.launch {
             _groupDetailsState.update { it.copy(isLoading = true, error = null) }
@@ -123,7 +140,40 @@ class GroupViewModel(
     private suspend fun loadGroup(groupId: Int) {
         groupRepository.getGroupById(groupId).collect { group ->
             _groupDetailsState.update { currentState ->
-                currentState.copy(group = group ?: currentState.group)
+                currentState.copy(
+                    group = group ?: currentState.group,
+                    groupImage = group?.groupImg ?: currentState.groupImage,
+                    // Reset loading state when loading new group
+                    imageLoadingState = if (group?.groupImg != null) {
+                        ImageLoadingState.Loading
+                    } else {
+                        ImageLoadingState.Idle
+                    }
+                )
+            }
+
+            // If group has an image, update the loading state
+            if (group?.groupImg != null) {
+                try {
+                    val imageUrl = ImageUtils.getFullImageUrl(group.groupImg)
+                    Log.d("GroupViewModel", "Loading group image from: $imageUrl")
+
+                    _groupDetailsState.update { currentState ->
+                        currentState.copy(
+                            imageLoadingState = ImageLoadingState.Success,
+                            groupImage = group.groupImg
+                        )
+                    }
+                } catch (e: Exception) {
+                    Log.e("GroupViewModel", "Error loading group image", e)
+                    _groupDetailsState.update { currentState ->
+                        currentState.copy(
+                            imageLoadingState = ImageLoadingState.Error(
+                                e.message ?: "Failed to load group image"
+                            )
+                        )
+                    }
+                }
             }
         }
     }
@@ -151,6 +201,23 @@ class GroupViewModel(
                     }
                 }
             }
+    }
+
+    fun loadUserGroupsList(userId: Int) {
+        viewModelScope.launch {
+            _loading.value = true
+            _error.value = null
+            try {
+                groupRepository.getGroupListItems(userId)
+                    .collect { groups ->
+                        _userGroupItems.value = groups
+                        _loading.value = false
+                    }
+            } catch (e: Exception) {
+                _error.value = e.message
+                _loading.value = false
+            }
+        }
     }
 
     private fun fetchUsernamesFromRepository(userIds: List<Int>) {
@@ -235,11 +302,11 @@ class GroupViewModel(
     suspend fun getGroupInviteLink(groupId: Int): Result<String> =
         groupRepository.getGroupInviteLink(groupId)
 
-    fun syncGroups() {
-        viewModelScope.launch {
-            groupRepository.syncGroups()
-        }
-    }
+//    fun syncGroups() {
+//        viewModelScope.launch {
+//            groupRepository.syncGroups()
+//        }
+//    }
 
     fun fetchUsernamesForInvitation(groupId: Int) {
         viewModelScope.launch {
@@ -292,20 +359,93 @@ class GroupViewModel(
         _addMemberResult.value = null
     }
 
+    fun reloadGroupImage() {
+        viewModelScope.launch {
+            val currentGroup = _groupDetailsState.value.group
+            if (currentGroup?.groupImg != null) {
+                _groupDetailsState.update { currentState ->
+                    currentState.copy(
+                        imageLoadingState = ImageLoadingState.Loading,
+                        groupImage = currentGroup.groupImg
+                    )
+                }
+
+                try {
+                    val imageUrl = ImageUtils.getFullImageUrl(currentGroup.groupImg)
+                    _groupDetailsState.update { currentState ->
+                        currentState.copy(
+                            imageLoadingState = ImageLoadingState.Success
+                        )
+                    }
+                } catch (e: Exception) {
+                    _groupDetailsState.update { currentState ->
+                        currentState.copy(
+                            imageLoadingState = ImageLoadingState.Error(
+                                e.message ?: "Failed to load group image"
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     fun uploadGroupImage(groupId: Int, imageUri: Uri) {
         viewModelScope.launch {
-            _uploadStatus.value = UploadStatus.Loading
             try {
-                val result = groupRepository.uploadGroupImage(groupId, imageUri)
-                if (result.isSuccess) {
-                    val (imagePath, message) = result.getOrNull()!!
-                    _uploadStatus.value = UploadStatus.Success(imagePath, message)
-                } else {
-                    _uploadStatus.value = UploadStatus.Error(result.exceptionOrNull()?.message ?: "Unknown error")
-                }
+                Log.d("GroupViewModel", "Starting image upload for group $groupId")
+                _groupDetailsState.update { it.copy(
+                    uploadStatus = UploadStatus.Loading,
+                    imageLoadingState = ImageLoadingState.Loading
+                ) }
+
+                val result = groupRepository.handleGroupImageUpload(groupId, imageUri)
+
+                result.fold(
+                    onSuccess = { uploadResult ->
+                        val imagePath = uploadResult.serverPath
+                        Log.d("GroupViewModel", "Image upload successful. Path: $imagePath")
+                        _groupDetailsState.update { currentState ->
+                            currentState.copy(
+                                uploadStatus = UploadStatus.Success(
+                                    imagePath = imagePath,
+                                    message = uploadResult.message
+                                ),
+                                groupImage = imagePath,
+                                imageLoadingState = ImageLoadingState.Success,
+                                group = currentState.group?.copy(
+                                    groupImg = imagePath
+                                )
+                            )
+                        }
+                        // Trigger a refresh of the group details to ensure we have the latest data
+                        loadGroupDetails(groupId)
+                    },
+                    onFailure = { error ->
+                        Log.e("GroupViewModel", "Image upload failed", error)
+                        _groupDetailsState.update {
+                            it.copy(
+                                uploadStatus = UploadStatus.Error(error.message ?: "Upload failed"),
+                                imageLoadingState = ImageLoadingState.Error(error.message ?: "Upload failed")
+                            )
+                        }
+                    }
+                )
             } catch (e: Exception) {
-                _uploadStatus.value = UploadStatus.Error(e.message ?: "Unknown error")
+                Log.e("GroupViewModel", "Exception during image upload", e)
+                _groupDetailsState.update {
+                    it.copy(
+                        uploadStatus = UploadStatus.Error(e.message ?: "Unknown error"),
+                        imageLoadingState = ImageLoadingState.Error(e.message ?: "Unknown error")
+                    )
+                }
             }
+        }
+    }
+
+    fun updateImageLoadingState(newState: ImageLoadingState) {
+        _groupDetailsState.update {
+            it.copy(imageLoadingState = newState)
         }
     }
 

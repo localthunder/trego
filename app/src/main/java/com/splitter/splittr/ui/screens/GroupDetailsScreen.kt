@@ -2,11 +2,14 @@ package com.splitter.splittr.ui.screens
 
 import PaymentItem
 import android.annotation.SuppressLint
+import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -17,6 +20,8 @@ import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddAPhoto
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
@@ -25,27 +30,32 @@ import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
 import coil.compose.rememberImagePainter
+import coil.request.ImageRequest
+import com.splitter.splitter.R
 import com.splitter.splittr.MyApplication
 import com.splitter.splittr.ui.components.AddMembersDialog
 import com.splitter.splittr.ui.components.GlobalFAB
 import com.splitter.splittr.ui.components.GlobalTopAppBar
-import com.splitter.splittr.model.Group
-import com.splitter.splittr.model.GroupMember
-import com.splitter.splittr.model.Payment
+import com.splitter.splittr.data.model.GroupMember
 import com.splitter.splittr.ui.theme.GlobalTheme
 import com.splitter.splittr.ui.viewmodels.GroupViewModel
-import com.splitter.splittr.ui.viewmodels.PaymentsViewModel
 import com.splitter.splittr.ui.viewmodels.UserViewModel
 import com.splitter.splittr.utils.ImageUtils
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
 
 @SuppressLint("UnrememberedMutableState")
 @OptIn(ExperimentalMaterialApi::class)
@@ -122,7 +132,9 @@ fun GroupDetailsScreen(
                                 GroupImageSection(
                                     groupImage = groupDetailsState.groupImage,
                                     uploadStatus = groupDetailsState.uploadStatus,
-                                    onImageClick = { launcher.launch("image/*") }
+                                    imageLoadingState = groupDetailsState.imageLoadingState,
+                                    onImageClick = { launcher.launch("image/*") },
+                                    viewModel = groupViewModel
                                 )
                             }
                             item {
@@ -190,45 +202,118 @@ fun GroupDetailsScreen(
     }
 }
 
-
 @Composable
 fun GroupImageSection(
     groupImage: String?,
     uploadStatus: GroupViewModel.UploadStatus,
-    onImageClick: () -> Unit
+    imageLoadingState: GroupViewModel.ImageLoadingState,
+    onImageClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    viewModel: GroupViewModel // Add ViewModel parameter
 ) {
     val context = LocalContext.current
-    Box(
-        modifier = Modifier
-            .size(128.dp)
+
+//    // Remember the URL construction
+//    val imageUrl = remember(groupImage) {
+//        val url = ImageUtils.getFullImageUrl(groupImage)
+//        Log.d("GroupImageSection", "Constructed image URL: $url from path: $groupImage")
+//        url
+//    }
+
+    val imageSource = remember(groupImage) {
+        if (groupImage != null && ImageUtils.imageExistsLocally(context, groupImage)) {
+            "file://${ImageUtils.getLocalImagePath(context, groupImage)}"
+        } else {
+            ImageUtils.getFullImageUrl(groupImage)
+        }
+    }
+
+    // Effect to handle initial image loading
+    LaunchedEffect(groupImage) {
+        if (groupImage != null && imageLoadingState == GroupViewModel.ImageLoadingState.Idle) {
+            viewModel.reloadGroupImage()
+        }
+    }
+
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(200.dp)
+            .padding(16.dp)
             .clickable(onClick = onImageClick),
-        contentAlignment = Alignment.Center
+        shape = MaterialTheme.shapes.medium,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
     ) {
-        when (uploadStatus) {
-            is GroupViewModel.UploadStatus.Loading -> {
-                CircularProgressIndicator()
-            }
-            is GroupViewModel.UploadStatus.Error -> {
-                Text("Error: ${uploadStatus.message}", style = MaterialTheme.typography.bodyMedium)
-            }
-            is GroupViewModel.UploadStatus.Success -> {
-                val imagePath = ImageUtils.getImageFile(context, uploadStatus.imagePath ?: groupImage ?: "").absolutePath
-                Image(
-                    painter = rememberImagePainter(imagePath),
-                    contentDescription = "Group Image",
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-            is GroupViewModel.UploadStatus.Idle -> {
-                if (groupImage != null) {
-                    val imagePath = ImageUtils.getImageFile(context, groupImage).absolutePath
-                    Image(
-                        painter = rememberImagePainter(imagePath),
-                        contentDescription = "Group Image",
-                        modifier = Modifier.fillMaxSize()
+        Box(contentAlignment = Alignment.Center) {
+            when (imageLoadingState) {
+                is GroupViewModel.ImageLoadingState.Loading -> {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(48.dp),
+                        color = MaterialTheme.colorScheme.primary
                     )
-                } else {
-                    Text("Upload Image", style = MaterialTheme.typography.bodyLarge)
+                }
+                is GroupViewModel.ImageLoadingState.Error -> {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .clickable { viewModel.reloadGroupImage() } // Add retry functionality
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Error,
+                            contentDescription = "Error",
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "${imageLoadingState.message}\nTap to retry",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+                is GroupViewModel.ImageLoadingState.Success,
+                is GroupViewModel.ImageLoadingState.Idle -> {
+                    if (imageSource != null) {
+                        AsyncImage(
+                            model = imageSource,
+                            contentDescription = "Group Image",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        // No image placeholder
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AddAPhoto,
+                                contentDescription = "Add Photo",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Add Group Photo",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (uploadStatus is GroupViewModel.UploadStatus.Loading) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
                 }
             }
         }

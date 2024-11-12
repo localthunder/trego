@@ -1,32 +1,40 @@
-package com.splitter.splittr.data.local.repositories
+package com.splitter.splittr.data.repositories
 
 import android.content.Context
 import android.net.Uri
 import android.util.Log
 import com.splitter.splittr.data.extensions.toEntity
+import com.splitter.splittr.data.extensions.toListItem
 import com.splitter.splittr.data.extensions.toModel
+import com.splitter.splittr.data.local.DataClasses.UserGroupListItem
 import com.splitter.splittr.data.local.converters.LocalIdGenerator
 import com.splitter.splittr.data.local.dao.GroupDao
 import com.splitter.splittr.data.local.dao.GroupMemberDao
 import com.splitter.splittr.data.local.dao.PaymentDao
 import com.splitter.splittr.data.local.dao.PaymentSplitDao
+import com.splitter.splittr.data.local.dao.SyncMetadataDao
 import com.splitter.splittr.data.local.dao.UserDao
 import com.splitter.splittr.data.local.entities.GroupEntity
 import com.splitter.splittr.data.local.entities.GroupMemberEntity
-import com.splitter.splittr.model.Group
+import com.splitter.splittr.data.model.Group
 import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.data.sync.SyncStatus
-import com.splitter.splittr.model.GroupMember
+import com.splitter.splittr.data.model.GroupMember
+import com.splitter.splittr.data.sync.GroupSyncManager
+import com.splitter.splittr.data.sync.SyncableRepository
 import com.splitter.splittr.ui.screens.UserBalanceWithCurrency
 import com.splitter.splittr.utils.CoroutineDispatchers
 import com.splitter.splittr.utils.ImageUtils
 import com.splitter.splittr.utils.NetworkUtils
+import com.splitter.splittr.utils.SyncUtils
 import com.splitter.splittr.utils.getUserIdFromPreferences
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
@@ -38,17 +46,50 @@ class GroupRepository(
     private val userDao: UserDao,
     private val paymentDao: PaymentDao,
     private val paymentSplitDao: PaymentSplitDao,
+    private val syncMetadataDao: SyncMetadataDao,
     private val apiService: ApiService,
     private val context: Context,
-    private val dispatchers: CoroutineDispatchers
-) {
+    private val dispatchers: CoroutineDispatchers,
+    private val groupSyncManager: GroupSyncManager
+    ) : SyncableRepository {
+
+    override val entityType = "groups"
+    override val syncPriority = 1 // High priority as other entities depend on groups
+
+    // Result data class for image upload
+    data class GroupImageUploadResult(
+        val localFileName: String,
+        val serverPath: String?,
+        val message: String?,
+        val needsSync: Boolean = false
+    )
+
+    fun getGroupListItems(userId: Int): Flow<List<UserGroupListItem>> =
+        groupDao.getGroupsByUserId(userId)
+            .map { groupEntities ->
+                groupEntities.map { it.toListItem() }
+            }
+            .flowOn(dispatchers.io)
+
+
     fun getGroupById(groupId: Int): Flow<Group?> = flow {
         val localGroup = groupDao.getGroupById(groupId).first()?.toModel()
-        emit(localGroup)
+
+        // Try to load from local cache first
+        localGroup?.groupImg?.let { serverPath ->
+            if (ImageUtils.imageExistsLocally(context, serverPath)) {
+                emit(localGroup)
+            }
+        }
 
         if (NetworkUtils.isOnline()) {
             try {
                 val remoteGroup = apiService.getGroupById(groupId)
+
+                remoteGroup.groupImg?.let { serverPath ->
+                    checkAndUpdateLocalImage(groupId, serverPath, remoteGroup.updatedAt)
+                }
+
                 groupDao.insertGroup(remoteGroup.toEntity(SyncStatus.SYNCED))
                 val updatedLocalGroup = groupDao.getGroupById(groupId).first()?.toModel()
                 if (updatedLocalGroup != localGroup) {
@@ -82,7 +123,11 @@ class GroupRepository(
                         try {
                             apiService.getMembersOfGroup(group.id)
                         } catch (e: Exception) {
-                            Log.e("GroupRepository", "Error fetching members for group ${group.id}", e)
+                            Log.e(
+                                "GroupRepository",
+                                "Error fetching members for group ${group.id}",
+                                e
+                            )
                             emptyList()
                         }
                     }
@@ -103,7 +148,10 @@ class GroupRepository(
                         groupMemberDao.insertGroupMember(member.toEntity(SyncStatus.SYNCED))
                     }
 
-                    Log.d("GroupRepository", "Inserted ${allGroupMembers.size} members for all groups")
+                    Log.d(
+                        "GroupRepository",
+                        "Inserted ${allGroupMembers.size} members for all groups"
+                    )
                     val updatedGroups = groupDao.getGroupsByUserId(userId).first()
                     Log.d("GroupRepository", "Updated groups: ${updatedGroups.size}")
                     emit(updatedGroups)
@@ -118,71 +166,81 @@ class GroupRepository(
         }
     }.flowOn(dispatchers.io)
 
-    suspend fun createGroupWithMember(group: Group, userId: Int): Result<Pair<Group, GroupMember>> = withContext(dispatchers.io) {
-        try {
-            val currentTime = System.currentTimeMillis().toString()
+    suspend fun createGroupWithMember(
+        group: Group,
+        userId: Int
+    ): Result<Pair<Group, GroupMember>> =
+        withContext(dispatchers.io) {
+            try {
+                val currentTime = System.currentTimeMillis().toString()
+                val localGroupId = LocalIdGenerator.nextId()
 
-            val localGroupId = LocalIdGenerator.nextId()
+                // Create and insert local group
+                val localGroupEntity = GroupEntity(
+                    id = localGroupId,
+                    serverId = null,
+                    name = group.name,
+                    description = group.description,
+                    groupImg = group.groupImg,
+                    localImagePath = null,
+                    createdAt = currentTime,
+                    updatedAt = currentTime,
+                    inviteLink = group.inviteLink,
+                    syncStatus = SyncStatus.PENDING_SYNC
+                )
+                groupDao.insertGroup(localGroupEntity)
 
-            // Create the GroupEntity with the generated ID
-            val localGroupEntity = GroupEntity(
-                id = localGroupId,
-                name = group.name,
-                description = group.description,
-                groupImg = group.groupImg,
-                createdAt = currentTime,
-                updatedAt = currentTime,
-                inviteLink = group.inviteLink,
-                syncStatus = SyncStatus.PENDING_SYNC
-            )
+                // Create and insert local member
+                val localGroupMember = GroupMemberEntity(
+                    id = LocalIdGenerator.nextId(),
+                    serverId = null,
+                    groupId = localGroupId,
+                    userId = userId,
+                    createdAt = currentTime,
+                    updatedAt = currentTime,
+                    removedAt = null,
+                    syncStatus = SyncStatus.PENDING_SYNC
+                )
+                groupMemberDao.insertGroupMember(localGroupMember)
 
-            // Insert the group into the database
-            groupDao.insertGroup(localGroupEntity)
+                if (NetworkUtils.isOnline()) {
+                    // Sync with server immediately if online
+                    val serverGroup = apiService.createGroup(group)
+                    val serverMember =
+                        apiService.addMemberToGroup(serverGroup.id, localGroupMember.toModel())
 
-            // 3. Create the local group member with the sync status PENDING_SYNC
-            val localGroupMember = GroupMemberEntity(
-                groupId = localGroupId,
-                userId = userId,
-                createdAt = currentTime,
-                updatedAt = currentTime,
-                removedAt = null,
-                syncStatus = SyncStatus.PENDING_SYNC  // Set the sync status
-            )
+                    // Update local entries with server IDs
+                    groupDao.runInTransaction {
+                        groupDao.deleteGroup(localGroupId)
+                        groupDao.insertGroup(
+                            serverGroup.toEntity(SyncStatus.SYNCED).copy(
+                                id = serverGroup.id,
+                                serverId = serverGroup.id
+                            )
+                        )
 
-            // 4. Insert the group member locally
-            groupMemberDao.insertGroupMember(localGroupMember)
+                        groupMemberDao.deleteGroupMember(localGroupMember.id)
+                        groupMemberDao.insertGroupMember(
+                            serverMember.toEntity(SyncStatus.SYNCED).copy(
+                                id = serverMember.id,
+                                serverId = serverMember.id,
+                                groupId = serverGroup.id
+                            )
+                        )
+                    }
 
-            // 4. If online, sync the group and group member with the server
-            if (NetworkUtils.isOnline()) {
-                // Sync group to the server
-                val serverGroup = apiService.createGroup(group)
-
-                // Update the local group to mark it as synced
-                groupDao.updateGroup(serverGroup.toEntity(SyncStatus.SYNCED))
-
-                // Sync group member to the server
-                val serverMember = apiService.addMemberToGroup(serverGroup.id, localGroupMember.toModel())
-
-                // Update the local group member to mark it as synced
-                groupMemberDao.updateGroupMember(serverMember.toEntity(SyncStatus.SYNCED))
-
-                return@withContext Result.success(Pair(serverGroup, serverMember))
-            } else {
-                // Fetch the locally stored group as a non-Flow object
-                val localGroupEntity = groupDao.getGroupById(localGroupId).firstOrNull()
-                val localGroup = localGroupEntity?.toModel()
-
-                // Ensure that the group exists locally and return the result
-                return@withContext if (localGroup != null) {
-                    Result.success(Pair(localGroup, localGroupMember.toModel()))
+                    Result.success(Pair(serverGroup, serverMember))
                 } else {
-                    Result.failure(IllegalStateException("Local group not found"))
+                    Result.success(Pair(localGroupEntity.toModel(), localGroupMember.toModel()))
                 }
+            } catch (e: Exception) {
+                Log.e("GroupRepository", "Error in createGroupWithMember", e)
+                Result.failure(e)
             }
-        } catch (e: Exception) {
-            Log.e("GroupRepository", "Error in createGroupWithMember", e)
-            return@withContext Result.failure(e)
         }
+
+    companion object {
+        private const val LOCAL_ID_THRESHOLD = 90000000
     }
 
     suspend fun updateGroup(group: Group): Result<Group> = withContext(dispatchers.io) {
@@ -283,140 +341,131 @@ class GroupRepository(
         }
     }
 
-    suspend fun syncGroups() = withContext(dispatchers.io) {
-
-        val userId = getUserIdFromPreferences(context)
-
-        if (NetworkUtils.isOnline()) {
-            // 1. Sync local unsaved changes to the server
-            groupDao.getUnsyncedGroups().first().forEach { groupEntity ->
-                try {
-                    val serverGroup = if (groupEntity.serverId == null) {
-                        groupEntity.toModel()?.let { apiService.createGroup(it) }
-                    } else {
-                        groupEntity.toModel()?.let { apiService.updateGroup(groupEntity.serverId, it) }
-                    }
-                    if (serverGroup != null) {
-                        groupDao.updateGroup(serverGroup.toEntity(SyncStatus.SYNCED))
-                    }
-                } catch (e: Exception) {
-                    groupDao.updateGroupSyncStatus(groupEntity.id, SyncStatus.SYNC_FAILED)
-                    Log.e("GroupRepository", "Failed to sync group ${groupEntity.id}", e)
-                }
-            }
-
-            // 2. Fetch groups from the server
-            try {
-                val serverGroups = userId?.let { apiService.getGroupsByUserId(it) }
-                serverGroups?.forEach { serverGroup ->
-                    val localGroup = groupDao.getGroupById(serverGroup.id).first()
-                    if (localGroup == null) {
-                        // New group from server, insert it
-                        groupDao.insertGroup(serverGroup.toEntity(SyncStatus.SYNCED))
-                    } else {
-                        // Update existing group
-                        groupDao.updateGroup(serverGroup.toEntity(SyncStatus.SYNCED))
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("GroupRepository", "Failed to fetch groups from server", e)
-            }
-        } else {
-            Log.e("GroupRepository", "No internet connection available for syncing groups")
-        }
-    }
-
-    suspend fun syncGroupMembers() = withContext(dispatchers.io) {
-        val userId = getUserIdFromPreferences(context)
-
-        if (NetworkUtils.isOnline()) {
-            // 1. Sync local unsaved changes to the server
-            groupMemberDao.getUnsyncedGroupMembers().first().forEach { groupMemberEntity ->
-                try {
-                    val serverGroupMember = if (groupMemberEntity.serverId == null) {
-                        // New member: Add to the server and return the result
-                        groupMemberEntity.toModel()?.let { apiService.addMemberToGroup(groupMemberEntity.groupId, it) }
-                    } else {
-                        // Existing member: Sync changes to the server (e.g., update existing group member)
-                        apiService.updateGroupMember(groupMemberEntity.serverId, groupMemberEntity.toModel())
-                    }
-
-                    // Check if the server response is valid and then update the local database
-                    serverGroupMember?.let {
-                        // Explicitly specify the type of `toEntity` to resolve type inference issues
-                        val updatedEntity = it.toEntity(SyncStatus.SYNCED)
-                        groupMemberDao.updateGroupMember(updatedEntity)
-                    }
-                } catch (e: Exception) {
-                    groupMemberDao.updateGroupMemberSyncStatus(groupMemberEntity.id, SyncStatus.SYNC_FAILED)
-                    Log.e("GroupMemberRepository", "Failed to sync group member ${groupMemberEntity.id}", e)
-                }
-            }
-            // 2. Fetch group members from the server and associated users
-            try {
-                val serverGroups = userId?.let { apiService.getGroupsByUserId(it) }
-
-                serverGroups?.forEach { serverGroup ->
-                    val groupId = serverGroup.id
-
-                    // Fetch group members for this group
-                    val serverGroupMembers = apiService.getMembersOfGroup(groupId)
-
-                    serverGroupMembers.forEach { serverGroupMember ->
-
-                        // Sync associated user (if not already present)
-                        val associatedUser = apiService.getUserById(serverGroupMember.userId)  // Assuming an API call to fetch user info
-                        associatedUser?.let { user ->
-                            val localUser = userDao.getUserById(user.userId).firstOrNull()
-                            if (localUser == null) {
-                                userDao.insertUser(user.toEntity())  // Insert user into associated users table
-                            } else {
-                                userDao.updateUser(user.toEntity())  // Update existing user
-                            }
-                        }
-
-                        val localGroupMember = groupMemberDao.getGroupMemberById(serverGroupMember.id).firstOrNull()
-
-                        if (localGroupMember == null) {
-                            groupMemberDao.insertGroupMember(serverGroupMember.toEntity(SyncStatus.SYNCED))
-                        } else {
-                            groupMemberDao.updateGroupMember(serverGroupMember.toEntity(SyncStatus.SYNCED))
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("GroupMemberRepository", "Failed to fetch group members or users from server", e)
-            }
-        } else {
-            Log.e("GroupMemberRepository", "No internet connection available for syncing group members")
-        }
-    }
-
-    suspend fun uploadGroupImage(groupId: Int, imageUri: Uri): Result<Pair<String?, String?>> = withContext(dispatchers.io) {
+    private suspend fun checkAndUpdateLocalImage(groupId: Int, serverPath: String, lastModified: String) {
         try {
-            if (NetworkUtils.isOnline()) {
+            val localPath = ImageUtils.getImageWithCaching(context, serverPath, lastModified)
+            groupDao.updateLocalImagePath(groupId, localPath)
+        } catch (e: Exception) {
+            Log.e("GroupRepository", "Error caching image: ${e.message}")
+        }
+    }
+
+    suspend fun handleGroupImageUpload(groupId: Int, imageUri: Uri): Result<GroupImageUploadResult> =
+        withContext(dispatchers.io) {
+            try {
                 val imageData = ImageUtils.uriToByteArray(context, imageUri)
-                    ?: throw IOException("Failed to convert URI to ByteArray")
+                    ?: return@withContext Result.failure(IOException("Failed to process image"))
 
-                val requestFile = imageData.toRequestBody("image/jpeg".toMediaTypeOrNull())
-                val body = MultipartBody.Part.createFormData(
-                    name = "group_img",
-                    filename = "image_${System.currentTimeMillis()}.jpg",
-                    body = requestFile
-                )
+                val localFileName = ImageUtils.saveImage(context, imageData)
 
-                val responseBody = apiService.uploadGroupImage(groupId, body)
-                Result.success(Pair(responseBody.imagePath, responseBody.message))
-            } else {
-                Result.failure(IOException("No internet connection"))
+                if (NetworkUtils.isOnline()) {
+                    try {
+                        val requestBody = imageData.toRequestBody(
+                            "image/jpeg".toMediaTypeOrNull(),
+                            0,
+                            imageData.size
+                        )
+
+                        val imagePart = MultipartBody.Part.createFormData(
+                            name = "group_img",
+                            filename = "group_img.jpg",
+                            body = requestBody
+                        )
+
+                        val response = apiService.uploadGroupImage(groupId, imagePart)
+
+                        // Update local database with the new image path
+                        response.imagePath?.let { path ->
+                            groupDao.updateGroupImage(groupId, path)
+                        }
+
+                        Result.success(
+                            GroupImageUploadResult(
+                                localFileName = localFileName,
+                                serverPath = response.imagePath,
+                                message = response.message,
+                                needsSync = false
+                            )
+                        )
+                    } catch (e: Exception) {
+                        Log.e("GroupRepository", "Server upload failed, saving locally", e)
+                        Result.success(
+                            GroupImageUploadResult(
+                                localFileName = localFileName,
+                                serverPath = null,
+                                message = "Image saved locally, will sync later",
+                                needsSync = true
+                            )
+                        )
+                    }
+                } else {
+                    Result.success(
+                        GroupImageUploadResult(
+                            localFileName = localFileName,
+                            serverPath = null,
+                            message = "Image saved locally, will sync when online",
+                            needsSync = true
+                        )
+                    )
+                }
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+
+    //Syncs pending image uploads to the server
+    suspend fun syncPendingImageUploads() = withContext(dispatchers.io) {
+        if (!NetworkUtils.isOnline()) {
+            return@withContext
+        }
+
+        try {
+            val groupsWithPendingImages = groupDao.getGroupsWithPendingImageSync()
+
+            groupsWithPendingImages.forEach { group ->
+                try {
+                    val localImageFile = group.groupImg?.let {
+                        ImageUtils.getImageFile(context, it)
+                    }
+
+                    if (localImageFile == null) {
+                        groupDao.updateGroupImageSyncStatus(group.id, SyncStatus.SYNC_FAILED)
+                        return@forEach
+                    }
+
+                    // Read the image file into a ByteArray
+                    val imageData = localImageFile.readBytes()
+
+                    // Create MultipartBody.Part for the image
+                    val requestBody = imageData.toRequestBody(
+                        "image/jpeg".toMediaTypeOrNull(),
+                        0,
+                        imageData.size
+                    )
+                    val imagePart = MultipartBody.Part.createFormData(
+                        name = "image",
+                        filename = "image.jpg",
+                        body = requestBody
+                    )
+
+                    // Make the API call with MultipartBody.Part
+                    val response = apiService.uploadGroupImage(group.id, imagePart)
+
+                    // Handle the response from UploadResponse
+                    if (response.imagePath != null) {
+                        groupDao.updateGroupImage(group.id, response.imagePath)
+                        groupDao.updateGroupImageSyncStatus(group.id, SyncStatus.SYNCED)
+                    } else {
+                        groupDao.updateGroupImageSyncStatus(group.id, SyncStatus.SYNC_FAILED)
+                    }
+                } catch (e: Exception) {
+                    groupDao.updateGroupImageSyncStatus(group.id, SyncStatus.SYNC_FAILED)
+                    Log.e("GroupRepository", "Failed to sync image for group ${group.id}", e)
+                }
             }
         } catch (e: Exception) {
-            Result.failure(e)
+            Log.e("GroupRepository", "Error syncing pending images", e)
         }
-    }
-
-    suspend fun updateGroupImage(groupId: Int, imagePath: String) = withContext(dispatchers.io) {
-        groupDao.updateGroupImage(groupId, imagePath)
     }
 
     suspend fun calculateGroupBalances(groupId: Int): Result<List<UserBalanceWithCurrency>> = withContext(dispatchers.io) {
@@ -457,5 +506,9 @@ class GroupRepository(
             Log.e("GroupRepository", "Error calculating group balances", e)
             Result.failure(e)
         }
+    }
+
+    override suspend fun sync() {
+        groupSyncManager.performSync()
     }
 }

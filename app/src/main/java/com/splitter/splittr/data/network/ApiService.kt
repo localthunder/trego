@@ -1,12 +1,23 @@
 package com.splitter.splittr.data.network
 
+import android.net.Uri
 import com.google.gson.annotations.SerializedName
 import com.splitter.splittr.data.local.entities.GroupMemberEntity
-import com.splitter.splittr.data.local.repositories.TransactionRepository
-import com.splitter.splittr.model.*
+import com.splitter.splittr.data.repositories.TransactionRepository
+import com.splitter.splittr.data.model.BankAccount
+import com.splitter.splittr.data.model.Group
+import com.splitter.splittr.data.model.GroupMember
+import com.splitter.splittr.data.model.Institution
+import com.splitter.splittr.data.model.Payment
+import com.splitter.splittr.data.model.PaymentSplit
+import com.splitter.splittr.data.model.Requisition
+import com.splitter.splittr.data.model.Transaction
+import com.splitter.splittr.data.model.User
+import com.splitter.splittr.data.model.*
 import com.splitter.splittr.ui.screens.LoginRequest
 import com.splitter.splittr.ui.screens.RegisterRequest
 import com.splitter.splittr.ui.screens.UserBalanceWithCurrency
+import com.splitter.splittr.ui.viewmodels.GroupViewModel
 import okhttp3.MultipartBody
 import retrofit2.Response
 import retrofit2.http.*
@@ -27,6 +38,7 @@ data class RequisitionRequest(
 )
 
 data class UploadResponsed(
+    val success: Boolean,
     val message: String,
     val imagePath: String
 )
@@ -136,6 +148,18 @@ interface ApiService {
 
     @GET("api/groups/user/{userId}")
     suspend fun getGroupsByUserId(@Path("userId") userId: Int): List<Group>
+
+    @GET("api/groups/changes")
+    suspend fun getGroupsSince(
+        @Query("since") timestamp: Long,
+        @Query("userId") userId: Int
+    ): List<Group>
+
+    @GET("api/groups/members/changes")
+    suspend fun getGroupMembersSince(
+        @Query("since") timestamp: Long,
+        @Query("userId") userId: Int
+    ): List<GroupMember>
 
     @GET("api/groups/{groupId}/members")
     suspend fun getMembersOfGroup(@Path("groupId") groupId: Int): List<GroupMember>
