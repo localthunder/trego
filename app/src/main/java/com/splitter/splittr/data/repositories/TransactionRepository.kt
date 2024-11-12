@@ -1,11 +1,11 @@
-package com.splitter.splittr.data.local.repositories
+package com.splitter.splittr.data.repositories
 
 import android.accounts.Account
 import android.content.Context
 import android.util.Log
 import com.splitter.splittr.data.local.dao.TransactionDao
 import com.splitter.splittr.data.network.ApiService
-import com.splitter.splittr.model.Transaction
+import com.splitter.splittr.data.model.Transaction
 import com.splitter.splittr.data.extensions.toEntity
 import com.splitter.splittr.data.extensions.toModel
 import com.splitter.splittr.data.local.dao.BankAccountDao
@@ -160,6 +160,37 @@ class TransactionRepository(
         }
     }
 
+    private suspend fun fetchAndCacheTransactions(userId: Int?) {
+        if (userId == null) return
+
+        try {
+            Log.d("TransactionRepository", "Fetching fresh transactions from GoCardless")
+
+            val response = apiService.getTransactionsByUserId(userId)
+            val transactions = response.transactions
+            val accountsNeedingReauth = response.accountsNeedingReauthentication
+
+            // Cache the transactions
+            TransactionCache.saveTransactions(transactions)
+            Log.d("TransactionRepository", "Cached ${transactions.size} transactions")
+
+            // Handle reauth accounts
+            accountsNeedingReauth.forEach { reauthAccount ->
+                try {
+                    Log.d("TransactionRepository",
+                        "Account ${reauthAccount.accountId} needs reauthorization")
+                    bankAccountDao.updateNeedsReauthentication(reauthAccount.accountId, true)
+                } catch (e: Exception) {
+                    Log.e("TransactionRepository",
+                        "Failed to mark account ${reauthAccount.accountId} for reauth", e)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("TransactionRepository", "Error fetching transactions from GoCardless", e)
+            TransactionCache.setError("Failed to fetch transactions: ${e.message}")
+        }
+    }
+
     suspend fun syncTransactions() = withContext(dispatchers.io) {
         val userId = getUserIdFromPreferences(context)
 
@@ -198,37 +229,6 @@ class TransactionRepository(
             }
         } catch (e: Exception) {
             Log.e("TransactionRepository", "Error syncing saved transactions", e)
-        }
-    }
-
-    private suspend fun fetchAndCacheTransactions(userId: Int?) {
-        if (userId == null) return
-
-        try {
-            Log.d("TransactionRepository", "Fetching fresh transactions from GoCardless")
-
-            val response = apiService.getTransactionsByUserId(userId)
-            val transactions = response.transactions
-            val accountsNeedingReauth = response.accountsNeedingReauthentication
-
-            // Cache the transactions
-            TransactionCache.saveTransactions(transactions)
-            Log.d("TransactionRepository", "Cached ${transactions.size} transactions")
-
-            // Handle reauth accounts
-            accountsNeedingReauth.forEach { reauthAccount ->
-                try {
-                    Log.d("TransactionRepository",
-                        "Account ${reauthAccount.accountId} needs reauthorization")
-                    bankAccountDao.updateNeedsReauthentication(reauthAccount.accountId, true)
-                } catch (e: Exception) {
-                    Log.e("TransactionRepository",
-                        "Failed to mark account ${reauthAccount.accountId} for reauth", e)
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("TransactionRepository", "Error fetching transactions from GoCardless", e)
-            TransactionCache.setError("Failed to fetch transactions: ${e.message}")
         }
     }
 

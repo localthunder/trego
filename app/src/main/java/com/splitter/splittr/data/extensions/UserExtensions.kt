@@ -2,7 +2,7 @@ package com.splitter.splittr.data.extensions
 
 import com.splitter.splittr.data.local.entities.UserEntity
 import com.splitter.splittr.data.sync.SyncStatus
-import com.splitter.splittr.model.User
+import com.splitter.splittr.data.model.User
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -18,8 +18,8 @@ fun User.toEntity(syncStatus: SyncStatus = SyncStatus.PENDING_SYNC): UserEntity 
         passwordHash = this.passwordHash,
         googleId = this.googleId,
         appleId = this.appleId,
-        createdAt = this.createdAt.toIsoString(),
-        updatedAt = this.updatedAt.toIsoString(),
+        createdAt = this.createdAt,
+        updatedAt = this.updatedAt,
         defaultCurrency = this.defaultCurrency ?:  "GBP",
         lastLoginDate = this.lastLoginDate.toString(),
         syncStatus = syncStatus
@@ -34,8 +34,8 @@ fun UserEntity.toModel(): User {
         passwordHash = this.passwordHash,
         googleId = this.googleId,
         appleId = this.appleId,
-        createdAt = this.createdAt.toUnixTimestamp() ?: 0L,
-        updatedAt = this.updatedAt.toUnixTimestamp() ?: 0L,
+        createdAt = this.createdAt,
+        updatedAt = this.updatedAt,
         lastLoginDate = this.lastLoginDate?.toUnixTimestamp(),
         defaultCurrency = this.defaultCurrency
     )

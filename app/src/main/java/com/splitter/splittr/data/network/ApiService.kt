@@ -92,6 +92,9 @@ interface ApiService {
     @POST("/api/gocardless/addAccount")
     suspend fun addAccount(@Body account: BankAccount): BankAccount
 
+    @PUT("accounts/{accountId}")
+    suspend fun updateAccount(@Path("accountId") accountId: String, @Body account: BankAccount): BankAccount
+
     @GET("/api/gocardless/requisition/{reference}")
     suspend fun getRequisitionByReference(@Path("reference") reference: String): Requisition
 
@@ -161,14 +164,17 @@ interface ApiService {
         @Query("userId") userId: Int
     ): List<GroupMember>
 
+    @GET("api/users/changes")
+    suspend fun getUsersSince(
+        @Query("since") timestamp: Long,
+        @Query("userId") userId: Int
+    ): List<User>
+
     @GET("api/groups/{groupId}/members")
     suspend fun getMembersOfGroup(@Path("groupId") groupId: Int): List<GroupMember>
 
-    @PUT("api/groups/{groupId}/members/{userId}")
-    suspend fun removeMemberFromGroup(
-        @Path("groupId") groupId: Int,
-        @Path("userId") userId: Int
-    ): GroupMember
+    @PUT("api/groups/members/{memberId}")
+    suspend fun removeMemberFromGroup(@Path("memberId") memberId: Int): GroupMember
 
     @GET("api/groups/{groupId}/balances")
     suspend fun getGroupBalances(@Path("groupId") groupId: Int): List<UserBalanceWithCurrency>

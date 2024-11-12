@@ -22,10 +22,10 @@ interface BankAccountDao {
     @Query("SELECT * FROM accounts WHERE sync_status != 'SYNCED'")
     fun getUnsyncedBankAccounts(): Flow<List<BankAccountEntity>>
 
-    @Query("UPDATE accounts SET sync_status = :status WHERE account_id = :accountId")
+    @Query("UPDATE accounts SET sync_status = :status, updated_at = CURRENT_TIMESTAMP WHERE account_id = :accountId")
     suspend fun updateBankAccountSyncStatus(accountId: String, status: SyncStatus)
 
-    @Query("UPDATE accounts SET needsReauthentication = :needsReauthentication WHERE account_id = :accountId")
+    @Query("UPDATE accounts SET needsReauthentication = :needsReauthentication, updated_at = CURRENT_TIMESTAMP WHERE account_id = :accountId")
     suspend fun updateNeedsReauthentication(accountId: String, needsReauthentication: Boolean)
 
     @Query("SELECT * FROM accounts WHERE needsReauthentication = 1")

@@ -4,8 +4,8 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.splitter.splittr.data.extensions.toModel
-import com.splitter.splittr.data.local.repositories.UserRepository
-import com.splitter.splittr.model.User
+import com.splitter.splittr.data.repositories.UserRepository
+import com.splitter.splittr.data.model.User
 import com.splitter.splittr.utils.CoroutineDispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -96,7 +96,7 @@ class UserViewModel(
         viewModelScope.launch(dispatchers.io) {
             _loading.value = (true)
             try {
-                userRepository.syncUsers()
+                userRepository.sync()
                 // You might want to reload the users after syncing
             } catch (e: Exception) {
                 _error.value = ("Failed to sync users: ${e.message}")

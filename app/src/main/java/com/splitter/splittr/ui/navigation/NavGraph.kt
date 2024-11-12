@@ -12,7 +12,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.splitter.splittr.data.local.AppDatabase
-import com.splitter.splittr.data.local.repositories.TransactionRepository
+import com.splitter.splittr.data.repositories.TransactionRepository
 import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.ui.screens.AddExpenseScreen
 import com.splitter.splittr.ui.screens.AddGroupScreen

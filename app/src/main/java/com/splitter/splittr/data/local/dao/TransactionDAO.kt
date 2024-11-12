@@ -1,6 +1,7 @@
 package com.splitter.splittr.data.local.dao
 
 import androidx.room.*
+import com.splitter.splittr.data.local.entities.RequisitionEntity
 import com.splitter.splittr.data.local.entities.TransactionEntity
 import com.splitter.splittr.data.sync.SyncStatus
 import kotlinx.coroutines.flow.Flow
@@ -23,10 +24,21 @@ interface TransactionDao {
     suspend fun insertTransaction(transaction: TransactionEntity)
 
     @Update
-    suspend fun updateTransaction(transaction: TransactionEntity)
+    suspend fun updateTransactionDirect(transaction: TransactionEntity)
+
+    @Transaction
+    suspend fun updateTransaction(transaction: TransactionEntity) {
+        // Create a copy of the transaction with the current timestamp
+        val updatedTransaction = transaction.copy(
+            updatedAt = System.currentTimeMillis().toString(),
+            syncStatus = SyncStatus.PENDING_SYNC
+        )
+        updateTransactionDirect(updatedTransaction)
+    }
+
     @Query("SELECT * FROM transactions WHERE sync_status != 'SYNCED'")
     fun getUnsyncedTransactions(): Flow<List<TransactionEntity>>
 
-    @Query("UPDATE transactions SET sync_status = :status WHERE transaction_id = :transactionId")
+    @Query("UPDATE transactions SET sync_status = :status, updated_at = CURRENT_TIMESTAMP WHERE transaction_id = :transactionId")
     suspend fun updateTransactionSyncStatus(transactionId: String, status: SyncStatus)
 }

@@ -3,7 +3,9 @@ package com.splitter.splittr.data.local.dao
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
+import com.splitter.splittr.data.local.entities.PaymentSplitEntity
 import com.splitter.splittr.data.local.entities.RequisitionEntity
 import com.splitter.splittr.data.sync.SyncStatus
 import kotlinx.coroutines.flow.Flow
@@ -30,9 +32,19 @@ interface RequisitionDao {
     fun getUnsyncedRequisitions(): Flow<List<RequisitionEntity>>
 
     @Update
-    suspend fun updateRequisition(requisition: RequisitionEntity)
+    suspend fun updateRequisitionDirect(requisition: RequisitionEntity)
 
-    @Query("UPDATE requisitions SET sync_status = :status WHERE requisition_id = :requisitionId")
+    @Transaction
+    suspend fun updateRequisition(requisition: RequisitionEntity) {
+        // Create a copy of the requisition with the current timestamp
+        val updatedRequisition = requisition.copy(
+            updatedAt = System.currentTimeMillis().toString(),
+            syncStatus = SyncStatus.PENDING_SYNC
+        )
+        updateRequisitionDirect(updatedRequisition)
+    }
+
+    @Query("UPDATE requisitions SET sync_status = :status, updated_at = CURRENT_TIMESTAMP WHERE requisition_id = :requisitionId")
     suspend fun updateRequisitionSyncStatus(requisitionId: String, status: SyncStatus)
 }
 

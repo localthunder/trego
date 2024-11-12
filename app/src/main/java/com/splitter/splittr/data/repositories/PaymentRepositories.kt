@@ -1,4 +1,4 @@
-package com.splitter.splittr.data.local.repositories
+package com.splitter.splittr.data.repositories
 
 import android.content.Context
 import android.util.Log
@@ -10,8 +10,8 @@ import com.splitter.splittr.data.local.dao.PaymentSplitDao
 import com.splitter.splittr.data.local.entities.PaymentEntity
 import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.data.sync.SyncStatus
-import com.splitter.splittr.model.Payment
-import com.splitter.splittr.model.PaymentSplit
+import com.splitter.splittr.data.model.Payment
+import com.splitter.splittr.data.model.PaymentSplit
 import com.splitter.splittr.utils.CoroutineDispatchers
 import com.splitter.splittr.utils.NetworkUtils.isOnline
 import com.splitter.splittr.utils.getUserIdFromPreferences

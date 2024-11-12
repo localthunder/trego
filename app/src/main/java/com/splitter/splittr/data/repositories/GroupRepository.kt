@@ -313,11 +313,11 @@ class GroupRepository(
         }
     }.flowOn(dispatchers.io)
 
-    suspend fun removeMemberFromGroup(groupId: Int, userId: Int): Result<Unit> = withContext(dispatchers.io) {
+    suspend fun removeMemberFromGroup(memberId: Int): Result<Unit> = withContext(dispatchers.io) {
         try {
-            groupMemberDao.removeGroupMember(groupId, userId)
+            groupMemberDao.removeGroupMember(memberId)
             if (NetworkUtils.isOnline()) {
-                apiService.removeMemberFromGroup(groupId, userId)
+                apiService.removeMemberFromGroup(memberId)
             }
             Result.success(Unit)
         } catch (e: Exception) {

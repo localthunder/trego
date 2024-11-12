@@ -1,14 +1,17 @@
-package com.splitter.splittr.data.local.repositories
+package com.splitter.splittr.data.repositories
 
 import android.content.Context
 import android.util.Log
 import com.splitter.splittr.data.extensions.toEntity
 import com.splitter.splittr.data.extensions.toModel
+import com.splitter.splittr.data.local.dao.SyncMetadataDao
 import com.splitter.splittr.data.local.dao.UserDao
 import com.splitter.splittr.data.local.entities.UserEntity
 import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.data.network.AuthResponse
 import com.splitter.splittr.data.sync.SyncStatus
+import com.splitter.splittr.data.sync.SyncableRepository
+import com.splitter.splittr.data.sync.managers.UserSyncManager
 import com.splitter.splittr.ui.screens.LoginRequest
 import com.splitter.splittr.ui.screens.RegisterRequest
 import com.splitter.splittr.utils.AuthUtils.getLoginState
@@ -26,8 +29,14 @@ import java.io.IOException
 class UserRepository(
     private val userDao: UserDao,
     private val apiService: ApiService,
-    private val dispatchers: CoroutineDispatchers
-) {
+    private val dispatchers: CoroutineDispatchers,
+    private val syncMetadataDao: SyncMetadataDao,
+    private val userSyncManager: UserSyncManager
+) : SyncableRepository {
+
+    override val entityType = "users"
+    override val syncPriority = 1
+
     fun getUserById(userId: Int) = userDao.getUserById(userId)
 
     fun getUsersByIds(userIds: List<Int>) = userDao.getUsersByIds(userIds)
@@ -134,38 +143,18 @@ class UserRepository(
             Result.failure(e)
         }
     }
-    suspend fun syncUsers() = withContext(dispatchers.io) {
-        userDao.getUnsyncedUsers().first().forEach { userEntity ->
-            try {
-                val user = apiService.getUserById(userEntity.userId)
-                userDao.updateUser(user.toEntity())
-                userDao.updateUserSyncStatus(userEntity.userId, SyncStatus.SYNCED.name)
-            } catch (e: Exception) {
-                userDao.updateUserSyncStatus(userEntity.userId, SyncStatus.SYNC_FAILED.name)
-            }
+    override suspend fun sync(): Unit = withContext(dispatchers.io) {
+        try {
+            Log.d(TAG, "Starting user sync")
+            userSyncManager.performSync()
+            Log.d(TAG, "User sync completed successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during user sync", e)
+            throw e
         }
-        userDao.getAllUsers().first().forEach { userEntity ->
-            try {
-                // Check if the user exists on the server
-                val serverUser = try {
-                    apiService.getUserById(userEntity.userId)
-                } catch (e: Exception) {
-                    null // User doesn't exist on the server
-                }
+    }
 
-                if (serverUser == null) {
-                    // User doesn't exist on the server, so create it
-                    apiService.createUser(userEntity.toModel())
-                } else {
-                    // User exists, so update it
-                    apiService.updateUser(userEntity.userId, userEntity.toModel())
-                }
-
-                userDao.updateUserSyncStatus(userEntity.userId, SyncStatus.SYNCED.name)
-            } catch (e: Exception) {
-                Log.e("ReverseSyncUsers", "Failed to sync user ${userEntity.userId}", e)
-                userDao.updateUserSyncStatus(userEntity.userId, SyncStatus.SYNC_FAILED.name)
-            }
-        }
+    companion object {
+        private const val TAG = "UserRepository"
     }
 }

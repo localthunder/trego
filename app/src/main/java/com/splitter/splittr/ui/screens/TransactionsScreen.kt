@@ -15,7 +15,7 @@ import androidx.navigation.NavController
 import com.splitter.splittr.MyApplication
 import com.splitter.splittr.ui.components.GlobalTopAppBar
 import com.splitter.splittr.ui.components.TransactionItem
-import com.splitter.splittr.model.Transaction
+import com.splitter.splittr.data.model.Transaction
 import com.splitter.splittr.ui.theme.GlobalTheme
 import com.splitter.splittr.ui.viewmodels.TransactionViewModel
 import com.splitter.splittr.ui.viewmodels.InstitutionViewModel

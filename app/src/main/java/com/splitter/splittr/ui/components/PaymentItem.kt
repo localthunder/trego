@@ -26,8 +26,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.splitter.splittr.model.Payment
-import com.splitter.splittr.model.User
+import com.splitter.splittr.data.model.Payment
+import com.splitter.splittr.data.model.User
 import com.splitter.splittr.ui.viewmodels.PaymentsViewModel
 import com.splitter.splittr.ui.viewmodels.GroupViewModel
 import com.splitter.splittr.ui.viewmodels.UserViewModel

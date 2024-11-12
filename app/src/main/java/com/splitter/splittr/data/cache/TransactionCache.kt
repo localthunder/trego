@@ -1,5 +1,5 @@
 import android.util.Log
-import com.splitter.splittr.model.Transaction
+import com.splitter.splittr.data.model.Transaction
 import kotlinx.coroutines.withContext
 
 // First, let's update TransactionCache to include timestamp and freshness check

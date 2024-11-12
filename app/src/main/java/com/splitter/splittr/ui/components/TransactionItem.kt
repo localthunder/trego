@@ -10,7 +10,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.splitter.splittr.MyApplication
-import com.splitter.splittr.model.Transaction
+import com.splitter.splittr.data.model.Transaction
 import com.splitter.splittr.ui.viewmodels.InstitutionViewModel
 import downloadAndSaveImage
 import kotlinx.coroutines.Dispatchers

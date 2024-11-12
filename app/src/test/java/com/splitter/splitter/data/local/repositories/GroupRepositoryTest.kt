@@ -14,9 +14,10 @@ import com.splitter.splittr.data.local.entities.UserEntity
 import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.data.network.UploadResponsed
 import com.splitter.splittr.data.sync.SyncStatus
-import com.splitter.splittr.model.Group
-import com.splitter.splittr.model.GroupMember
-import com.splitter.splittr.model.User
+import com.splitter.splittr.data.model.Group
+import com.splitter.splittr.data.model.GroupMember
+import com.splitter.splittr.data.model.User
+import com.splitter.splittr.data.repositories.GroupRepository
 import com.splitter.splittr.ui.screens.UserBalanceWithCurrency
 import com.splitter.splittr.utils.AppCoroutineDispatchers
 import com.splitter.splittr.utils.ImageUtils

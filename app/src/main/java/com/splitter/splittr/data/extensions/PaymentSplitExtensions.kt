@@ -2,7 +2,7 @@ package com.splitter.splittr.data.extensions
 
 import com.splitter.splittr.data.local.entities.PaymentSplitEntity
 import com.splitter.splittr.data.sync.SyncStatus
-import com.splitter.splittr.model.PaymentSplit
+import com.splitter.splittr.data.model.PaymentSplit
 
 fun PaymentSplit.toEntity(syncStatus: SyncStatus = SyncStatus.PENDING_SYNC): PaymentSplitEntity {
     return PaymentSplitEntity(

@@ -36,7 +36,17 @@ interface GroupDao {
     }
 
     @Update
-    suspend fun updateGroup(group: GroupEntity)
+    suspend fun updateGroupDirect(group: GroupEntity)
+
+    @Transaction
+    suspend fun updateGroup(group: GroupEntity) {
+        // Create a copy of the group with the current timestamp
+        val updatedGroup = group.copy(
+            updatedAt = System.currentTimeMillis().toString(),
+            syncStatus = SyncStatus.PENDING_SYNC
+        )
+        updateGroupDirect(updatedGroup)
+    }
 
     @Query("DELETE FROM groups WHERE id = :groupId")
     suspend fun deleteGroup(groupId: Int)
@@ -51,16 +61,13 @@ interface GroupDao {
     @Query("SELECT * FROM groups WHERE sync_status != 'SYNCED'")
     fun getUnsyncedGroups(): Flow<List<GroupEntity>>
 
-    @Query("UPDATE groups SET sync_status = :status WHERE id = :groupId")
+    @Query("UPDATE groups SET sync_status = :status, updated_at = CURRENT_TIMESTAMP WHERE id = :groupId")
     suspend fun updateGroupSyncStatus(groupId: kotlin.Int, status: SyncStatus)
 
-    @Query("UPDATE groups SET invite_link = :inviteLink WHERE id = :groupId")
+    @Query("UPDATE groups SET invite_link = :inviteLink, updated_at = CURRENT_TIMESTAMP WHERE id = :groupId")
     suspend fun updateGroupInviteLink(groupId: Int, inviteLink: String)
 
-    @Query("UPDATE groups SET group_img = :groupImg WHERE id = :groupId")
-    suspend fun updateGroupImage(groupId: Int, groupImg: String)
-
-    @Query("""UPDATE groups SET group_img = :imagePath, updated_at = :timestamp, sync_status = :syncStatus WHERE id = :groupId""")
+    @Query("UPDATE groups SET group_img = :imagePath, updated_at = :timestamp, sync_status = :syncStatus WHERE id = :groupId")
     suspend fun updateGroupImage(
         groupId: Int,
         imagePath: String,
@@ -68,12 +75,7 @@ interface GroupDao {
         syncStatus: SyncStatus = SyncStatus.PENDING_SYNC
     )
 
-    @Query("""
-        UPDATE groups 
-        SET sync_status = :status,
-            updated_at = :timestamp 
-        WHERE id = :groupId
-    """)
+    @Query("UPDATE groups SET sync_status = :status, updated_at = :timestamp WHERE id = :groupId")
     suspend fun updateGroupImageSyncStatus(
         groupId: Int,
         status: SyncStatus,
@@ -81,14 +83,10 @@ interface GroupDao {
     )
 
     // Sync-related queries
-    @Query("""
-        SELECT * FROM groups 
-        WHERE group_img IS NOT NULL 
-        AND sync_status IN (:pendingStatuses)
-    """)
+    @Query("SELECT * FROM groups WHERE group_img IS NOT NULL AND sync_status IN (:pendingStatuses)")
     suspend fun getGroupsWithPendingImageSync(
         pendingStatuses: List<SyncStatus> = listOf(SyncStatus.PENDING_SYNC, SyncStatus.SYNC_FAILED)): List<GroupEntity>
 
-    @Query("UPDATE groups SET local_image_path = :localPath WHERE id = :groupId")
+    @Query("UPDATE groups SET local_image_path = :localPath, updated_at = CURRENT_TIMESTAMP WHERE id = :groupId")
     suspend fun updateLocalImagePath(groupId: Int, localPath: String?)
 }

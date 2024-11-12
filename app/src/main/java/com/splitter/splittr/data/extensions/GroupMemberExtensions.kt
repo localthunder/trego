@@ -2,7 +2,7 @@ package com.splitter.splittr.data.extensions
 
 import com.splitter.splittr.data.local.entities.GroupMemberEntity
 import com.splitter.splittr.data.sync.SyncStatus
-import com.splitter.splittr.model.GroupMember
+import com.splitter.splittr.data.model.GroupMember
 
 fun GroupMember.toEntity(syncStatus: SyncStatus): GroupMemberEntity {
     return GroupMemberEntity(

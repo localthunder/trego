@@ -1,7 +1,9 @@
 package com.splitter.splittr.data.local.dao
 
 import androidx.room.*
+import com.splitter.splittr.data.local.entities.TransactionEntity
 import com.splitter.splittr.data.local.entities.UserEntity
+import com.splitter.splittr.data.sync.SyncStatus
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -20,7 +22,17 @@ interface UserDao {
     suspend fun insertUser(user: UserEntity)
 
     @Update
-    suspend fun updateUser(user: UserEntity)
+    suspend fun updateUserDirect(user: UserEntity)
+
+    @Transaction
+    suspend fun updateUser(user: UserEntity) {
+        // Create a copy of the transaction with the current timestamp
+        val updatedUser = user.copy(
+            updatedAt = System.currentTimeMillis().toString(),
+            syncStatus = SyncStatus.PENDING_SYNC
+        )
+        updateUserDirect(updatedUser)
+    }
 
     @Delete
     suspend fun deleteUser(user: UserEntity)
@@ -34,6 +46,6 @@ interface UserDao {
     @Query("SELECT * FROM users WHERE sync_status != 'SYNCED'")
     fun getUnsyncedUsers(): Flow<List<UserEntity>>
 
-    @Query("UPDATE users SET sync_status = :status WHERE user_id = :userId")
+    @Query("UPDATE users SET sync_status = :status, updated_at = CURRENT_TIMESTAMP WHERE user_id = :userId")
     suspend fun updateUserSyncStatus(userId: Int, status: String)
 }

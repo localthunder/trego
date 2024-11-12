@@ -1,4 +1,4 @@
-package com.splitter.splittr.data.local.repositories
+package com.splitter.splittr.data.repositories
 
 import android.content.Context
 import android.graphics.BitmapFactory
@@ -9,7 +9,7 @@ import com.splitter.splittr.data.local.dao.InstitutionDao
 import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.data.network.RequisitionRequest
 import com.splitter.splittr.data.network.RequisitionResponseWithRedirect
-import com.splitter.splittr.model.Institution
+import com.splitter.splittr.data.model.Institution
 import com.splitter.splittr.utils.CoroutineDispatchers
 import com.splitter.splittr.utils.GradientBorderUtils
 import downloadAndSaveImage
@@ -114,10 +114,12 @@ class InstitutionRepository(
                         val bitmap = BitmapFactory.decodeFile(savedFile.path)
                         if (bitmap != null) {
                             val dominantColors = GradientBorderUtils.getDominantColors(bitmap)
-                            return@withContext Result.success(LogoInfo(
+                            return@withContext Result.success(
+                                LogoInfo(
                                 file = savedFile,
                                 dominantColors = dominantColors
-                            ))
+                            )
+                            )
                         }
                     }
                 }
@@ -126,10 +128,12 @@ class InstitutionRepository(
                 val bitmap = BitmapFactory.decodeFile(file.path)
                 if (bitmap != null) {
                     val dominantColors = GradientBorderUtils.getDominantColors(bitmap)
-                    return@withContext Result.success(LogoInfo(
+                    return@withContext Result.success(
+                        LogoInfo(
                         file = file,
                         dominantColors = dominantColors
-                    ))
+                    )
+                    )
                 }
             }
             Result.failure(Exception("Failed to process logo"))

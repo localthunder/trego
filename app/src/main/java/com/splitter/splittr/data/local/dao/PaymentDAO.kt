@@ -1,6 +1,7 @@
 package com.splitter.splittr.data.local.dao
 
 import androidx.room.*
+import com.splitter.splittr.data.local.entities.GroupMemberEntity
 import com.splitter.splittr.data.local.entities.PaymentEntity
 import com.splitter.splittr.data.sync.SyncStatus
 import kotlinx.coroutines.flow.Flow
@@ -16,34 +17,62 @@ interface PaymentDao {
     @Query("SELECT * FROM payments WHERE group_id = :groupId")
     fun getPaymentsByGroup(groupId: Int): Flow<List<PaymentEntity>>
 
-    @Query("""
-        SELECT * FROM payments 
-        WHERE group_id = :groupId 
-        AND deleted_at IS NULL
-    """)
+    @Query("SELECT * FROM payments WHERE group_id = :groupId AND deleted_at IS NULL")
     suspend fun getNonArchivedPaymentsByGroup(groupId: Int): List<PaymentEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPayment(payment: PaymentEntity): Long
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertOrUpdatePayment(payment: PaymentEntity)
+    suspend fun insertOrUpdatePaymentDirect(payment: PaymentEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertOrUpdatePayments(payments: List<PaymentEntity>)
+    suspend fun insertOrUpdatePaymentsDirect(payments: List<PaymentEntity>)
+
+    @Transaction
+    suspend fun insertOrUpdatePayment(payment: PaymentEntity) {
+        val timestamp = System.currentTimeMillis().toString()
+        val updatedPayment = payment.copy(
+            updatedAt = timestamp,
+            syncStatus = SyncStatus.PENDING_SYNC
+        )
+        insertOrUpdatePaymentDirect(updatedPayment)
+    }
+
+    @Transaction
+    suspend fun insertOrUpdatePayments(payments: List<PaymentEntity>) {
+        val timestamp = System.currentTimeMillis().toString()
+        val updatedPayments = payments.map { payment ->
+            payment.copy(
+                updatedAt = timestamp,
+                syncStatus = SyncStatus.PENDING_SYNC
+            )
+        }
+        insertOrUpdatePaymentsDirect(updatedPayments)
+    }
 
     @Update
-    suspend fun updatePayment(payment: PaymentEntity)
+    suspend fun updatePaymentDirect(payment: PaymentEntity)
+
+    @Transaction
+    suspend fun updatePayment(payment: PaymentEntity) {
+        // Create a copy of the payment with the current timestamp
+        val updatedPayment = payment.copy(
+            updatedAt = System.currentTimeMillis().toString(),
+            syncStatus = SyncStatus.PENDING_SYNC
+        )
+        updatePaymentDirect(updatedPayment)
+    }
 
     @Query("UPDATE payments SET deleted_at = :deletedAt WHERE id = :paymentId")
     suspend fun archivePayment(paymentId: Int, deletedAt: String)
 
-    @Query("UPDATE payments SET deleted_at = NULL WHERE id = :paymentId")
+    @Query("UPDATE payments SET deleted_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = :paymentId")
     suspend fun restorePayment(paymentId: Int)
 
     @Query("SELECT * FROM payments WHERE sync_status != 'SYNCED'")
     fun getUnsyncedPayments(): Flow<List<PaymentEntity>>
 
-    @Query("UPDATE payments SET sync_status = :status WHERE id = :paymentId")
+    @Query("UPDATE payments SET sync_status = :status, updated_at = CURRENT_TIMESTAMP WHERE id = :paymentId")
     suspend fun updatePaymentSyncStatus(paymentId: Int, status: SyncStatus)
 }

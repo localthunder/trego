@@ -1,13 +1,16 @@
-package com.splitter.splittr.data.local.repositories
+package com.splitter.splittr.data.repositories
 
 import android.content.Context
 import android.util.Log
 import com.splitter.splittr.data.extensions.toEntity
 import com.splitter.splittr.data.extensions.toModel
 import com.splitter.splittr.data.local.dao.RequisitionDao
+import com.splitter.splittr.data.local.dao.SyncMetadataDao
 import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.data.sync.SyncStatus
-import com.splitter.splittr.model.Requisition
+import com.splitter.splittr.data.model.Requisition
+import com.splitter.splittr.data.sync.SyncableRepository
+import com.splitter.splittr.data.sync.managers.RequisitionSyncManager
 import com.splitter.splittr.utils.CoroutineDispatchers
 import com.splitter.splittr.utils.NetworkUtils
 import com.splitter.splittr.utils.getUserIdFromPreferences
@@ -18,9 +21,13 @@ class RequisitionRepository(
     private val requisitionDao: RequisitionDao,
     private val apiService: ApiService,
     private val dispatchers: CoroutineDispatchers,
-    private val context: Context
+    private val context: Context,
+    private val syncMetadataDao: SyncMetadataDao,
+    private val requisitionSyncManager: RequisitionSyncManager
+) : SyncableRepository {
 
-    ) {
+    override val entityType = "requisitions"
+    override val syncPriority = 2  // Sync before bank accounts but after groups
 
     suspend fun insert(requisition: Requisition) {
         requisitionDao.insert(requisition.toEntity())
@@ -58,28 +65,17 @@ class RequisitionRepository(
 
         return requisition
     }
-    suspend fun syncRequisitions() = withContext(dispatchers.io) {
-        val userId = getUserIdFromPreferences(context)
-
-        if (NetworkUtils.isOnline()) {
-            try {
-                val serverRequisitions = userId?.let { apiService.getRequisitionsByUserId(it) }
-                serverRequisitions?.forEach { serverRequisition ->
-                    val localRequisition = requisitionDao.getRequisitionById(serverRequisition.requisitionId)
-                    if (localRequisition == null) {
-                        // New requisition from server, insert it
-                        requisitionDao.insert(serverRequisition.toEntity())
-                    } else {
-                        // Update existing requisition
-                        requisitionDao.updateRequisition(serverRequisition.toEntity())
-                    }
-                }
-                Log.d("RequisitionRepository", "Requisitions synced successfully")
-            } catch (e: Exception) {
-                Log.e("RequisitionRepository", "Failed to fetch requisitions from server", e)
-            }
-        } else {
-            Log.e("RequisitionRepository", "No internet connection available for syncing requisitions")
+    override suspend fun sync(): Unit = withContext(dispatchers.io) {
+        try {
+            Log.d(TAG, "Starting requisition sync")
+            requisitionSyncManager.performSync()
+            Log.d(TAG, "Requisition sync completed successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during requisition sync", e)
+            throw e
         }
+    }
+    companion object {
+        private const val TAG = "RequisitionRepository"
     }
 }

@@ -3,8 +3,7 @@ package com.splitter.splittr.data.sync
 import android.content.Context
 import android.util.Log
 import androidx.work.*
-import com.splitter.splittr.data.local.repositories.*
-import com.splitter.splittr.data.network.ApiService
+import com.splitter.splittr.data.repositories.*
 import kotlinx.coroutines.coroutineScope
 import java.util.concurrent.TimeUnit
 
@@ -25,11 +24,11 @@ class SyncWorker(
         try {
             Log.d(TAG, "Starting sync process")
 
-            syncRepository("Groups", groupRepository::syncGroups)
-            syncRepository("Users", userRepository::syncUsers)
-            syncRepository("Group Members", groupRepository::syncGroupMembers)
-            syncRepository("Requisitions", requisitionRepository::syncRequisitions)
-            syncRepository("Bank Accounts", bankAccountRepository::syncBankAccounts)
+            syncRepository("Groups", groupRepository::sync)
+            syncRepository("Users", userRepository::sync)
+//            syncRepository("Group Members", groupRepository::syncGroupMembers)
+            syncRepository("Requisitions", requisitionRepository::sync)
+            syncRepository("Bank Accounts", bankAccountRepository::sync)
             syncRepository("Payments", paymentRepository::syncPayments)
             syncRepository("Payment Splits", paymentSplitRepository::syncPaymentSplits)
             syncRepository("Transactions", transactionRepository::syncTransactions)
@@ -83,41 +82,6 @@ class SyncWorker(
             }
         }
     }
-//    private suspend fun restoreServerDatabase() = coroutineScope {
-//        Log.d(TAG, "Starting server restoration process")
-//
-//        // Check each repository and restore data on the server if necessary
-//        restoreDataIfEmpty("Groups", groupRepository::getAllGroups, apiService::createGroup)
-//        restoreDataIfEmpty("Users", userRepository::getAllUsers, apiService::createUser)
-//        restoreDataIfEmpty("Group Members", groupRepository::getAllGroupMembers, apiService::addGroupMember)
-//        restoreDataIfEmpty("Requisitions", requisitionRepository::getAllRequisitions, apiService::createRequisition)
-//        restoreDataIfEmpty("Bank Accounts", bankAccountRepository::getAllBankAccounts, apiService::createBankAccount)
-//        restoreDataIfEmpty("Payments", paymentRepository::getAllPayments, apiService::createPayment)
-//        restoreDataIfEmpty("Payment Splits", paymentSplitRepository::getAllPaymentSplits, apiService::createPaymentSplit)
-//        restoreDataIfEmpty("Transactions", transactionRepository::getAllTransactions, apiService::createTransaction)
-//
-//        Log.d(TAG, "Server restoration process completed")
-//    }
-//
-//    private suspend fun <T> restoreDataIfEmpty(
-//        name: String,
-//        localDataFetcher: suspend () -> List<T>,
-//        serverDataCreator: suspend (T) -> Unit
-//    ) {
-//        val localData = localDataFetcher()
-//        if (localData.isNotEmpty() && apiService.isServerDataEmpty(name)) {
-//            Log.d(TAG, "Restoring $name to server")
-//            localData.forEach {
-//                try {
-//                    serverDataCreator(it)
-//                } catch (e: Exception) {
-//                    Log.e(TAG, "Failed to restore $name data to server", e)
-//                }
-//            }
-//        } else {
-//            Log.d(TAG, "$name on server is not empty or no local data available")
-//        }
-//    }
 }
 
 class SyncWorkerFactory(

@@ -1,6 +1,7 @@
-package com.splitter.splittr.model
+package com.splitter.splittr.data.model
 
 import com.google.gson.annotations.SerializedName
+import com.splitter.splittr.utils.TimestampedEntity
 
 data class BankAccount(
     @SerializedName("account_id") val accountId: String,
@@ -14,8 +15,6 @@ data class BankAccount(
     @SerializedName("product") val product: String?,
     @SerializedName("cash_account_type") val cashAccountType: String?,
     @SerializedName("created_at") val createdAt: String,
-    @SerializedName("updated_at") val updatedAt: String,
+    @SerializedName("updated_at") override val updatedAt: String,
     val needsReauthentication: Boolean = false
-
-
-)
+) : TimestampedEntity

@@ -4,8 +4,8 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.splitter.splittr.data.extensions.toModel
-import com.splitter.splittr.data.local.repositories.TransactionRepository
-import com.splitter.splittr.model.Transaction
+import com.splitter.splittr.data.repositories.TransactionRepository
+import com.splitter.splittr.data.model.Transaction
 import com.splitter.splittr.utils.CoroutineDispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

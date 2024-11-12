@@ -2,7 +2,7 @@ package com.splitter.splittr.data.extensions
 
 import com.splitter.splittr.data.local.entities.RequisitionEntity
 import com.splitter.splittr.data.sync.SyncStatus
-import com.splitter.splittr.model.Requisition
+import com.splitter.splittr.data.model.Requisition
 
 fun Requisition.toEntity(syncStatus: SyncStatus = SyncStatus.PENDING_SYNC): RequisitionEntity {
     return RequisitionEntity(
@@ -23,6 +23,6 @@ fun RequisitionEntity.toModel(): Requisition {
         institutionId = this.institutionId,
         reference = this.reference,
         createdAt = this.createdAt,
-        updatedAt = this.updatedAt
+        updatedAt = this.updatedAt ?: ""
     )
 }

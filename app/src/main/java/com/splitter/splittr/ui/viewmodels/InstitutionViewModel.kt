@@ -3,10 +3,10 @@ package com.splitter.splittr.ui.viewmodels
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.splitter.splittr.data.local.repositories.InstitutionRepository
+import com.splitter.splittr.data.repositories.InstitutionRepository
 import com.splitter.splittr.data.network.RequisitionRequest
 import com.splitter.splittr.data.network.RequisitionResponseWithRedirect
-import com.splitter.splittr.model.Institution
+import com.splitter.splittr.data.model.Institution
 import com.splitter.splittr.utils.CoroutineDispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

@@ -1,4 +1,4 @@
-package com.splitter.splittr.model
+package com.splitter.splittr.data.model
 
 import com.google.gson.annotations.SerializedName
 

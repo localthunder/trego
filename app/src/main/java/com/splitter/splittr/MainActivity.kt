@@ -16,7 +16,7 @@ import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
-import com.splitter.splittr.data.local.repositories.RequisitionRepository
+import com.splitter.splittr.data.repositories.RequisitionRepository
 import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.ui.navigation.NavGraph
 import com.splitter.splittr.ui.theme.GlobalTheme

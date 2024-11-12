@@ -1,6 +1,7 @@
-package com.splitter.splittr.model
+package com.splitter.splittr.data.model
 
 import com.google.gson.annotations.SerializedName
+import com.splitter.splittr.utils.TimestampedEntity
 
 data class User(
     @SerializedName("userId") val userId: Int,
@@ -9,8 +10,8 @@ data class User(
     @SerializedName("passwordHash") val passwordHash: String?,
     @SerializedName("googleId") val googleId: String?,
     @SerializedName("appleId") val appleId: String?,
-    @SerializedName("createdAt") val createdAt: Long,
-    @SerializedName("updatedAt") val updatedAt: Long,
+    @SerializedName("createdAt") val createdAt: String,
+    @SerializedName("updatedAt") override val updatedAt: String,
     @SerializedName("defaultCurrency") val defaultCurrency: String?,
     @SerializedName("lastLoginDate") val lastLoginDate: Long?
-)
+) : TimestampedEntity

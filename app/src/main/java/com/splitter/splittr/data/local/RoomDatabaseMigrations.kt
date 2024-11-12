@@ -17,7 +17,25 @@ object DatabaseMigrations {
             database.execSQL("ALTER TABLE accounts ADD COLUMN needsReauthentication INTEGER NOT NULL DEFAULT 0")
         }
     }
-
-
-    // Add more migrations if needed
+    val MIGRATION_12_13 = object : Migration(12, 13) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL(
+                "ALTER TABLE groups ADD COLUMN local_image_path TEXT"
+            )
+        }
+    }
+    val MIGRATION_13_14 = object : Migration(13, 14) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL("""
+            CREATE TABLE IF NOT EXISTS sync_metadata (
+                entityType TEXT PRIMARY KEY NOT NULL,
+                lastSyncTimestamp INTEGER NOT NULL,
+                lastEtag TEXT,
+                syncStatus TEXT NOT NULL,
+                updateCount INTEGER NOT NULL DEFAULT 0,
+                lastSyncResult TEXT
+            )
+        """)
+        }
+    }
 }

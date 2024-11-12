@@ -5,10 +5,13 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
-import androidx.work.impl.Migration_11_12
+import com.splitter.splittr.data.local.DatabaseMigrations.MIGRATION_11_12
+import com.splitter.splittr.data.local.DatabaseMigrations.MIGRATION_12_13
+import com.splitter.splittr.data.local.DatabaseMigrations.MIGRATION_13_14
 import com.splitter.splittr.data.local.converters.Converters
 import com.splitter.splittr.data.local.dao.*
 import com.splitter.splittr.data.local.entities.*
+import com.splitter.splittr.data.sync.SyncMetadata
 
 @Database(
     entities = [
@@ -20,9 +23,10 @@ import com.splitter.splittr.data.local.entities.*
         PaymentSplitEntity::class,
         RequisitionEntity::class,
         TransactionEntity::class,
-        UserEntity::class],
+        UserEntity::class,
+        SyncMetadata:: class],
 
-    version = 12,
+    version = 14,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -37,6 +41,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun requisitionDao(): RequisitionDao
     abstract fun transactionDao(): TransactionDao
     abstract fun userDao(): UserDao
+    abstract fun syncMetadataDao(): SyncMetadataDao
+
 
 
     companion object {
@@ -50,7 +56,11 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "app_database"
                 )
-                    .addMigrations(Migration_11_12)
+                    .addMigrations(
+                        MIGRATION_11_12,
+                        MIGRATION_12_13,
+                        MIGRATION_13_14
+                    )
                     .build()
                 INSTANCE = instance
                 instance

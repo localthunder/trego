@@ -2,7 +2,7 @@ package com.splitter.splittr.data.extensions
 
 import com.splitter.splittr.data.local.entities.InstitutionEntity
 import com.splitter.splittr.data.sync.SyncStatus
-import com.splitter.splittr.model.Institution
+import com.splitter.splittr.data.model.Institution
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 

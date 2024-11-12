@@ -7,6 +7,7 @@ import com.splitter.splittr.data.local.dao.UserDao
 import com.splitter.splittr.data.local.entities.UserEntity
 import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.data.network.AuthResponse
+import com.splitter.splittr.data.repositories.UserRepository
 import com.splitter.splittr.data.sync.SyncStatus
 import com.splitter.splittr.ui.screens.LoginRequest
 import com.splitter.splittr.ui.screens.RegisterRequest

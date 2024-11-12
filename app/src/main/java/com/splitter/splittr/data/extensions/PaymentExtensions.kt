@@ -3,7 +3,7 @@ package com.splitter.splittr.data.extensions
 
 import com.splitter.splittr.data.local.entities.PaymentEntity
 import com.splitter.splittr.data.sync.SyncStatus
-import com.splitter.splittr.model.Payment
+import com.splitter.splittr.data.model.Payment
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 

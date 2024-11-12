@@ -1,4 +1,4 @@
-package com.splitter.splittr.model
+package com.splitter.splittr.data.model
 
 data class UserBalance(
     val userId: Int,

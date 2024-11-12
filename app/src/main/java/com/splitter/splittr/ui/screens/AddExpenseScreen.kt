@@ -25,10 +25,10 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.splitter.splittr.MyApplication
-import com.splitter.splittr.data.local.repositories.TransactionRepository
+import com.splitter.splittr.data.repositories.TransactionRepository
 import com.splitter.splittr.ui.components.GlobalTopAppBar
 import com.splitter.splittr.ui.components.TransactionItem
-import com.splitter.splittr.model.Transaction
+import com.splitter.splittr.data.model.Transaction
 import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.ui.components.MultipleReauthorizationCard
 import com.splitter.splittr.ui.components.ReauthorizeBankAccountCard

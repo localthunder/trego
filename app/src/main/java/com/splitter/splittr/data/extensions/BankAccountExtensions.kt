@@ -2,7 +2,7 @@ package com.splitter.splittr.data.extensions
 
 import com.splitter.splittr.data.local.entities.BankAccountEntity
 import com.splitter.splittr.data.sync.SyncStatus
-import com.splitter.splittr.model.BankAccount
+import com.splitter.splittr.data.model.BankAccount
 
 fun BankAccount.toEntity(syncStatus: SyncStatus): BankAccountEntity {
     return BankAccountEntity(

@@ -3,7 +3,7 @@ package com.splitter.splittr.ui.viewmodels
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.splitter.splittr.data.local.repositories.UserRepository
+import com.splitter.splittr.data.repositories.UserRepository
 import com.splitter.splittr.data.network.AuthResponse
 import com.splitter.splittr.ui.screens.LoginRequest
 import com.splitter.splittr.ui.screens.RegisterRequest

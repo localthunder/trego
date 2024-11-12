@@ -18,7 +18,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.splitter.splittr.MyApplication
-import com.splitter.splittr.model.BankAccount
+import com.splitter.splittr.data.model.BankAccount
 import kotlinx.coroutines.launch
 
 @Composable

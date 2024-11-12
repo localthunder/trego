@@ -293,9 +293,9 @@ class GroupViewModel(
         }
     }
 
-    fun removeMemberFromGroup(groupId: Int, userId: Int) {
+    fun removeMemberFromGroup(memberId: Int) {
         viewModelScope.launch {
-            groupRepository.removeMemberFromGroup(groupId, userId)
+            groupRepository.removeMemberFromGroup(memberId)
         }
     }
 

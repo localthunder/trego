@@ -2,9 +2,9 @@ package com.splitter.splittr.data.extensions
 
 import com.splitter.splittr.data.local.entities.TransactionEntity
 import com.splitter.splittr.data.sync.SyncStatus
-import com.splitter.splittr.model.Transaction
-import com.splitter.splittr.model.TransactionAmount
-import com.splitter.splittr.model.CreditorAccount
+import com.splitter.splittr.data.model.Transaction
+import com.splitter.splittr.data.model.TransactionAmount
+import com.splitter.splittr.data.model.CreditorAccount
 
 fun Transaction.toEntity(syncStatus: SyncStatus = SyncStatus.PENDING_SYNC): TransactionEntity {
     return TransactionEntity(
