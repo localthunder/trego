@@ -29,9 +29,9 @@ class SyncWorker(
 //            syncRepository("Group Members", groupRepository::syncGroupMembers)
             syncRepository("Requisitions", requisitionRepository::sync)
             syncRepository("Bank Accounts", bankAccountRepository::sync)
-            syncRepository("Payments", paymentRepository::syncPayments)
-            syncRepository("Payment Splits", paymentSplitRepository::syncPaymentSplits)
-            syncRepository("Transactions", transactionRepository::syncTransactions)
+            syncRepository("Payments", paymentRepository::sync)
+//            syncRepository("Payment Splits", paymentSplitRepository::syncPaymentSplits)
+            syncRepository("Transactions", transactionRepository::sync)
 
             Log.d(TAG, "Sync process completed successfully")
             Result.success()

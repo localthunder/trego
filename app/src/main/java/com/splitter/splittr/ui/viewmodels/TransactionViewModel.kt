@@ -169,7 +169,7 @@ class TransactionViewModel(
         viewModelScope.launch(dispatchers.io) {
             _loading.value = (true)
             try {
-                transactionRepository.syncTransactions()
+                transactionRepository.sync()
                 // After syncing, you might want to reload the transactions
                 // Assuming you have a way to get the current user ID
                 // loadTransactions(currentUserId)

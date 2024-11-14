@@ -2,6 +2,7 @@ package com.splitter.splittr.data.network
 
 import android.net.Uri
 import com.google.gson.annotations.SerializedName
+import com.splitter.splittr.data.local.dataClasses.PaymentSyncResponse
 import com.splitter.splittr.data.local.entities.GroupMemberEntity
 import com.splitter.splittr.data.repositories.TransactionRepository
 import com.splitter.splittr.data.model.BankAccount
@@ -152,6 +153,12 @@ interface ApiService {
     @GET("api/groups/user/{userId}")
     suspend fun getGroupsByUserId(@Path("userId") userId: Int): List<Group>
 
+    @GET("api/accounts/changes")
+    suspend fun getAccountsSince(
+        @Query("since") timestamp: Long,
+        @Query("userId") userId: Int
+    ): List<BankAccount>
+
     @GET("api/groups/changes")
     suspend fun getGroupsSince(
         @Query("since") timestamp: Long,
@@ -163,6 +170,12 @@ interface ApiService {
         @Query("since") timestamp: Long,
         @Query("userId") userId: Int
     ): List<GroupMember>
+
+    @GET("api/payments/changes")
+    suspend fun getPaymentsSince(
+        @Query("since") timestamp: Long,
+        @Query("userId") userId: Int
+    ): PaymentSyncResponse
 
     @GET("api/users/changes")
     suspend fun getUsersSince(

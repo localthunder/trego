@@ -1,4 +1,4 @@
-package com.splitter.splittr.data.local.DataClasses
+package com.splitter.splittr.data.local.dataClasses
 
 data class UserGroupListItem(
     val id: Int,

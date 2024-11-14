@@ -9,6 +9,12 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface UserDao {
 
+    @Transaction
+    open suspend fun <R> runInTransaction(block: suspend () -> R): R {
+        // Room automatically handles transactions for suspend functions
+        return block()
+    }
+
     @Query("SELECT * FROM users")
     fun getAllUsers(): Flow<List<UserEntity>>
 
@@ -47,5 +53,5 @@ interface UserDao {
     fun getUnsyncedUsers(): Flow<List<UserEntity>>
 
     @Query("UPDATE users SET sync_status = :status, updated_at = CURRENT_TIMESTAMP WHERE user_id = :userId")
-    suspend fun updateUserSyncStatus(userId: Int, status: String)
+    suspend fun updateUserSyncStatus(userId: Int, status: SyncStatus)
 }

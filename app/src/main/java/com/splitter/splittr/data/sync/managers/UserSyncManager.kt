@@ -28,47 +28,58 @@ class UserSyncManager(
 ) : OptimizedSyncManager<User>(syncMetadataDao, dispatchers) {
 
     override val entityType = "users"
-    override val batchSize = 50  // Users can be processed in larger batches
+    override val batchSize = 50
 
     override suspend fun getLocalChanges(): List<User> =
         userDao.getUnsyncedUsers().first().map { it.toModel() }
 
     override suspend fun syncToServer(entity: User): Result<User> = try {
+        Log.d(TAG, "Syncing user to server: ${entity.userId}")
+
         val result = if (entity.userId == null) {
-            Log.d(TAG, "Creating new user on server: ${entity.userId}")
+            Log.d(TAG, "Creating new user on server")
             apiService.createUser(entity)
         } else {
             Log.d(TAG, "Updating existing user on server: ${entity.userId}")
             apiService.updateUser(entity.userId, entity)
         }
+
+        // Update local sync status after successful server sync
+        result.userId?.let {
+            userDao.updateUser(result.toEntity(SyncStatus.SYNCED))
+            userDao.updateUserSyncStatus(it, SyncStatus.SYNCED)
+        }
+
         Result.success(result)
     } catch (e: Exception) {
         Log.e(TAG, "Error syncing user to server: ${entity.userId}", e)
+        entity.userId?.let { userDao.updateUserSyncStatus(it, SyncStatus.SYNC_FAILED) }
         Result.failure(e)
     }
 
-
     override suspend fun getServerChanges(since: Long): List<User> {
         val userId = getUserIdFromPreferences(context) ?: throw IllegalStateException("User ID not found")
-        Log.d(GroupSyncManager.TAG, "Fetching group members since $since")
+        Log.d(TAG, "Fetching users since $since")
         return apiService.getUsersSince(since, userId)
     }
 
     override suspend fun applyServerChange(serverEntity: User) {
-        val localEntity = userDao.getUserById(serverEntity.userId).first()?.toModel()
+        userDao.runInTransaction {
+            val localEntity = userDao.getUserById(serverEntity.userId).first()
 
-        if (localEntity == null) {
-            Log.d(TAG, "Inserting new user from server: ${serverEntity.userId}")
-            userDao.insertUser(serverEntity.toEntity(SyncStatus.SYNCED))
-        } else {
-            when (val resolution = ConflictResolver.resolve(localEntity, serverEntity)) {
-                is ConflictResolution.ServerWins -> {
+            when {
+                localEntity == null -> {
+                    Log.d(TAG, "Inserting new user from server: ${serverEntity.userId}")
+                    userDao.insertUser(serverEntity.toEntity(SyncStatus.SYNCED))
+                    userDao.updateUserSyncStatus(serverEntity.userId, SyncStatus.SYNCED)
+                }
+                serverEntity.updatedAt > localEntity.updatedAt -> {
                     Log.d(TAG, "Updating existing user from server: ${serverEntity.userId}")
                     userDao.updateUser(serverEntity.toEntity(SyncStatus.SYNCED))
+                    userDao.updateUserSyncStatus(serverEntity.userId, SyncStatus.SYNCED)
                 }
-                is ConflictResolution.LocalWins -> {
-                    Log.d(TAG, "Keeping local user version: ${localEntity.userId}")
-                    userDao.updateUserSyncStatus(localEntity.userId, SyncStatus.PENDING_SYNC.name)
+                else -> {
+                    Log.d(TAG, "Local user ${serverEntity.userId} is up to date")
                 }
             }
         }
@@ -77,13 +88,15 @@ class UserSyncManager(
     suspend fun handleUserUpdate(user: User): Result<User> = try {
         Log.d(TAG, "Handling user update: ${user.userId}")
 
-        // Update local DB
+        // Update local DB with PENDING_SYNC status
         userDao.updateUser(user.toEntity(SyncStatus.PENDING_SYNC))
+        user.userId?.let { userDao.updateUserSyncStatus(it, SyncStatus.PENDING_SYNC) }
 
         // Try to sync immediately if possible
         if (NetworkUtils.isOnline()) {
             val serverUser = apiService.updateUser(user.userId, user)
             userDao.updateUser(serverUser.toEntity(SyncStatus.SYNCED))
+            serverUser.userId?.let { userDao.updateUserSyncStatus(it, SyncStatus.SYNCED) }
             Result.success(serverUser)
         } else {
             Result.success(user)
@@ -96,13 +109,12 @@ class UserSyncManager(
     suspend fun handleUserRegistration(user: User): Result<User> = try {
         Log.d(TAG, "Handling user registration")
 
-        // Try server first since this is a new user
         if (NetworkUtils.isOnline()) {
             val serverUser = apiService.createUser(user)
             userDao.insertUser(serverUser.toEntity(SyncStatus.SYNCED))
+            serverUser.userId?.let { userDao.updateUserSyncStatus(it, SyncStatus.SYNCED) }
             Result.success(serverUser)
         } else {
-            // Store locally if offline
             userDao.insertUser(user.toEntity(SyncStatus.PENDING_SYNC))
             Result.success(user)
         }

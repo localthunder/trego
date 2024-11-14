@@ -1,6 +1,5 @@
 package com.splitter.splittr.ui.screens
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -11,20 +10,16 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
-import coil.compose.rememberImagePainter
 import com.splitter.splittr.MyApplication
-import com.splitter.splittr.data.local.DataClasses.UserGroupListItem
+import com.splitter.splittr.data.local.dataClasses.UserGroupListItem
 import com.splitter.splittr.ui.components.GlobalFAB
 import com.splitter.splittr.ui.components.GlobalTopAppBar
-import com.splitter.splittr.data.model.Group
 import com.splitter.splittr.ui.theme.GlobalTheme
 import com.splitter.splittr.ui.viewmodels.GroupViewModel
 import com.splitter.splittr.utils.ImageUtils

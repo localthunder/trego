@@ -44,7 +44,6 @@ class RequisitionSyncManager(
     }
 
     override suspend fun applyServerChange(serverEntity: Requisition) {
-        // Simply update or insert the server version
         try {
             val localEntity = requisitionDao.getRequisitionById(serverEntity.requisitionId)
             if (localEntity == null) {
@@ -53,9 +52,12 @@ class RequisitionSyncManager(
             } else if (serverEntity.updatedAt > localEntity.updatedAt.toString()) {
                 Log.d(TAG, "Updating existing requisition from server: ${serverEntity.requisitionId}")
                 requisitionDao.updateRequisition(serverEntity.toEntity(SyncStatus.SYNCED))
+                // Add explicit sync status update
+                requisitionDao.updateRequisitionSyncStatus(serverEntity.requisitionId, SyncStatus.SYNCED)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error applying server requisition: ${serverEntity.requisitionId}", e)
+            requisitionDao.updateRequisitionSyncStatus(serverEntity.requisitionId, SyncStatus.SYNC_FAILED)
             throw e
         }
     }

@@ -7,9 +7,8 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.lifecycle.asLiveData
 import com.splitter.splittr.data.extensions.toModel
-import com.splitter.splittr.data.local.DataClasses.UserGroupListItem
+import com.splitter.splittr.data.local.dataClasses.UserGroupListItem
 import com.splitter.splittr.data.local.entities.GroupMemberEntity
 import com.splitter.splittr.data.repositories.GroupRepository
 import com.splitter.splittr.data.repositories.PaymentRepository

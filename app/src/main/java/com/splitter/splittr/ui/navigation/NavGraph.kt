@@ -14,6 +14,7 @@ import androidx.navigation.navArgument
 import com.splitter.splittr.data.local.AppDatabase
 import com.splitter.splittr.data.repositories.TransactionRepository
 import com.splitter.splittr.data.network.ApiService
+import com.splitter.splittr.data.sync.SyncManagerProvider
 import com.splitter.splittr.ui.screens.AddExpenseScreen
 import com.splitter.splittr.ui.screens.AddGroupScreen
 import com.splitter.splittr.ui.screens.BankAccountsScreen
@@ -45,7 +46,16 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
     val paymentDao = database.paymentDao()
     val paymentSplitDao = database.paymentSplitDao()
     val transactionDao = database.transactionDao()
+    val syncMetadataDao = database.syncMetadataDao()
     val userDao = database.userDao()
+
+    val syncManagerProvider = remember {
+        SyncManagerProvider(
+            context = context,
+            apiService = apiService,
+            database = database
+        )
+    }
 
     NavHost(
         navController = navController,
@@ -125,13 +135,7 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
         ) { backStackEntry ->
             val groupId = backStackEntry.arguments?.getInt("groupId") ?: return@composable
             val transactionRepository = remember {
-                TransactionRepository(
-                    transactionDao = transactionDao,
-                    bankAccountDao = bankAccountDao,
-                    apiService = apiService,
-                    dispatchers = AppCoroutineDispatchers(),
-                    context = context
-                )
+                syncManagerProvider.provideTransactionRepository()
             }
             AddExpenseScreen(
                 navController = navController,

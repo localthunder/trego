@@ -9,6 +9,12 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface PaymentSplitDao {
 
+    @Transaction
+    open suspend fun <R> runInTransaction(block: suspend () -> R): R {
+        // Room automatically handles transactions for suspend functions
+        return block()
+    }
+
     @Query("SELECT * FROM payment_splits WHERE id = :paymentSplitId")
     fun getPaymentSplitById(paymentSplitId: Int): PaymentSplitEntity
 
@@ -43,6 +49,12 @@ interface PaymentSplitDao {
     @Query("SELECT * FROM payment_splits WHERE sync_status != 'SYNCED'")
     fun getUnsyncedPaymentSplits(): Flow<List<PaymentSplitEntity>>
 
-    @Query("UPDATE payment_splits SET sync_status = :status, updated_at = CURRENT_TIMESTAMP WHERE id = :splitId")
-    suspend fun updatePaymentSplitSyncStatus(splitId: Int, status: String)
+    @Query("UPDATE payment_splits SET sync_status = :status, updated_at = :timestamp WHERE id = :splitId")
+    suspend fun updatePaymentSplitSyncStatus(splitId: Int, status: SyncStatus, timestamp: String = System.currentTimeMillis().toString())
+
+    @Transaction
+    suspend fun updatePaymentSplitWithSync(split: PaymentSplitEntity, syncStatus: SyncStatus) {
+        updatePaymentSplitDirect(split)
+        updatePaymentSplitSyncStatus(split.id, syncStatus)
+    }
 }

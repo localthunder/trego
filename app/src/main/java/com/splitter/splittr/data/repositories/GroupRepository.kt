@@ -6,7 +6,7 @@ import android.util.Log
 import com.splitter.splittr.data.extensions.toEntity
 import com.splitter.splittr.data.extensions.toListItem
 import com.splitter.splittr.data.extensions.toModel
-import com.splitter.splittr.data.local.DataClasses.UserGroupListItem
+import com.splitter.splittr.data.local.dataClasses.UserGroupListItem
 import com.splitter.splittr.data.local.converters.LocalIdGenerator
 import com.splitter.splittr.data.local.dao.GroupDao
 import com.splitter.splittr.data.local.dao.GroupMemberDao
@@ -27,11 +27,8 @@ import com.splitter.splittr.utils.CoroutineDispatchers
 import com.splitter.splittr.utils.ImageUtils
 import com.splitter.splittr.utils.NetworkUtils
 import com.splitter.splittr.utils.SyncUtils
-import com.splitter.splittr.utils.getUserIdFromPreferences
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map

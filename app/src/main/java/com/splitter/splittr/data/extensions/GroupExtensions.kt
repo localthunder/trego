@@ -1,6 +1,6 @@
 package com.splitter.splittr.data.extensions
 
-import com.splitter.splittr.data.local.DataClasses.UserGroupListItem
+import com.splitter.splittr.data.local.dataClasses.UserGroupListItem
 import com.splitter.splittr.data.local.entities.GroupEntity
 import com.splitter.splittr.data.sync.SyncStatus
 import com.splitter.splittr.data.model.Group

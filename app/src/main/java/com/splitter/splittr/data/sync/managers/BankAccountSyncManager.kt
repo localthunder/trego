@@ -50,7 +50,7 @@ class BankAccountSyncManager(
     override suspend fun getServerChanges(since: Long): List<BankAccount> {
         val userId = getUserIdFromPreferences(context) ?: throw IllegalStateException("User ID not found")
         Log.d(TAG, "Fetching bank accounts since $since for user $userId")
-        return apiService.getUserAccounts(userId)
+        return apiService.getAccountsSince(since, userId)
     }
 
     override suspend fun applyServerChange(serverEntity: BankAccount) {

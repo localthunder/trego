@@ -8,6 +8,13 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface PaymentDao {
+
+    @Transaction
+    open suspend fun <R> runInTransaction(block: suspend () -> R): R {
+        // Room automatically handles transactions for suspend functions
+        return block()
+    }
+
     @Query("SELECT * FROM payments WHERE id = :paymentId")
     fun getPaymentById(paymentId: Int): Flow<PaymentEntity?>
 

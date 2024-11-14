@@ -17,11 +17,13 @@ import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.data.network.RetrofitClient
 import com.splitter.splittr.data.repositories.PaymentSplitRepository
 import com.splitter.splittr.data.sync.GroupSyncManager
+import com.splitter.splittr.data.sync.SyncManagerProvider
 import com.splitter.splittr.data.sync.SyncWorker
 import com.splitter.splittr.data.sync.SyncWorkerFactory
 import com.splitter.splittr.data.sync.managers.BankAccountSyncManager
 import com.splitter.splittr.data.sync.managers.GroupMemberSyncManager
 import com.splitter.splittr.data.sync.managers.RequisitionSyncManager
+import com.splitter.splittr.data.sync.managers.TransactionSyncManager
 import com.splitter.splittr.data.sync.managers.UserSyncManager
 import com.splitter.splittr.ui.viewmodels.AppViewModelFactory
 import com.splitter.splittr.ui.viewmodels.AuthViewModel
@@ -38,30 +40,26 @@ import com.splitter.splittr.utils.SyncUtils
 class MyApplication : Application(), Configuration.Provider {
     lateinit var viewModelFactory: AppViewModelFactory
 
-    val database: AppDatabase by lazy {
-        AppDatabase.getDatabase(this)
+    val database: AppDatabase by lazy { AppDatabase.getDatabase(this) }
+    val apiService: ApiService by lazy { RetrofitClient.getInstance(this).create(ApiService::class.java) }
+
+    private val syncManagerProvider by lazy {
+        SyncManagerProvider(
+            context = this,
+            apiService = apiService,
+            database = database,
+            dispatchers = dispatchers
+        )
     }
-    val apiService: ApiService by lazy {
-        RetrofitClient.getInstance(this).create(ApiService::class.java)
-    }
 
-    //Initialize the sync managers
-    private val bankAccountSyncManager by lazy { BankAccountSyncManager(database.bankAccountDao(),apiService, database.syncMetadataDao(), dispatchers, this)}
-    private val groupMemberSyncManager by lazy { GroupMemberSyncManager(database.groupMemberDao(), apiService, database.syncMetadataDao(), dispatchers, this) }
-    private val groupSyncManager by lazy { GroupSyncManager(database.groupDao(), apiService, database.syncMetadataDao(), dispatchers, this, groupMemberSyncManager) }
-    private val requisitionSyncManager by lazy { RequisitionSyncManager(database.requisitionDao(),apiService, database.syncMetadataDao(), dispatchers, this)}
-    private val userSyncManager by lazy { UserSyncManager(database.userDao(),apiService, database.syncMetadataDao(), dispatchers, this)}
-
-
-    // Initialize repositories
-    val bankAccountRepository: BankAccountRepository by lazy { BankAccountRepository(database.bankAccountDao(), database.requisitionDao(), apiService, dispatchers, database.syncMetadataDao(),this, bankAccountSyncManager, requisitionSyncManager) }
-    val groupRepository: GroupRepository by lazy { GroupRepository(database.groupDao(), database.groupMemberDao(), database.userDao(), database.paymentDao(), database.paymentSplitDao(), database.syncMetadataDao(), apiService, this, dispatchers, groupSyncManager) }
-    val institutionRepository: InstitutionRepository by lazy { InstitutionRepository(database.institutionDao(), apiService, dispatchers, this) }
-    val paymentRepository: PaymentRepository by lazy { PaymentRepository(database.paymentDao(), database.paymentSplitDao(), database.groupDao(), apiService, dispatchers, this) }
-    val paymentSplitRepository: PaymentSplitRepository by lazy { PaymentSplitRepository(database.paymentSplitDao(), database.paymentDao(), database.groupDao(), apiService, dispatchers, this) }
-    val requisitionRepository: RequisitionRepository by lazy { RequisitionRepository(database.requisitionDao(), apiService, dispatchers, this, database.syncMetadataDao(), requisitionSyncManager) }
-    val transactionRepository: TransactionRepository by lazy { TransactionRepository(database.transactionDao(), database.bankAccountDao(), apiService, dispatchers, this) }
-    val userRepository: UserRepository by lazy { UserRepository(database.userDao(), apiService, dispatchers, database.syncMetadataDao(), userSyncManager) }
+    val bankAccountRepository: BankAccountRepository by lazy { syncManagerProvider.provideBankAccountRepository() }
+    val groupRepository: GroupRepository by lazy { syncManagerProvider.provideGroupRepository() }
+    val institutionRepository: InstitutionRepository by lazy { syncManagerProvider.provideInstitutionRepository() }
+    val paymentRepository: PaymentRepository by lazy { syncManagerProvider.providePaymentRepository() }
+    val paymentSplitRepository: PaymentSplitRepository by lazy { syncManagerProvider.providePaymentSplitRepository() }
+    val requisitionRepository: RequisitionRepository by lazy { syncManagerProvider.provideRequisitionRepository() }
+    val transactionRepository: TransactionRepository by lazy { syncManagerProvider.provideTransactionRepository() }
+    val userRepository: UserRepository by lazy { syncManagerProvider.provideUserRepository() }
 
     val dispatchers = AppCoroutineDispatchers()
 
