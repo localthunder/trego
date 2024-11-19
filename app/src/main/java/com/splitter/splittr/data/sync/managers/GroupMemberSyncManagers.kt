@@ -12,6 +12,7 @@ import com.splitter.splittr.data.sync.GroupSyncManager
 import com.splitter.splittr.data.sync.OptimizedSyncManager
 import com.splitter.splittr.data.sync.SyncStatus
 import com.splitter.splittr.utils.CoroutineDispatchers
+import com.splitter.splittr.utils.DateUtils
 import com.splitter.splittr.utils.getUserIdFromPreferences
 import kotlinx.coroutines.flow.first
 
@@ -35,7 +36,7 @@ class GroupMemberSyncManager(
             apiService.addMemberToGroup(entity.groupId, entity)
         } else {
             Log.d(TAG, "Updating existing group member ${entity.id} on server")
-            apiService.updateGroupMember(entity.id, entity)
+            apiService.updateGroupMember(entity.groupId, entity.id, entity)
         }
         Result.success(result)
     } catch (e: Exception) {
@@ -52,17 +53,35 @@ class GroupMemberSyncManager(
     override suspend fun applyServerChange(serverEntity: GroupMember) {
         groupMemberDao.runInTransaction {
             val localEntity = groupMemberDao.getGroupMemberById(serverEntity.id).first()
+
             when {
                 localEntity == null -> {
                     Log.d(TAG, "Inserting new group member from server: ${serverEntity.id}")
-                    groupMemberDao.insertGroupMember(serverEntity.toEntity(SyncStatus.SYNCED))
+                    groupMemberDao.insertGroupMember(
+                        serverEntity
+                            .copy(updatedAt = DateUtils.standardizeTimestamp(serverEntity.updatedAt))
+                            .toEntity(SyncStatus.SYNCED)
+                    )
                 }
-                serverEntity.updatedAt > localEntity.updatedAt -> {
+                DateUtils.isUpdateNeeded(
+                    serverEntity.updatedAt,
+                    localEntity.updatedAt,
+                    "GroupMember-${serverEntity.id}-Group-${serverEntity.groupId}"
+                ) -> {
                     Log.d(TAG, "Updating existing group member from server: ${serverEntity.id}")
-                    groupMemberDao.updateGroupMember(serverEntity.toEntity(SyncStatus.SYNCED))
+                    Log.d(TAG, "Server timestamp: ${serverEntity.updatedAt}")
+                    Log.d(TAG, "Local timestamp: ${localEntity.updatedAt}")
+
+                    groupMemberDao.updateGroupMember(
+                        serverEntity
+                            .copy(updatedAt = DateUtils.standardizeTimestamp(serverEntity.updatedAt))
+                            .toEntity(SyncStatus.SYNCED)
+                    )
                 }
                 else -> {
                     Log.d(TAG, "Local group member ${serverEntity.id} is up to date")
+                    Log.d(TAG, "Server timestamp: ${serverEntity.updatedAt}")
+                    Log.d(TAG, "Local timestamp: ${localEntity.updatedAt}")
                 }
             }
         }

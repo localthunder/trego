@@ -70,7 +70,6 @@ fun GroupDetailsScreen(
     val userViewModel: UserViewModel = viewModel(factory = myApplication.viewModelFactory)
 
     val groupDetailsState by groupViewModel.groupDetailsState.collectAsState()
-    val sortedPayments by groupViewModel.sortedPayments.collectAsState()
 
     var showAddMembersDialog by remember { mutableStateOf(false) }
 
@@ -84,7 +83,7 @@ fun GroupDetailsScreen(
         groupViewModel.loadGroupDetails(groupId)
     }
 
-    val refreshing by derivedStateOf { groupDetailsState.isLoading }
+    val refreshing = groupDetailsState.isLoading
     val pullRefreshState = rememberPullRefreshState(
         refreshing = refreshing,
         onRefresh = { groupViewModel.loadGroupDetails(groupId) }
@@ -175,7 +174,25 @@ fun GroupDetailsScreen(
                                     modifier = Modifier.padding(16.dp)
                                 )
                             }
-                            items(sortedPayments) { payment ->
+                            items(
+                                groupDetailsState.payments
+                                    .sortedByDescending { payment ->
+                                        try {
+                                            // Parse the timestamp - handle both ISO format and unix timestamp
+                                            when {
+                                                payment.updatedAt.toLongOrNull() != null -> payment.updatedAt.toLong()
+                                                else -> {
+                                                    // Try parsing ISO format
+                                                    val instant = java.time.Instant.parse(payment.updatedAt)
+                                                    instant.toEpochMilli()
+                                                }
+                                            }
+                                        } catch (e: Exception) {
+                                            // If parsing fails, put it at the end
+                                            0L
+                                        }
+                                    }
+                            ) { payment ->
                                 PaymentItem(
                                     payment = payment,
                                     onClick = { navController.navigate("paymentDetails/$groupId/${payment.id}") }
@@ -187,7 +204,9 @@ fun GroupDetailsScreen(
                 PullRefreshIndicator(
                     refreshing = refreshing,
                     state = pullRefreshState,
-                    modifier = Modifier.align(Alignment.TopCenter)
+                    modifier = Modifier.align(Alignment.TopCenter),
+                    backgroundColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.primary
                 )
             }
         }
@@ -213,18 +232,12 @@ fun GroupImageSection(
 ) {
     val context = LocalContext.current
 
-//    // Remember the URL construction
-//    val imageUrl = remember(groupImage) {
-//        val url = ImageUtils.getFullImageUrl(groupImage)
-//        Log.d("GroupImageSection", "Constructed image URL: $url from path: $groupImage")
-//        url
-//    }
 
     val imageSource = remember(groupImage) {
-        if (groupImage != null && ImageUtils.imageExistsLocally(context, groupImage)) {
-            "file://${ImageUtils.getLocalImagePath(context, groupImage)}"
-        } else {
-            ImageUtils.getFullImageUrl(groupImage)
+        when {
+            groupImage == null -> null
+            groupImage.startsWith("/") -> "file://$groupImage" // Local path
+            else -> ImageUtils.getFullImageUrl(groupImage) // Fallback to server URL
         }
     }
 

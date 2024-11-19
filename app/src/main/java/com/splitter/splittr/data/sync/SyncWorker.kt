@@ -26,7 +26,6 @@ class SyncWorker(
 
             syncRepository("Groups", groupRepository::sync)
             syncRepository("Users", userRepository::sync)
-//            syncRepository("Group Members", groupRepository::syncGroupMembers)
             syncRepository("Requisitions", requisitionRepository::sync)
             syncRepository("Bank Accounts", bankAccountRepository::sync)
             syncRepository("Payments", paymentRepository::sync)

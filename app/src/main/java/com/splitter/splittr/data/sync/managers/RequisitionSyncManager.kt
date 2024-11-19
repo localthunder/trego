@@ -13,6 +13,7 @@ import com.splitter.splittr.data.sync.SyncStatus
 import com.splitter.splittr.utils.ConflictResolution
 import com.splitter.splittr.utils.ConflictResolver
 import com.splitter.splittr.utils.CoroutineDispatchers
+import com.splitter.splittr.utils.DateUtils
 import com.splitter.splittr.utils.NetworkUtils
 import com.splitter.splittr.utils.getUserIdFromPreferences
 import kotlinx.coroutines.flow.first
@@ -46,18 +47,54 @@ class RequisitionSyncManager(
     override suspend fun applyServerChange(serverEntity: Requisition) {
         try {
             val localEntity = requisitionDao.getRequisitionById(serverEntity.requisitionId)
-            if (localEntity == null) {
-                Log.d(TAG, "Inserting new requisition from server: ${serverEntity.requisitionId}")
-                requisitionDao.insert(serverEntity.toEntity(SyncStatus.SYNCED))
-            } else if (serverEntity.updatedAt > localEntity.updatedAt.toString()) {
-                Log.d(TAG, "Updating existing requisition from server: ${serverEntity.requisitionId}")
-                requisitionDao.updateRequisition(serverEntity.toEntity(SyncStatus.SYNCED))
-                // Add explicit sync status update
-                requisitionDao.updateRequisitionSyncStatus(serverEntity.requisitionId, SyncStatus.SYNCED)
+
+            when {
+                localEntity == null -> {
+                    Log.d(TAG, "Inserting new requisition from server: ${serverEntity.requisitionId}")
+                    requisitionDao.insert(
+                        serverEntity
+                            .copy(updatedAt = DateUtils.standardizeTimestamp(serverEntity.updatedAt))
+                            .toEntity(SyncStatus.SYNCED)
+                    )
+                }
+                DateUtils.isUpdateNeeded(
+                    serverEntity.updatedAt,
+                    localEntity.updatedAt,
+                    "Requisition-${serverEntity.requisitionId}-Institution-${serverEntity.institutionId}"
+                ) -> {
+                    Log.d(TAG, "Updating existing requisition from server: ${serverEntity.requisitionId}")
+                    Log.d(TAG, "Server timestamp: ${serverEntity.updatedAt}")
+                    Log.d(TAG, "Local timestamp: ${localEntity.updatedAt}")
+
+                    requisitionDao.updateRequisition(
+                        serverEntity
+                            .copy(updatedAt = DateUtils.standardizeTimestamp(serverEntity.updatedAt))
+                            .toEntity(SyncStatus.SYNCED)
+                    )
+
+                    // Add explicit sync status update
+                    requisitionDao.updateRequisitionSyncStatus(
+                        serverEntity.requisitionId,
+                        SyncStatus.SYNCED
+                    )
+                }
+                else -> {
+                    Log.d(TAG, "Local requisition ${serverEntity.requisitionId} is up to date")
+                    Log.d(TAG, "Server timestamp: ${serverEntity.updatedAt}")
+                    Log.d(TAG, "Local timestamp: ${localEntity.updatedAt}")
+                }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error applying server requisition: ${serverEntity.requisitionId}", e)
-            requisitionDao.updateRequisitionSyncStatus(serverEntity.requisitionId, SyncStatus.SYNC_FAILED)
+            Log.e(TAG, """
+            Error applying server requisition: ${serverEntity.requisitionId}
+            Server timestamp: ${serverEntity.updatedAt}
+            Error: ${e.message}
+            """.trimIndent(), e)
+
+            requisitionDao.updateRequisitionSyncStatus(
+                serverEntity.requisitionId,
+                SyncStatus.SYNC_FAILED
+            )
             throw e
         }
     }

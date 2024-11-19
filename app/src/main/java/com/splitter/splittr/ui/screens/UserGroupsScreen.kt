@@ -1,5 +1,6 @@
 package com.splitter.splittr.ui.screens
 
+import android.util.Log
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -31,14 +32,18 @@ fun UserGroupsScreen(navController: NavController) {
     val myApplication = context.applicationContext as MyApplication
     val groupViewModel: GroupViewModel = viewModel(factory = myApplication.viewModelFactory)
 
-    val userId = getUserIdFromPreferences(context)
+    val userId = getUserIdFromPreferences(context) ?: 0
     val groupItems by groupViewModel.userGroupItems.collectAsStateWithLifecycle()
     val loading by groupViewModel.loading.collectAsStateWithLifecycle()
     val error by groupViewModel.error.collectAsStateWithLifecycle()
 
-    LaunchedEffect(userId) {
-        if (userId != null && userId > 0) {
+    LaunchedEffect(Unit) {
+        Log.d("UserGroupsScreen", "LaunchedEffect triggered")
+        if (userId > 0) {
+            Log.d("UserGroupsScreen", "Loading groups for user: $userId")
             groupViewModel.loadUserGroupsList(userId)
+        } else {
+            Log.e("UserGroupsScreen", "Invalid userId: $userId")
         }
     }
 
@@ -95,7 +100,10 @@ fun GroupListItem(groupItem: UserGroupListItem, navController: NavController) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             AsyncImage(
-                model = ImageUtils.getFullImageUrl(groupItem.groupImg),
+                model = when {
+                    groupItem.groupImg?.startsWith("/") == true -> "file://${groupItem.groupImg}"
+                    else -> ImageUtils.getFullImageUrl(groupItem.groupImg)
+                },
                 contentDescription = null,
                 modifier = Modifier
                     .size(40.dp)

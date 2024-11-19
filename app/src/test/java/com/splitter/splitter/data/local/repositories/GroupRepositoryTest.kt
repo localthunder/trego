@@ -1,9 +1,9 @@
 package com.splitter.splittr.data.local.repositories
 
-import SyncUtils
 import android.content.Context
 import android.net.Uri
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
+import androidx.core.net.toUri
 import com.splitter.splittr.data.extensions.toModel
 import com.splitter.splittr.data.local.dao.*
 import com.splitter.splittr.data.local.entities.GroupEntity
@@ -18,10 +18,14 @@ import com.splitter.splittr.data.model.Group
 import com.splitter.splittr.data.model.GroupMember
 import com.splitter.splittr.data.model.User
 import com.splitter.splittr.data.repositories.GroupRepository
+import com.splitter.splittr.data.sync.GroupSyncManager
+import com.splitter.splittr.data.sync.SyncManagerProvider
+import com.splitter.splittr.data.sync.managers.GroupMemberSyncManager
 import com.splitter.splittr.ui.screens.UserBalanceWithCurrency
 import com.splitter.splittr.utils.AppCoroutineDispatchers
 import com.splitter.splittr.utils.ImageUtils
 import com.splitter.splittr.utils.NetworkUtils
+import com.splitter.splittr.utils.SyncUtils
 import io.mockk.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
@@ -42,11 +46,15 @@ class GroupRepositoryTest {
     private lateinit var userDao: UserDao
     private lateinit var paymentDao: PaymentDao
     private lateinit var paymentSplitDao: PaymentSplitDao
+    private lateinit var syncMetadataDao: SyncMetadataDao
     private lateinit var apiService: ApiService
     private lateinit var context: Context
     private lateinit var groupRepository: GroupRepository
+    private lateinit var groupSyncManager: GroupSyncManager
+    private lateinit var groupMemberSyncManager: GroupMemberSyncManager
 
     private val testDispatchers = AppCoroutineDispatchers()
+
 
     @Before
     fun setup() {
@@ -58,16 +66,20 @@ class GroupRepositoryTest {
         apiService = mockk()
         context = mockk()
 
+        // Mock sync managers
+        groupSyncManager = mockk(relaxed = true)
+        groupMemberSyncManager = mockk(relaxed = true)
+
         mockkObject(NetworkUtils)
         mockkObject(ImageUtils)
 
-        groupRepository = GroupRepository(groupDao, groupMemberDao, userDao, paymentDao, paymentSplitDao, apiService, context, testDispatchers)
+        groupRepository = GroupRepository(groupDao, groupMemberDao, userDao, paymentDao, paymentSplitDao, syncMetadataDao, apiService, context, testDispatchers, groupSyncManager, groupMemberSyncManager)
     }
 
     @Test
     fun `getGroupById returns flow of specific group`() = runTest {
         val groupId = 1
-        val mockGroup = GroupEntity(id = groupId, name = "Test Group", description = "Test Description", groupImg = null, createdAt = "2023-01-01", updatedAt = "2023-01-01", inviteLink = null)
+        val mockGroup = GroupEntity(id = groupId, name = "Test Group", description = "Test Description", groupImg = null, createdAt = "2023-01-01", updatedAt = "2023-01-01", inviteLink = null, localImagePath = "img", imageLastModified = "2024-09-11")
 
         coEvery { groupDao.getGroupById(groupId) } returns flowOf(mockGroup)
         every { NetworkUtils.isOnline() } returns false
@@ -85,8 +97,8 @@ class GroupRepositoryTest {
     fun `getGroupsByUserId returns flow of groups`() = runTest {
         val userId = 1
         val mockGroups = listOf(
-            GroupEntity(id = 1, serverId = null, name = "Group 1", description = "Description 1", groupImg = null, createdAt = "2023-01-01", updatedAt = "2023-01-01", inviteLink = null, syncStatus = SyncStatus.PENDING_SYNC),
-            GroupEntity(id = 2, serverId = null, name = "Group 2", description = "Description 2", groupImg = null, createdAt = "2023-01-02", updatedAt = "2023-01-02", inviteLink = null, syncStatus = SyncStatus.PENDING_SYNC)
+            GroupEntity(id = 1, serverId = null, name = "Group 1", description = "Description 1", groupImg = null, createdAt = "2023-01-01", updatedAt = "2023-01-01", inviteLink = null, syncStatus = SyncStatus.PENDING_SYNC, localImagePath = "img", imageLastModified = "2024-09-11"),
+            GroupEntity(id = 2, serverId = null, name = "Group 2", description = "Description 2", groupImg = null, createdAt = "2023-01-02", updatedAt = "2023-01-02", inviteLink = null, syncStatus = SyncStatus.PENDING_SYNC, localImagePath = "img", imageLastModified = "2024-09-11")
         )
 
         coEvery { groupDao.getGroupsByUserId(userId) } returns flowOf(mockGroups)
@@ -195,17 +207,18 @@ class GroupRepositoryTest {
     fun `removeMemberFromGroup removes member successfully`() = runTest {
         val groupId = 1
         val userId = 2
+        val memberId = 1
 
         every { NetworkUtils.isOnline() } returns true
-        coEvery { groupMemberDao.removeGroupMember(groupId, userId) } just Runs
-        coEvery { apiService.removeMemberFromGroup(groupId, userId) } returns mockk()
+        coEvery { groupMemberDao.removeGroupMember(memberId) } just Runs
+        coEvery { apiService.removeMemberFromGroup(memberId) } returns mockk()
 
-        val result = groupRepository.removeMemberFromGroup(groupId, userId)
+        val result = groupRepository.removeMemberFromGroup(memberId)
 
         assertTrue(result.isSuccess)
 
-        coVerify { groupMemberDao.removeGroupMember(groupId, userId) }
-        coVerify { apiService.removeMemberFromGroup(groupId, userId) }
+        coVerify { groupMemberDao.removeGroupMember(memberId) }
+        coVerify { apiService.removeMemberFromGroup(memberId) }
     }
 
     @Test
@@ -234,9 +247,9 @@ class GroupRepositoryTest {
 
         every { NetworkUtils.isOnline() } returns true
         every { ImageUtils.uriToByteArray(context, uri) } returns byteArrayOf(1, 2, 3)
-        coEvery { apiService.uploadGroupImage(eq(groupId), any()) } returns UploadResponsed("Success", imagePath)
+        coEvery { apiService.uploadGroupImage(eq(groupId), any()) } returns UploadResponsed(true, "message", imagePath)
 
-        val result = groupRepository.uploadGroupImage(groupId, uri)
+        val result = groupRepository.handleGroupImageUpload(groupId, uri)
 
         assertTrue(result.isSuccess)
         assertEquals(Pair(imagePath, "Success"), result.getOrNull())
@@ -251,7 +264,7 @@ class GroupRepositoryTest {
 
         coEvery { groupDao.updateGroupImage(groupId, imagePath) } just Runs
 
-        groupRepository.updateGroupImage(groupId, imagePath)
+        groupRepository.handleGroupImageUpload(groupId, imagePath.toUri())
 
         coVerify { groupDao.updateGroupImage(groupId, imagePath) }
     }

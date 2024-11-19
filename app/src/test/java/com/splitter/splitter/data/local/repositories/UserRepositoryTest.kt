@@ -3,12 +3,15 @@ package com.splitter.splittr.data.local.repositories
 import android.content.Context
 import android.net.ConnectivityManager
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
+import com.splitter.splittr.data.local.dao.SyncMetadataDao
 import com.splitter.splittr.data.local.dao.UserDao
 import com.splitter.splittr.data.local.entities.UserEntity
 import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.data.network.AuthResponse
 import com.splitter.splittr.data.repositories.UserRepository
 import com.splitter.splittr.data.sync.SyncStatus
+import com.splitter.splittr.data.sync.managers.PaymentSyncManager
+import com.splitter.splittr.data.sync.managers.UserSyncManager
 import com.splitter.splittr.ui.screens.LoginRequest
 import com.splitter.splittr.ui.screens.RegisterRequest
 import com.splitter.splittr.utils.AppCoroutineDispatchers
@@ -36,6 +39,8 @@ class UserRepositoryTest {
     private lateinit var apiService: ApiService
     private lateinit var context: Context
     private lateinit var userRepository: UserRepository
+    private lateinit var syncMetadataDao: SyncMetadataDao
+    private lateinit var userSyncManager: UserSyncManager
 
     private val testDispatchers = AppCoroutineDispatchers()
 
@@ -45,7 +50,7 @@ class UserRepositoryTest {
         apiService = mockk()
         context = mockk()
 
-        userRepository = UserRepository(userDao, apiService, testDispatchers)
+        userRepository = UserRepository(userDao, apiService, testDispatchers, syncMetadataDao, userSyncManager)
     }
 
     @Test
@@ -219,12 +224,12 @@ class UserRepositoryTest {
         coEvery { userDao.updateUser(any()) } just Runs
         coEvery { userDao.updateUserSyncStatus(any(), any()) } just Runs
 
-        userRepository.syncUsers()
+        userRepository.sync()
 
         coVerify { userDao.getUnsyncedUsers() }
         coVerify { apiService.getUserById(1) }
         coVerify { apiService.getUserById(2) }
         coVerify(exactly = 2) { userDao.updateUser(any()) }
-        coVerify(exactly = 2) { userDao.updateUserSyncStatus(any(), SyncStatus.SYNCED.name) }
+        coVerify(exactly = 2) { userDao.updateUserSyncStatus(any(), SyncStatus.SYNCED) }
     }
 }

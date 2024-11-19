@@ -421,7 +421,7 @@ class TransactionDaoTest {
         assertEquals(SyncStatus.PENDING_SYNC, retrievedTransaction?.syncStatus)
 
         // Update Sync Status
-        transactionDao.updateTransactionSyncStatus("txn007", SyncStatus.SYNCED.name)
+        transactionDao.updateTransactionSyncStatus("txn007", SyncStatus.SYNCED)
 
         // Verify Updated Sync Status
         val updatedTransaction = transactionDao.getTransactionById("txn007").first()

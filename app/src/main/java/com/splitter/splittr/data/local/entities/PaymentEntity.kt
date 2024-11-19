@@ -46,7 +46,7 @@ import java.sql.Timestamp
 )
 
 data class PaymentEntity(
-    @PrimaryKey val id: Int = LocalIdGenerator.nextId(),
+    @PrimaryKey val id: Int,
     @ColumnInfo(name = "server_id") val serverId: Int? = 0,
     @ColumnInfo(name = "group_id") val groupId: Int,
     @ColumnInfo(name = "paid_by_user_id") val paidByUserId: Int,

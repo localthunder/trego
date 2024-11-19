@@ -63,7 +63,9 @@ class GroupMemberDaoTest {
             description = "Test Group Description",
             groupImg = "AAAAAAAAAA",
             inviteLink = "inteasdv",
-            updatedAt = "2024-08-01"
+            updatedAt = "2024-08-01",
+            localImagePath = "img",
+            imageLastModified = "2024-09-12"
         )
 
         runBlocking {
@@ -120,7 +122,7 @@ class GroupMemberDaoTest {
         groupMemberDao.insertGroupMember(groupMember)
 
         // Remove the group member
-        groupMemberDao.removeGroupMember(1, 1)
+        groupMemberDao.removeGroupMember(1)
 
         // Verify the group member was removed
         val members = groupMemberDao.getMembersOfGroup(1).first()

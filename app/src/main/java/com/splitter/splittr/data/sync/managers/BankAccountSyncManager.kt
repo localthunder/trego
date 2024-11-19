@@ -13,6 +13,7 @@ import com.splitter.splittr.data.sync.SyncStatus
 import com.splitter.splittr.utils.ConflictResolution
 import com.splitter.splittr.utils.ConflictResolver
 import com.splitter.splittr.utils.CoroutineDispatchers
+import com.splitter.splittr.utils.DateUtils
 import com.splitter.splittr.utils.getUserIdFromPreferences
 import kotlinx.coroutines.flow.first
 
@@ -58,19 +59,36 @@ class BankAccountSyncManager(
 
         if (localEntity == null) {
             Log.d(TAG, "Inserting new bank account from server: ${serverEntity.accountId}")
-            bankAccountDao.insertBankAccount(serverEntity.toEntity(SyncStatus.SYNCED))
+            bankAccountDao.insertBankAccount(
+                serverEntity
+                    .copy(updatedAt = DateUtils.standardizeTimestamp(serverEntity.updatedAt))
+                    .toEntity(SyncStatus.SYNCED)
+            )
         } else {
-            when (val resolution = ConflictResolver.resolve(localEntity, serverEntity)) {
-                is ConflictResolution.ServerWins -> {
+            when {
+                DateUtils.isUpdateNeeded(
+                    serverEntity.updatedAt,
+                    localEntity.updatedAt,
+                    "BankAccount-${serverEntity.accountId}"
+                ) -> {
                     Log.d(TAG, "Updating existing bank account from server: ${serverEntity.accountId}")
+                    Log.d(TAG, "Server timestamp: ${serverEntity.updatedAt}")
+                    Log.d(TAG, "Local timestamp: ${localEntity.updatedAt}")
+
                     // Preserve local reauth status if it's set to true
                     val needsReauth = localEntity.needsReauthentication || serverEntity.needsReauthentication
-                    bankAccountDao.insertBankAccount(serverEntity.toEntity(SyncStatus.SYNCED).copy(
-                        needsReauthentication = needsReauth
-                    ))
+
+                    bankAccountDao.insertBankAccount(
+                        serverEntity
+                            .copy(updatedAt = DateUtils.standardizeTimestamp(serverEntity.updatedAt))
+                            .toEntity(SyncStatus.SYNCED)
+                            .copy(needsReauthentication = needsReauth)
+                    )
                 }
-                is ConflictResolution.LocalWins -> {
+                else -> {
                     Log.d(TAG, "Keeping local bank account version: ${localEntity.accountId}")
+                    Log.d(TAG, "Server timestamp: ${serverEntity.updatedAt}")
+                    Log.d(TAG, "Local timestamp: ${localEntity.updatedAt}")
                     bankAccountDao.updateBankAccountSyncStatus(localEntity.accountId, SyncStatus.PENDING_SYNC)
                 }
             }

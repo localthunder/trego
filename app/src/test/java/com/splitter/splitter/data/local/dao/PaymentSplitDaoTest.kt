@@ -70,7 +70,9 @@ class PaymentSplitDaoTest {
             description = "Test Group Description",
             groupImg = "AAAAAAAAAA",
             inviteLink = "inteasdv",
-            updatedAt = "2024-08-01"
+            updatedAt = "2024-08-01",
+            localImagePath = "img",
+            imageLastModified = "2024-09-12"
         )
         val group2 = GroupEntity(
             id = 2,
@@ -79,7 +81,9 @@ class PaymentSplitDaoTest {
             description = "Test Group Description",
             groupImg = "AAAAAAAAAA",
             inviteLink = "inteasdv",
-            updatedAt = "2024-08-01"
+            updatedAt = "2024-08-01",
+            localImagePath = "img",
+            imageLastModified = "2024-09-12"
         )
 
         val payment = PaymentEntity(
@@ -222,7 +226,7 @@ class PaymentSplitDaoTest {
         paymentSplitDao.insertPaymentSplit(paymentSplit)
 
         // Update Sync Status with the correct id
-        paymentSplitDao.updatePaymentSplitSyncStatus(1, SyncStatus.SYNCED.name)
+        paymentSplitDao.updatePaymentSplitSyncStatus(1, SyncStatus.SYNCED)
 
         // Verify Sync Status Update
         val splits = paymentSplitDao.getPaymentSplitsByPayment(1).first()

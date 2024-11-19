@@ -123,7 +123,8 @@ class SyncManagerProvider(
         apiService = apiService,
         context = context,
         dispatchers = dispatchers,
-        groupSyncManager = groupSyncManager
+        groupSyncManager = groupSyncManager,
+        groupMemberSyncManager = groupMemberSyncManager
     )
 
     fun provideInstitutionRepository() = InstitutionRepository(
@@ -136,6 +137,7 @@ class SyncManagerProvider(
         paymentDao = database.paymentDao(),
         paymentSplitDao = database.paymentSplitDao(),
         groupDao = database.groupDao(),
+        groupMemberDao = database.groupMemberDao(),
         apiService = apiService,
         dispatchers = dispatchers,
         context = context,

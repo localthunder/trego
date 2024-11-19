@@ -14,6 +14,7 @@ fun Group.toEntity(syncStatus: SyncStatus = SyncStatus.PENDING_SYNC): GroupEntit
         description = this.description,
         groupImg = this.groupImg,
         localImagePath = null,
+        imageLastModified = null,
         createdAt = this.createdAt,
         updatedAt = this.updatedAt,
         inviteLink = this.inviteLink,
@@ -38,7 +39,7 @@ fun GroupEntity.toListItem(): UserGroupListItem {
         id = this.id,
         name = this.name,
         description = this.description,
-        groupImg = this.groupImg
+        groupImg = this.localImagePath ?: this.groupImg // Prefer local path over server path
     )
 }
 

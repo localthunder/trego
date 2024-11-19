@@ -5,8 +5,10 @@ import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.splitter.splittr.data.extensions.toEntity
 import com.splitter.splittr.data.extensions.toModel
 import com.splitter.splittr.data.local.dao.GroupDao
+import com.splitter.splittr.data.local.dao.GroupMemberDao
 import com.splitter.splittr.data.local.dao.PaymentDao
 import com.splitter.splittr.data.local.dao.PaymentSplitDao
+import com.splitter.splittr.data.local.dao.SyncMetadataDao
 import com.splitter.splittr.data.local.entities.PaymentEntity
 import com.splitter.splittr.data.local.entities.PaymentSplitEntity
 import com.splitter.splittr.data.network.ApiService
@@ -14,6 +16,7 @@ import com.splitter.splittr.data.sync.SyncStatus
 import com.splitter.splittr.data.model.Payment
 import com.splitter.splittr.data.model.PaymentSplit
 import com.splitter.splittr.data.repositories.PaymentRepository
+import com.splitter.splittr.data.sync.managers.PaymentSyncManager
 import com.splitter.splittr.utils.AppCoroutineDispatchers
 import com.splitter.splittr.utils.NetworkUtils
 import io.mockk.*
@@ -36,9 +39,12 @@ class PaymentRepositoryTest {
     private lateinit var paymentDao: PaymentDao
     private lateinit var paymentSplitDao: PaymentSplitDao
     private lateinit var groupDao: GroupDao
+    private lateinit var groupMemberDao: GroupMemberDao
+    private lateinit var syncMetadataDao: SyncMetadataDao
     private lateinit var apiService: ApiService
     private lateinit var context: Context
     private lateinit var paymentRepository: PaymentRepository
+    private lateinit var paymentSyncManager: PaymentSyncManager
 
     private val testDispatchers = AppCoroutineDispatchers()
 
@@ -50,8 +56,11 @@ class PaymentRepositoryTest {
         paymentDao = mockk()
         paymentSplitDao = mockk()
         groupDao = mockk()
+        groupMemberDao = mockk()
+        syncMetadataDao = mockk()
         apiService = mockk()
         context = mockk()
+        paymentSyncManager = mockk()
 
         mockkObject(NetworkUtils)
 
@@ -59,9 +68,12 @@ class PaymentRepositoryTest {
             paymentDao,
             paymentSplitDao,
             groupDao,
+            groupMemberDao,
             apiService,
             testDispatchers,
-            context
+            context,
+            syncMetadataDao,
+            paymentSyncManager
         )
     }
 

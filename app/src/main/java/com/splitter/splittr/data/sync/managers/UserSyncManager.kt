@@ -6,6 +6,7 @@ import com.splitter.splittr.data.extensions.toEntity
 import com.splitter.splittr.data.extensions.toModel
 import com.splitter.splittr.data.local.dao.UserDao
 import com.splitter.splittr.data.local.dao.SyncMetadataDao
+import com.splitter.splittr.data.local.entities.UserEntity
 import com.splitter.splittr.data.model.GroupMember
 import com.splitter.splittr.data.model.User
 import com.splitter.splittr.data.network.ApiService
@@ -15,6 +16,7 @@ import com.splitter.splittr.data.sync.SyncStatus
 import com.splitter.splittr.utils.ConflictResolution
 import com.splitter.splittr.utils.ConflictResolver
 import com.splitter.splittr.utils.CoroutineDispatchers
+import com.splitter.splittr.utils.DateUtils
 import com.splitter.splittr.utils.NetworkUtils
 import com.splitter.splittr.utils.getUserIdFromPreferences
 import kotlinx.coroutines.flow.first
@@ -33,29 +35,6 @@ class UserSyncManager(
     override suspend fun getLocalChanges(): List<User> =
         userDao.getUnsyncedUsers().first().map { it.toModel() }
 
-    override suspend fun syncToServer(entity: User): Result<User> = try {
-        Log.d(TAG, "Syncing user to server: ${entity.userId}")
-
-        val result = if (entity.userId == null) {
-            Log.d(TAG, "Creating new user on server")
-            apiService.createUser(entity)
-        } else {
-            Log.d(TAG, "Updating existing user on server: ${entity.userId}")
-            apiService.updateUser(entity.userId, entity)
-        }
-
-        // Update local sync status after successful server sync
-        result.userId?.let {
-            userDao.updateUser(result.toEntity(SyncStatus.SYNCED))
-            userDao.updateUserSyncStatus(it, SyncStatus.SYNCED)
-        }
-
-        Result.success(result)
-    } catch (e: Exception) {
-        Log.e(TAG, "Error syncing user to server: ${entity.userId}", e)
-        entity.userId?.let { userDao.updateUserSyncStatus(it, SyncStatus.SYNC_FAILED) }
-        Result.failure(e)
-    }
 
     override suspend fun getServerChanges(since: Long): List<User> {
         val userId = getUserIdFromPreferences(context) ?: throw IllegalStateException("User ID not found")
@@ -65,24 +44,122 @@ class UserSyncManager(
 
     override suspend fun applyServerChange(serverEntity: User) {
         userDao.runInTransaction {
+            val currentUserId = getUserIdFromPreferences(context)
             val localEntity = userDao.getUserById(serverEntity.userId).first()
+            val isCurrentUser = serverEntity.userId == currentUserId
 
             when {
                 localEntity == null -> {
                     Log.d(TAG, "Inserting new user from server: ${serverEntity.userId}")
-                    userDao.insertUser(serverEntity.toEntity(SyncStatus.SYNCED))
-                    userDao.updateUserSyncStatus(serverEntity.userId, SyncStatus.SYNCED)
+                    val entityToStore = serverEntity
+                        .copy(updatedAt = DateUtils.standardizeTimestamp(serverEntity.updatedAt))
+                        .toEntity(SyncStatus.SYNCED)
+                        .let { entity ->
+                            if (!isCurrentUser) {
+                                entity.copy(
+                                    passwordHash = null,
+                                    googleId = null,
+                                    appleId = null,
+                                    lastLoginDate = null
+                                )
+                            } else {
+                                entity
+                            }
+                        }
+                    userDao.insertUser(entityToStore)
                 }
-                serverEntity.updatedAt > localEntity.updatedAt -> {
+                DateUtils.isUpdateNeeded(
+                    serverEntity.updatedAt,
+                    localEntity.updatedAt,
+                    "User-${serverEntity.userId}"
+                ) -> {
                     Log.d(TAG, "Updating existing user from server: ${serverEntity.userId}")
-                    userDao.updateUser(serverEntity.toEntity(SyncStatus.SYNCED))
-                    userDao.updateUserSyncStatus(serverEntity.userId, SyncStatus.SYNCED)
+                    Log.d(TAG, "Server timestamp: ${serverEntity.updatedAt}")
+                    Log.d(TAG, "Local timestamp: ${localEntity.updatedAt}")
+
+                    val entityToUpdate = serverEntity
+                        .copy(updatedAt = DateUtils.standardizeTimestamp(serverEntity.updatedAt))
+                        .toEntity(SyncStatus.SYNCED)
+                        .let { entity ->
+                            if (!isCurrentUser) {
+                                entity.copy(
+                                    passwordHash = null,
+                                    googleId = null,
+                                    appleId = null,
+                                    lastLoginDate = null
+                                )
+                            } else {
+                                entity
+                            }
+                        }
+                    userDao.updateUser(entityToUpdate)
                 }
                 else -> {
                     Log.d(TAG, "Local user ${serverEntity.userId} is up to date")
+                    Log.d(TAG, "Server timestamp: ${serverEntity.updatedAt}")
+                    Log.d(TAG, "Local timestamp: ${localEntity.updatedAt}")
                 }
             }
         }
+    }
+
+    override suspend fun syncToServer(entity: User): Result<User> = try {
+        Log.d(TAG, "Syncing user to server: ${entity.userId}")
+
+        val currentUserId = getUserIdFromPreferences(context)
+        val isCurrentUser = entity.userId == currentUserId
+
+        // Standardize the timestamps before sending to server
+        val userWithStandardDates = entity
+
+        Log.d(TAG, """
+        Standardized timestamps for user ${entity.userId}:
+        Original createdAt: ${entity.createdAt}
+        Original updatedAt: ${entity.updatedAt}
+        Standardized createdAt: ${userWithStandardDates.createdAt}
+        Standardized updatedAt: ${userWithStandardDates.updatedAt}
+    """.trimIndent())
+
+        val result = if (entity.userId == null) {
+            Log.d(TAG, "Creating new user on server")
+            apiService.createUser(userWithStandardDates)
+        } else {
+            Log.d(TAG, "Updating existing user on server: ${entity.userId}")
+            apiService.updateUser(entity.userId, userWithStandardDates)
+        }
+
+        // Update local storage with sensitive data stripped for non-current users
+        result.userId?.let { userId ->
+            val entityToStore = result.toEntity(SyncStatus.SYNCED).let { entity ->
+                if (!isCurrentUser) {
+                    entity.copy(
+                        passwordHash = null,
+                        googleId = null,
+                        appleId = null,
+                        lastLoginDate = null
+                    )
+                } else {
+                    entity
+                }
+            }
+            userDao.updateUser(entityToStore)
+            userDao.updateUserSyncStatus(userId, SyncStatus.SYNCED)
+        }
+
+        Result.success(result)
+    } catch (e: Exception) {
+        Log.e(TAG, "Error syncing user to server: ${entity.userId}", e)
+        entity.userId?.let { userDao.updateUserSyncStatus(it, SyncStatus.SYNC_FAILED) }
+        Result.failure(e)
+    }
+
+    private fun stripSensitiveData(entity: UserEntity): UserEntity {
+        return entity.copy(
+            passwordHash = null,
+            googleId = null,
+            appleId = null,
+            lastLoginDate = null
+        )
     }
 
     suspend fun handleUserUpdate(user: User): Result<User> = try {

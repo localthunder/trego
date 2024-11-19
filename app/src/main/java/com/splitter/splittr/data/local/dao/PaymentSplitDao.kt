@@ -1,5 +1,6 @@
 package com.splitter.splittr.data.local.dao
 
+import android.util.Log
 import androidx.room.*
 import com.splitter.splittr.data.local.entities.PaymentEntity
 import com.splitter.splittr.data.local.entities.PaymentSplitEntity
@@ -29,6 +30,31 @@ interface PaymentSplitDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPaymentSplit(paymentSplit: PaymentSplitEntity): Long
+
+    @Transaction
+    suspend fun insertPaymentSplitWithLogging(paymentSplit: PaymentSplitEntity): Long {
+        Log.d("PaymentSplitDao", "Attempting to insert split: " +
+                "id=${paymentSplit.id}, " +
+                "serverId=${paymentSplit.serverId}, " +
+                "paymentId=${paymentSplit.paymentId}, " +
+                "userId=${paymentSplit.userId}, " +
+                "amount=${paymentSplit.amount}, " +
+                "currency=${paymentSplit.currency}")
+
+        try {
+            val result = insertPaymentSplit(paymentSplit)
+            Log.d("PaymentSplitDao", "Successfully inserted split, returned id: $result")
+
+            // Verify the insert
+            val inserted = getPaymentSplitById(paymentSplit.id)
+            Log.d("PaymentSplitDao", "Verification query result: $inserted")
+
+            return result
+        } catch (e: Exception) {
+            Log.e("PaymentSplitDao", "Failed to insert split", e)
+            throw e
+        }
+    }
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAllPaymentSplits(paymentSplits: List<PaymentSplitEntity>): List<Long>

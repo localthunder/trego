@@ -19,7 +19,7 @@ interface GroupDao {
     @Query("SELECT * FROM groups WHERE id = :groupId")
     fun getGroupById(groupId: Int): Flow<GroupEntity?>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertGroup(group: GroupEntity): Long
 
     @Transaction
@@ -52,7 +52,14 @@ interface GroupDao {
     suspend fun deleteGroup(groupId: Int)
 
 
-    @Query("SELECT * FROM groups WHERE id IN (SELECT group_id FROM group_members WHERE user_id = :userId)")
+    @Query("""
+    SELECT DISTINCT g.* 
+    FROM groups g
+    INNER JOIN group_members gm ON g.id = gm.group_id
+    WHERE gm.user_id = :userId 
+    AND gm.removed_at IS NULL
+    ORDER BY g.updated_at DESC
+""")
     fun getGroupsByUserId(userId: Int): Flow<List<GroupEntity>>
 
     @Query("SELECT * FROM groups WHERE server_id = :serverId")
@@ -63,6 +70,9 @@ interface GroupDao {
 
     @Query("UPDATE groups SET sync_status = :status, updated_at = CURRENT_TIMESTAMP WHERE id = :groupId")
     suspend fun updateGroupSyncStatus(groupId: kotlin.Int, status: SyncStatus)
+
+    @Query("UPDATE groups SET updated_at = :timestamp WHERE id = :groupId")
+    suspend fun updateGroupTimestamp(groupId: Int, timestamp: String)
 
     @Query("UPDATE groups SET invite_link = :inviteLink, updated_at = CURRENT_TIMESTAMP WHERE id = :groupId")
     suspend fun updateGroupInviteLink(groupId: Int, inviteLink: String)
@@ -87,6 +97,9 @@ interface GroupDao {
     suspend fun getGroupsWithPendingImageSync(
         pendingStatuses: List<SyncStatus> = listOf(SyncStatus.PENDING_SYNC, SyncStatus.SYNC_FAILED)): List<GroupEntity>
 
-    @Query("UPDATE groups SET local_image_path = :localPath, updated_at = CURRENT_TIMESTAMP WHERE id = :groupId")
-    suspend fun updateLocalImagePath(groupId: Int, localPath: String?)
+    @Query("UPDATE groups SET local_image_path = :localPath, image_last_modified = :lastModified WHERE id = :groupId")
+    suspend fun updateLocalImageInfo(groupId: Int, localPath: String?, lastModified: String?)
+
+    @Query("SELECT * FROM groups WHERE group_img IS NOT NULL AND (local_image_path IS NULL OR image_last_modified != :lastModified)")
+    suspend fun getGroupsNeedingImageDownload(lastModified: String): List<GroupEntity>
 }

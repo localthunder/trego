@@ -3,6 +3,7 @@ package com.splitter.splittr.data.local.dao
 import androidx.room.*
 import com.splitter.splittr.data.local.entities.GroupMemberEntity
 import com.splitter.splittr.data.local.entities.PaymentEntity
+import com.splitter.splittr.data.local.entities.PaymentSplitEntity
 import com.splitter.splittr.data.sync.SyncStatus
 import kotlinx.coroutines.flow.Flow
 
@@ -27,13 +28,13 @@ interface PaymentDao {
     @Query("SELECT * FROM payments WHERE group_id = :groupId AND deleted_at IS NULL")
     suspend fun getNonArchivedPaymentsByGroup(groupId: Int): List<PaymentEntity>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertPayment(payment: PaymentEntity): Long
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertOrUpdatePaymentDirect(payment: PaymentEntity)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertOrUpdatePaymentsDirect(payments: List<PaymentEntity>)
 
     @Transaction
@@ -57,6 +58,7 @@ interface PaymentDao {
         }
         insertOrUpdatePaymentsDirect(updatedPayments)
     }
+
 
     @Update
     suspend fun updatePaymentDirect(payment: PaymentEntity)

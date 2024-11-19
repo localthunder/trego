@@ -38,4 +38,68 @@ object DatabaseMigrations {
         """)
         }
     }
+    val MIGRATION_14_15 = object : Migration(14, 15) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            // Add the new image_last_modified column to groups table
+            database.execSQL("""
+            ALTER TABLE groups 
+            ADD COLUMN image_last_modified TEXT
+        """)
+        }
+    }
+
+    val MIGRATION_15_16 = object : Migration(15, 16) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            // Create temporary table with new schema
+            database.execSQL("""
+            CREATE TABLE IF NOT EXISTS users_temp (
+                user_id INTEGER PRIMARY KEY NOT NULL,
+                server_id INTEGER,
+                username TEXT NOT NULL,
+                email TEXT NOT NULL DEFAULT '',
+                password_hash TEXT,
+                google_id TEXT,
+                apple_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                default_currency TEXT NOT NULL DEFAULT 'GBP',
+                last_login_date TEXT,
+                sync_status TEXT NOT NULL DEFAULT 'PENDING_SYNC'
+            )
+        """)
+
+            // Copy data from old table to new table, converting lastLoginDate from Long to String
+            database.execSQL("""
+            INSERT INTO users_temp 
+            SELECT 
+                user_id,
+                server_id,
+                username,
+                email,
+                password_hash,
+                google_id,
+                apple_id,
+                created_at,
+                updated_at,
+                default_currency,
+                CASE 
+                    WHEN last_login_date IS NULL THEN NULL
+                    ELSE CAST(last_login_date AS TEXT)
+                END,
+                sync_status
+            FROM users
+        """)
+
+            // Drop old table
+            database.execSQL("DROP TABLE users")
+
+            // Rename temporary table to original name
+            database.execSQL("ALTER TABLE users_temp RENAME TO users")
+
+            // Recreate indices
+            database.execSQL("CREATE INDEX IF NOT EXISTS index_users_server_id ON users(server_id)")
+            database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_users_email ON users(email)")
+            database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_users_username ON users(username)")
+        }
+    }
 }

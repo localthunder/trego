@@ -13,5 +13,5 @@ data class User(
     @SerializedName("createdAt") val createdAt: String,
     @SerializedName("updatedAt") override val updatedAt: String,
     @SerializedName("defaultCurrency") val defaultCurrency: String?,
-    @SerializedName("lastLoginDate") val lastLoginDate: Long?
+    @SerializedName("lastLoginDate") val lastLoginDate: String?
 ) : TimestampedEntity

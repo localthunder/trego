@@ -38,7 +38,11 @@ fun AddGroupScreen(navController: NavController, context: Context) {
                 result.isSuccess -> {
                     val (group, member) = result.getOrNull()!!
                     Toast.makeText(context, "Group created and joined successfully", Toast.LENGTH_SHORT).show()
-                    navController.popBackStack()
+                    // Navigate to the new group's details screen
+                    navController.navigate("groupDetails/${group.id}") {
+                        // Clear back stack up to user groups screen
+                        popUpTo("addGroup") { inclusive = true }
+                    }
                 }
                 result.isFailure -> {
                     error = result.exceptionOrNull()?.message ?: "An unknown error occurred"

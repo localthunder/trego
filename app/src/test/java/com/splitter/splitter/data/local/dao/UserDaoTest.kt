@@ -239,7 +239,7 @@ class UserDaoTest {
         assertEquals(SyncStatus.PENDING_SYNC, retrievedUser?.syncStatus)
 
         // Update Sync Status
-        userDao.updateUserSyncStatus(8, SyncStatus.SYNCED.name)
+        userDao.updateUserSyncStatus(8, SyncStatus.SYNCED)
 
         // Verify Updated Sync Status
         val updatedUser = userDao.getUserById(8).first()

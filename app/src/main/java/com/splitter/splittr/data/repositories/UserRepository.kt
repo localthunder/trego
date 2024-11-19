@@ -17,6 +17,7 @@ import com.splitter.splittr.ui.screens.RegisterRequest
 import com.splitter.splittr.utils.AuthUtils.getLoginState
 import com.splitter.splittr.utils.AuthUtils.storeLoginState
 import com.splitter.splittr.utils.CoroutineDispatchers
+import com.splitter.splittr.utils.DateUtils
 import com.splitter.splittr.utils.NetworkUtils
 import com.splitter.splittr.utils.TokenManager
 import com.splitter.splittr.utils.TokenManager.getRefreshToken
@@ -51,6 +52,7 @@ class UserRepository(
     }
 
     suspend fun registerUser(registerRequest: RegisterRequest): Result<AuthResponse> = withContext(dispatchers.io) {
+        val timestamp = DateUtils.getCurrentTimestamp()
         try {
             val authResponse = apiService.registerUser(registerRequest)
             val userEntity = UserEntity(
@@ -61,10 +63,10 @@ class UserRepository(
                 passwordHash = null, // Assuming we don't store the password hash locally
                 googleId = null,
                 appleId = null,
-                createdAt = System.currentTimeMillis().toString(), // Using current time as creation time
-                updatedAt = System.currentTimeMillis().toString(), // Using current time as update time
+                createdAt = timestamp,
+                updatedAt = timestamp,
                 defaultCurrency = "GBP", // Assuming a default currency, adjust as needed
-                lastLoginDate = System.currentTimeMillis().toString(),
+                lastLoginDate = timestamp,
                 syncStatus = SyncStatus.PENDING_SYNC // Marking as pending sync
             )
             userDao.insertUser(userEntity)

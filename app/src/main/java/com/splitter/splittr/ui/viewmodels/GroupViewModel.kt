@@ -19,7 +19,9 @@ import com.splitter.splittr.data.model.Payment
 import com.splitter.splittr.ui.screens.UserBalanceWithCurrency
 import com.splitter.splittr.utils.ImageUtils
 import com.splitter.splittr.utils.getUserIdFromPreferences
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -27,6 +29,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -55,6 +58,7 @@ class GroupViewModel(
         val isDownloadingImage: Boolean = false
     )
 
+
     // Add this sealed class inside your GroupViewModel
     sealed class ImageLoadingState {
         object Idle : ImageLoadingState()
@@ -62,7 +66,6 @@ class GroupViewModel(
         object Success : ImageLoadingState()
         data class Error(val message: String) : ImageLoadingState()
     }
-
 
     private val _groupDetailsState = MutableStateFlow(GroupDetailsState())
     val groupDetailsState: StateFlow<GroupDetailsState> = _groupDetailsState.asStateFlow()
@@ -114,66 +117,78 @@ class GroupViewModel(
     private val _userGroupItems = MutableStateFlow<List<UserGroupListItem>>(emptyList())
     val userGroupItems: StateFlow<List<UserGroupListItem>> = _userGroupItems.asStateFlow()
 
-    fun loadGroupDetails(groupId: Int) {
+    init {
         viewModelScope.launch {
-            _groupDetailsState.update { it.copy(isLoading = true, error = null) }
-            try {
-                // Use coroutines to load data concurrently
-                val groupDeferred = async { loadGroup(groupId) }
-                val membersDeferred = async { loadGroupMembers(groupId) }
-                val paymentsDeferred = async { loadPayments(groupId) }
+            groupRepository.ensureGroupImagesDownloaded()
+        }
+    }
 
-                // Wait for all data to be loaded
-                groupDeferred.await()
-                membersDeferred.await()
-                paymentsDeferred.await()
+    private var currentLoadJob: Job? = null
+    private var hasLoadedGroups: Boolean = false
+
+    var hasLoadedGroup = false
+    var hasLoadedMembers = false
+    var hasLoadedPayments = false
+
+    fun checkInitialLoadComplete() {
+        if (hasLoadedGroup && hasLoadedMembers && hasLoadedPayments) {
+            _groupDetailsState.update { it.copy(isLoading = false) }
+        }
+    }
+
+    fun loadGroupDetails(groupId: Int) {
+        currentLoadJob?.cancel()
+        currentLoadJob = viewModelScope.launch {
+            _groupDetailsState.update { it.copy(isLoading = true, error = null) }
+
+            try {
+                // Launch the existing loading functions
+                launch {
+                    loadGroup(groupId)
+                    hasLoadedGroup = true
+                    checkInitialLoadComplete()
+                }
+                launch {
+                    loadGroupMembers(groupId)
+                    hasLoadedMembers = true
+                    checkInitialLoadComplete()
+                }
+                launch {
+                    loadPayments(groupId)
+                    hasLoadedPayments = true
+                    checkInitialLoadComplete()
+                }
             } catch (e: Exception) {
                 Log.e("GroupViewModel", "Error loading group details", e)
-                _groupDetailsState.update { it.copy(error = e.message) }
-            } finally {
-                _groupDetailsState.update { it.copy(isLoading = false) }
+                _groupDetailsState.update {
+                    it.copy(
+                        isLoading = false,
+                        error = e.message ?: "Failed to load group details"
+                    )
+                }
             }
         }
     }
 
     private suspend fun loadGroup(groupId: Int) {
-        groupRepository.getGroupById(groupId).collect { group ->
-            _groupDetailsState.update { currentState ->
-                currentState.copy(
-                    group = group ?: currentState.group,
-                    groupImage = group?.groupImg ?: currentState.groupImage,
-                    // Reset loading state when loading new group
-                    imageLoadingState = if (group?.groupImg != null) {
-                        ImageLoadingState.Loading
-                    } else {
-                        ImageLoadingState.Idle
-                    }
-                )
-            }
-
-            // If group has an image, update the loading state
-            if (group?.groupImg != null) {
-                try {
-                    val imageUrl = ImageUtils.getFullImageUrl(group.groupImg)
-                    Log.d("GroupViewModel", "Loading group image from: $imageUrl")
-
-                    _groupDetailsState.update { currentState ->
-                        currentState.copy(
-                            imageLoadingState = ImageLoadingState.Success,
-                            groupImage = group.groupImg
-                        )
-                    }
-                } catch (e: Exception) {
-                    Log.e("GroupViewModel", "Error loading group image", e)
-                    _groupDetailsState.update { currentState ->
-                        currentState.copy(
-                            imageLoadingState = ImageLoadingState.Error(
-                                e.message ?: "Failed to load group image"
-                            )
-                        )
-                    }
+        try {
+            groupRepository.getGroupById(groupId).collect { group ->
+                Log.d("GroupViewModel", "Loading group with image path: ${group?.groupImg}")
+                _groupDetailsState.update { currentState ->
+                    currentState.copy(
+                        group = group ?: currentState.group,
+                        groupImage = group?.groupImg,
+                        imageLoadingState = if (group?.groupImg != null) {
+                            ImageLoadingState.Success
+                        } else {
+                            ImageLoadingState.Idle
+                        }
+                    )
                 }
             }
+        } catch (e: Exception) {
+            Log.e("GroupViewModel", "Error loading group", e)
+            throw e
         }
     }
 
@@ -202,19 +217,32 @@ class GroupViewModel(
             }
     }
 
-    fun loadUserGroupsList(userId: Int) {
-        viewModelScope.launch {
-            _loading.value = true
-            _error.value = null
-            try {
-                groupRepository.getGroupListItems(userId)
-                    .collect { groups ->
-                        _userGroupItems.value = groups
-                        _loading.value = false
-                    }
-            } catch (e: Exception) {
-                _error.value = e.message
-                _loading.value = false
+    fun loadUserGroupsList(userId: Int, forceRefresh: Boolean = false) {
+        // Only reload if we haven't loaded or are forced to refresh
+        if (!hasLoadedGroups || forceRefresh) {
+            viewModelScope.launch {
+                Log.d("GroupViewModel", "Starting to load groups for user $userId")
+                _loading.value = true
+                _error.value = null
+                try {
+                    Log.d("GroupViewModel", "About to collect group list items")
+                    groupRepository.getGroupListItems(userId)
+                        .catch { e ->
+                            Log.e("GroupViewModel", "Error collecting groups", e)
+                            _error.value = e.message
+                            _loading.value = false
+                        }
+                        .collect { groups ->
+                            Log.d("GroupViewModel", "Collected ${groups.size} groups")
+                            _userGroupItems.value = groups
+                            _loading.value = false
+                            hasLoadedGroups = true
+                        }
+                } catch (e: Exception) {
+                    Log.e("GroupViewModel", "Error loading groups", e)
+                    _error.value = e.message
+                    _loading.value = false
+                }
             }
         }
     }
@@ -301,11 +329,6 @@ class GroupViewModel(
     suspend fun getGroupInviteLink(groupId: Int): Result<String> =
         groupRepository.getGroupInviteLink(groupId)
 
-//    fun syncGroups() {
-//        viewModelScope.launch {
-//            groupRepository.syncGroups()
-//        }
-//    }
 
     fun fetchUsernamesForInvitation(groupId: Int) {
         viewModelScope.launch {
@@ -464,5 +487,9 @@ class GroupViewModel(
                 // Handle error
             }
         }
+    }
+    override fun onCleared() {
+        super.onCleared()
+        currentLoadJob?.cancel()
     }
 }

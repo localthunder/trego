@@ -3,10 +3,6 @@ package com.splitter.splittr.data.extensions
 import com.splitter.splittr.data.local.entities.UserEntity
 import com.splitter.splittr.data.sync.SyncStatus
 import com.splitter.splittr.data.model.User
-import java.time.Instant
-import java.time.LocalDateTime
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 
 fun User.toEntity(syncStatus: SyncStatus = SyncStatus.PENDING_SYNC): UserEntity {
@@ -21,7 +17,7 @@ fun User.toEntity(syncStatus: SyncStatus = SyncStatus.PENDING_SYNC): UserEntity 
         createdAt = this.createdAt,
         updatedAt = this.updatedAt,
         defaultCurrency = this.defaultCurrency ?:  "GBP",
-        lastLoginDate = this.lastLoginDate.toString(),
+        lastLoginDate = this.lastLoginDate,
         syncStatus = syncStatus
     )
 }
@@ -36,7 +32,7 @@ fun UserEntity.toModel(): User {
         appleId = this.appleId,
         createdAt = this.createdAt,
         updatedAt = this.updatedAt,
-        lastLoginDate = this.lastLoginDate?.toUnixTimestamp(),
+        lastLoginDate = if (this.lastLoginDate == "null") null else this.lastLoginDate,
         defaultCurrency = this.defaultCurrency
     )
 }

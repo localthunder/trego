@@ -18,6 +18,7 @@ data class GroupEntity(
     @ColumnInfo(name = "description") val description: String?,
     @ColumnInfo(name = "group_img") val groupImg: String?,
     @ColumnInfo(name = "local_image_path") val localImagePath: String?,
+    @ColumnInfo(name = "image_last_modified") val imageLastModified: String?, // For sync checking
     @ColumnInfo(name = "created_at") val createdAt: String,
     @ColumnInfo(name = "updated_at") val updatedAt: String,
     @ColumnInfo(name = "invite_link") val inviteLink: String?,

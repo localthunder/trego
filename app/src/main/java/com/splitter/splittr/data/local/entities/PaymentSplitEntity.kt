@@ -48,7 +48,7 @@ import java.sql.Timestamp
 )
 @TypeConverters(Converters::class)
 data class PaymentSplitEntity(
-    @PrimaryKey val id: Int = LocalIdGenerator.nextId(),
+    @PrimaryKey val id: Int,
     @ColumnInfo(name = "server_id") val serverId: Int? = 0,
     @ColumnInfo(name = "payment_id") val paymentId: Int,
     @ColumnInfo(name = "user_id") val userId: Int,

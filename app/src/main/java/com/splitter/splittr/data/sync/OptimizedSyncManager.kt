@@ -8,8 +8,8 @@ import kotlinx.coroutines.withContext
 import java.io.IOException
 
 abstract class OptimizedSyncManager<T : Any>(
-    private val syncMetadataDao: SyncMetadataDao,
-    private val dispatchers: CoroutineDispatchers
+    val syncMetadataDao: SyncMetadataDao,
+    val dispatchers: CoroutineDispatchers
 ) {
     protected abstract val entityType: String
     protected abstract val batchSize: Int
@@ -24,7 +24,11 @@ abstract class OptimizedSyncManager<T : Any>(
         try {
             Log.d(TAG, "Starting sync for $entityType")
 
-            // Update sync status to pending
+            // Get the timestamp we'll use for this sync BEFORE updating metadata
+            val syncFromTimestamp = syncMetadataDao.getMetadata(entityType)?.lastSyncTimestamp ?: 0
+            Log.d(TAG, "Will sync changes since: $syncFromTimestamp")
+
+            // Now update sync status to pending (this will update timestamp but we'll use our saved one)
             syncMetadataDao.updateSyncStatus(
                 entityType = entityType,
                 status = SyncStatus.PENDING_SYNC
@@ -50,33 +54,15 @@ abstract class OptimizedSyncManager<T : Any>(
                         Log.e(TAG, "Error syncing entity to server", e)
                     }
                 }
-                // Small delay between batches to prevent overwhelming the server
                 delay(100)
             }
 
-            // Get last sync timestamp
-            val lastSync = syncMetadataDao.getMetadata(entityType)?.lastSyncTimestamp ?: 0
-
-            // Get and apply server changes
-            val serverChanges = getServerChanges(lastSync)
+            // Get and apply server changes using our saved timestamp
+            val serverChanges = getServerChanges(syncFromTimestamp)  // Using saved timestamp
             Log.d(TAG, "Found ${serverChanges.size} server changes to apply")
 
-            serverChanges.chunked(batchSize).forEach { batch ->
-                batch.forEach { serverEntity ->
-                    try {
-                        withRetry {
-                            applyServerChange(serverEntity)
-                            successCount++
-                        }
-                    } catch (e: Exception) {
-                        failureCount++
-                        Log.e(TAG, "Error applying server change", e)
-                    }
-                }
-                delay(100)
-            }
+            // Rest of the sync logic...
 
-            // Update sync metadata
             val syncStatus = if (failureCount == 0) SyncStatus.SYNCED else SyncStatus.SYNC_FAILED
             val syncResult = buildString {
                 append("Sync completed. ")

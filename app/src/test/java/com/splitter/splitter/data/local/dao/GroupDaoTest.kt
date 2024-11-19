@@ -53,7 +53,9 @@ class GroupDaoTest {
             createdAt = Date().toString(),
             updatedAt = Date().toString(),
             inviteLink = null,
-            syncStatus = SyncStatus.PENDING_SYNC
+            syncStatus = SyncStatus.PENDING_SYNC,
+            localImagePath = "img",
+            imageLastModified = "2024-09-12"
         )
         val insertedId = groupDao.insertGroup(group)
         val retrievedGroup = groupDao.getGroupById(insertedId.toInt()).first()
@@ -71,7 +73,9 @@ class GroupDaoTest {
             createdAt = Date().toString(),
             updatedAt = Date().toString(),
             inviteLink = null,
-            syncStatus = SyncStatus.PENDING_SYNC
+            syncStatus = SyncStatus.PENDING_SYNC,
+            localImagePath = "img",
+            imageLastModified = "2024-09-12"
         )
         val insertedId = groupDao.insertGroup(group)
 
@@ -92,13 +96,17 @@ class GroupDaoTest {
             createdAt = Date().toString(),
             updatedAt = Date().toString(),
             inviteLink = null,
-            syncStatus = SyncStatus.PENDING_SYNC
+            syncStatus = SyncStatus.PENDING_SYNC,
+            localImagePath = "img",
+            imageLastModified = "2024-09-12"
         )
         val insertedId = groupDao.insertGroup(group)
         val insertedGroup = groupDao.getGroupById(insertedId.toInt()).first()
         assertNotNull(insertedGroup)
 
-        groupDao.deleteGroup(insertedGroup!!)
+        if (insertedGroup != null) {
+            groupDao.deleteGroup(insertedGroup.id)
+        }
         val deletedGroup = groupDao.getGroupById(insertedId.toInt()).first()
         assertNull(deletedGroup)
     }
@@ -121,7 +129,9 @@ class GroupDaoTest {
             createdAt = Date().toString(),
             updatedAt = Date().toString(),
             inviteLink = null,
-            syncStatus = SyncStatus.PENDING_SYNC
+            syncStatus = SyncStatus.PENDING_SYNC,
+            localImagePath = "img",
+            imageLastModified = "2024-09-12"
         )
         groupDao.insertGroup(unsyncedGroup)
 
@@ -140,7 +150,9 @@ class GroupDaoTest {
             createdAt = Date().toString(),
             updatedAt = Date().toString(),
             inviteLink = null,
-            syncStatus = SyncStatus.PENDING_SYNC
+            syncStatus = SyncStatus.PENDING_SYNC,
+            localImagePath = "img",
+            imageLastModified = "2024-09-12"
         )
         val insertedId = groupDao.insertGroup(group)
 
@@ -160,7 +172,9 @@ class GroupDaoTest {
             createdAt = Date().toString(),
             updatedAt = Date().toString(),
             inviteLink = null,
-            syncStatus = SyncStatus.PENDING_SYNC
+            syncStatus = SyncStatus.PENDING_SYNC,
+            localImagePath = "img",
+            imageLastModified = "2024-09-12"
         )
         val insertedId = groupDao.insertGroup(group)
 
@@ -181,7 +195,9 @@ class GroupDaoTest {
             createdAt = Date().toString(),
             updatedAt = Date().toString(),
             inviteLink = null,
-            syncStatus = SyncStatus.PENDING_SYNC
+            syncStatus = SyncStatus.PENDING_SYNC,
+            localImagePath = "img",
+            imageLastModified = "2024-09-12"
         )
         val insertedId = groupDao.insertGroup(group)
 

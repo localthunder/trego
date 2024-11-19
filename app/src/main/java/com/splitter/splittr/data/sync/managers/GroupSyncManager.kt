@@ -11,6 +11,7 @@ import com.splitter.splittr.data.model.Group
 import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.data.sync.managers.GroupMemberSyncManager
 import com.splitter.splittr.utils.CoroutineDispatchers
+import com.splitter.splittr.utils.DateUtils
 import com.splitter.splittr.utils.getUserIdFromPreferences
 import kotlinx.coroutines.flow.first
 
@@ -53,21 +54,43 @@ class GroupSyncManager(
     override suspend fun applyServerChange(serverEntity: Group) {
         groupDao.runInTransaction {
             val localEntity = groupDao.getGroupById(serverEntity.id).first()
+
             when {
                 localEntity == null -> {
                     Log.d(TAG, "Inserting new group from server: ${serverEntity.id}")
-                    groupDao.insertGroup(serverEntity.toEntity(SyncStatus.SYNCED))
+                    groupDao.insertGroup(
+                        serverEntity
+                            .copy(updatedAt = DateUtils.standardizeTimestamp(serverEntity.updatedAt))
+                            .toEntity(SyncStatus.SYNCED)
+                    )
+
                     // Trigger member sync after inserting new group
+                    Log.d(TAG, "Triggering member sync for new group: ${serverEntity.id}")
                     groupMemberSyncManager.performSync()
                 }
-                serverEntity.updatedAt > localEntity.updatedAt -> {
+                DateUtils.isUpdateNeeded(
+                    serverEntity.updatedAt,
+                    localEntity.updatedAt,
+                    "Group-${serverEntity.id}"
+                ) -> {
                     Log.d(TAG, "Updating existing group from server: ${serverEntity.id}")
-                    groupDao.updateGroup(serverEntity.toEntity(SyncStatus.SYNCED))
+                    Log.d(TAG, "Server timestamp: ${serverEntity.updatedAt}")
+                    Log.d(TAG, "Local timestamp: ${localEntity.updatedAt}")
+
+                    groupDao.updateGroup(
+                        serverEntity
+                            .copy(updatedAt = DateUtils.standardizeTimestamp(serverEntity.updatedAt))
+                            .toEntity(SyncStatus.SYNCED)
+                    )
+
                     // Trigger member sync after updating group
+                    Log.d(TAG, "Triggering member sync for updated group: ${serverEntity.id}")
                     groupMemberSyncManager.performSync()
                 }
                 else -> {
                     Log.d(TAG, "Local group ${serverEntity.id} is up to date")
+                    Log.d(TAG, "Server timestamp: ${serverEntity.updatedAt}")
+                    Log.d(TAG, "Local timestamp: ${localEntity.updatedAt}")
                 }
             }
         }

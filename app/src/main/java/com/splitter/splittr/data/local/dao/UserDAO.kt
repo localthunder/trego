@@ -24,7 +24,7 @@ interface UserDao {
     @Query("SELECT * FROM users WHERE user_id IN (:userIds)")
     fun getUsersByIds(userIds: List<Int>): Flow<List<UserEntity>>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertUser(user: UserEntity)
 
     @Update

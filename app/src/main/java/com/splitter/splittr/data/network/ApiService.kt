@@ -144,14 +144,21 @@ interface ApiService {
         @Body groupMember: GroupMember
     ): GroupMember
 
-    @PUT("/api/groups/{groupId}/updateMembers")
-    suspend fun updateGroupMember(@Path("id") id: Int, @Body groupMember: GroupMember): GroupMember
+    @PUT("/api/groups/{groupId}/members/{memberId}")  // Changed path to be more RESTful
+    suspend fun updateGroupMember(
+        @Path("groupId") groupId: Int,
+        @Path("memberId") memberId: Int,
+        @Body groupMember: GroupMember
+    ): GroupMember
 
     @GET("api/groups/{groupId}/invite-link")
     suspend fun getGroupInviteLink(@Path("groupId") groupId: Int): Map<String, String>
 
     @GET("api/groups/user/{userId}")
     suspend fun getGroupsByUserId(@Path("userId") userId: Int): List<Group>
+
+    @GET("users/{userId}/group-memberships")
+    suspend fun getAllGroupMembershipsForUser(@Path("userId") userId: Int): List<GroupMember>
 
     @GET("api/accounts/changes")
     suspend fun getAccountsSince(
