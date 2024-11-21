@@ -51,30 +51,35 @@ class TransactionRepository(
     suspend fun fetchTransactions(userId: Int): List<Transaction>? = withContext(dispatchers.io) {
         Log.d("TransactionRepository", "Fetching transactions for user $userId")
 
-        // Check if cache is fresh
-        if (TransactionCache.isCacheFresh()) {
-            Log.d("TransactionRepository", "Using fresh cache")
-            return@withContext TransactionCache.getTransactions()
-        }
+        try {
+            // Return cached transactions immediately if they exist
+            val cachedTransactions = TransactionCache.getTransactions()
 
-        // If cache isn't fresh, fetch from API
-        return@withContext try {
-            Log.d("TransactionRepository", "Cache not fresh, fetching from API")
-            val response = apiService.getTransactionsByUserId(userId)
-
-            // Save to cache if we got transactions
-            if (response.transactions.isNotEmpty()) {
-                TransactionCache.saveTransactions(response.transactions)
-                Log.d("TransactionRepository", "Saved ${response.transactions.size} transactions to cache")
-            } else {
-                Log.d("TransactionRepository", "No transactions received from API")
+            // If cache isn't fresh or empty, fetch new data
+            if (!TransactionCache.isCacheFresh() || cachedTransactions == null) {
+                Log.d("TransactionRepository", "Cache not fresh or empty, fetching from API")
+                try {
+                    val response = apiService.getTransactionsByUserId(userId)
+                    if (response.transactions.isNotEmpty()) {
+                        TransactionCache.saveTransactions(response.transactions)
+                        Log.d("TransactionRepository", "Updated cache with ${response.transactions.size} transactions")
+                        return@withContext response.transactions
+                    }
+                } catch (e: Exception) {
+                    Log.e("TransactionRepository", "Error refreshing transactions", e)
+                    // On refresh error, return cached data if available
+                    if (cachedTransactions != null) {
+                        return@withContext cachedTransactions
+                    }
+                    throw e
+                }
             }
 
-            response.transactions
+            // Return cached transactions (fresh or stale)
+            cachedTransactions
         } catch (e: Exception) {
-            Log.e("TransactionRepository", "Error fetching transactions", e)
-            // If API fails, return cached data even if stale
-            TransactionCache.getTransactions() ?: null
+            Log.e("TransactionRepository", "Error in transaction fetch workflow", e)
+            throw e
         }
     }
 

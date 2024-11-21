@@ -3,6 +3,7 @@ package com.splitter.splittr.data.repositories
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.util.Log
+import androidx.compose.ui.graphics.Color
 import com.splitter.splittr.data.extensions.toEntity
 import com.splitter.splittr.data.extensions.toModel
 import com.splitter.splittr.data.local.dao.InstitutionDao
@@ -12,6 +13,7 @@ import com.splitter.splittr.data.network.RequisitionResponseWithRedirect
 import com.splitter.splittr.data.model.Institution
 import com.splitter.splittr.utils.CoroutineDispatchers
 import com.splitter.splittr.utils.GradientBorderUtils
+import com.splitter.splittr.utils.InstitutionLogoManager
 import downloadAndSaveImage
 import isLogoSaved
 import kotlinx.coroutines.Dispatchers
@@ -24,11 +26,6 @@ class InstitutionRepository(
     private val dispatchers: CoroutineDispatchers,
     private val context: Context
 ) {
-    data class LogoInfo(
-        val file: File,
-        val dominantColors: List<Int>,
-        val logo: String? = null
-    )
 
     suspend fun insert(institution: Institution) {
         institutionDao.insert(institution.toEntity())
@@ -103,43 +100,52 @@ class InstitutionRepository(
         }
     }
 
-    suspend fun downloadAndSaveInstitutionLogo(institutionId: String): Result<LogoInfo> = withContext(dispatchers.io) {
+    suspend fun downloadAndSaveInstitutionLogo(institutionId: String): Result<InstitutionLogoManager.LogoInfo> = withContext(dispatchers.io) {
         try {
+            val logoUrl = getInstitutionLogoUrl(institutionId)
+            if (logoUrl == null) return@withContext Result.failure(Exception("No logo URL available"))
+
             val logoFilename = "${institutionId}.png"
-            if (!isLogoSaved(context, institutionId)) {
-                val logoUrl = getInstitutionLogoUrl(institutionId)
-                logoUrl?.let {
-                    val file = downloadAndSaveImage(context, it, logoFilename)
-                    file?.let { savedFile ->
-                        val bitmap = BitmapFactory.decodeFile(savedFile.path)
-                        if (bitmap != null) {
-                            val dominantColors = GradientBorderUtils.getDominantColors(bitmap)
-                            return@withContext Result.success(
-                                LogoInfo(
-                                file = savedFile,
-                                dominantColors = dominantColors
-                            )
-                            )
-                        }
-                    }
-                }
-            } else {
-                val file = File(context.filesDir, logoFilename)
-                val bitmap = BitmapFactory.decodeFile(file.path)
-                if (bitmap != null) {
-                    val dominantColors = GradientBorderUtils.getDominantColors(bitmap)
-                    return@withContext Result.success(
-                        LogoInfo(
-                        file = file,
-                        dominantColors = dominantColors
-                    )
-                    )
-                }
+            val file = downloadAndSaveImage(context, logoUrl, logoFilename)
+                ?: return@withContext Result.failure(Exception("Failed to download logo"))
+
+            val bitmap = BitmapFactory.decodeFile(file.path)
+                ?: return@withContext Result.failure(Exception("Failed to decode logo"))
+
+            val dominantColors = GradientBorderUtils.getDominantColors(bitmap).map { Color(it) }
+            val logoInfo =
+                InstitutionLogoManager.LogoInfo(
+                    file = file,
+                    bitmap = bitmap,
+                    dominantColors = dominantColors
+                )
+
+            // Update institution with local logo path
+            institutionDao.getInstitutionById(institutionId)?.let { entity ->
+                institutionDao.updateInstitution(entity.copy(localLogoPath = file.absolutePath))
             }
-            Result.failure(Exception("Failed to process logo"))
+
+            Result.success(logoInfo)
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    suspend fun getLocalInstitutionLogo(institutionId: String): InstitutionLogoManager.LogoInfo? = withContext(dispatchers.io) {
+        val institution = institutionDao.getInstitutionById(institutionId) ?: return@withContext null
+        val localPath = institution.localLogoPath ?: return@withContext null
+
+        val file = File(localPath)
+        if (!file.exists()) return@withContext null
+
+        val bitmap = BitmapFactory.decodeFile(file.path) ?: return@withContext null
+        val dominantColors = GradientBorderUtils.getDominantColors(bitmap).map { Color(it) }
+
+        InstitutionLogoManager.LogoInfo(
+            file = file,
+            bitmap = bitmap,
+            dominantColors = dominantColors
+        )
     }
 
     suspend fun syncInstitutions() = withContext(dispatchers.io) {

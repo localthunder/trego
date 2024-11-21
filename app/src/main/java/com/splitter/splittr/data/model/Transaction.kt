@@ -9,6 +9,7 @@ data class Transaction(
     @SerializedName("createdAt") val createdAt: String?,
     @SerializedName("updatedAt") val updatedAt: String?,
     @SerializedName("accountId") val accountId: String?,
+    @SerializedName("amount") val amount: Double? = null,
     @SerializedName("currency") val currency: String?,
     @SerializedName("bookingDate") val bookingDate: String?,
     @SerializedName("valueDate") val valueDate: String?,

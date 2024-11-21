@@ -8,11 +8,14 @@ import com.splitter.splittr.data.network.RequisitionRequest
 import com.splitter.splittr.data.network.RequisitionResponseWithRedirect
 import com.splitter.splittr.data.model.Institution
 import com.splitter.splittr.utils.CoroutineDispatchers
+import com.splitter.splittr.utils.InstitutionLogoManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class InstitutionViewModel(
     private val institutionRepository: InstitutionRepository,
@@ -31,12 +34,14 @@ class InstitutionViewModel(
     private val _institutionLogoUrl = MutableStateFlow<String?>(null)
     val institutionLogoUrl: StateFlow<String?> = _institutionLogoUrl
 
-    private val _logoInfo = MutableStateFlow<Map<String, InstitutionRepository.LogoInfo>>(emptyMap())
-    val logoInfo: StateFlow<Map<String, InstitutionRepository.LogoInfo>> = _logoInfo.asStateFlow()
-
     private val _requisitionLink = MutableStateFlow<Result<RequisitionResponseWithRedirect>?>(null)
     val requisitionLink: StateFlow<Result<RequisitionResponseWithRedirect>?> = _requisitionLink.asStateFlow()
 
+    private val _logoInfo = MutableStateFlow<Map<String, InstitutionLogoManager.LogoInfo>>(emptyMap())
+    val logoInfo = _logoInfo.asStateFlow()
+
+    private val activeLogoFetches = mutableSetOf<String>()
+    private val fetchMutex = Mutex()
 
 
     init {
@@ -97,15 +102,29 @@ class InstitutionViewModel(
 
     fun loadInstitutionLogo(institutionId: String) {
         viewModelScope.launch {
+            if (!fetchMutex.withLock { activeLogoFetches.add(institutionId) }) {
+                return@launch
+            }
+
             try {
+                // First try to get logo from local storage
+                val localLogo = institutionRepository.getLocalInstitutionLogo(institutionId)
+                if (localLogo != null) {
+                    _logoInfo.update { current -> current + (institutionId to localLogo) }
+                    return@launch
+                }
+
+                // If no local logo, download from server
                 val result = institutionRepository.downloadAndSaveInstitutionLogo(institutionId)
                 result.onSuccess { info ->
-                    _logoInfo.update { current ->
-                        current + (institutionId to info)
-                    }
+                    _logoInfo.update { current -> current + (institutionId to info) }
+                }.onFailure { e ->
+                    _error.value = "Failed to load logo: ${e.message}"
                 }
-            } catch (e: Exception) {
-                _error.value = "Failed to load logo: ${e.message}"
+            } finally {
+                fetchMutex.withLock {
+                    activeLogoFetches.remove(institutionId)
+                }
             }
         }
     }

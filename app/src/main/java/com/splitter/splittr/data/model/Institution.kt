@@ -11,5 +11,5 @@ data class Institution(
     val countries: List<String>,
     val logo: String?,
     val createdAt: String,
-    val updatedAt: String
+    val updatedAt: String,
 )

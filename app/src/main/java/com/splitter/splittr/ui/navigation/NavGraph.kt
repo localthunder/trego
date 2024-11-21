@@ -110,7 +110,7 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
             )
         }
         composable(
-            route = "paymentDetails/{groupId}/{paymentId}?transactionId={transactionId}&amount={amount}&description={description}&creditorName={creditorName}&currency={currency}&bookingDateTime={bookingDateTime}&remittanceInfo={remittanceInfo}",
+            route = "paymentDetails/{groupId}/{paymentId}?transactionId={transactionId}&amount={amount}&description={description}&creditorName={creditorName}&currency={currency}&bookingDateTime={bookingDateTime}&remittanceInfo={remittanceInfo}&institutionId={institutionId}",
             arguments = listOf(
                 navArgument("groupId") { type = NavType.IntType },
                 navArgument("paymentId") { type = NavType.IntType },
@@ -120,7 +120,8 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
                 navArgument("creditorName") { type = NavType.StringType; nullable = true },
                 navArgument("currency") { type = NavType.StringType; nullable = true },
                 navArgument("bookingDateTime") { type = NavType.StringType; nullable = true },
-                navArgument("remittanceInfo") { type = NavType.StringType; nullable = true }
+                navArgument("remittanceInfo") { type = NavType.StringType; nullable = true },
+                navArgument("institutionId") { type = NavType.StringType; nullable = true}
             )
         ) { backStackEntry ->
             val groupId = backStackEntry.arguments?.getInt("groupId") ?: return@composable

@@ -24,13 +24,13 @@ class SyncWorker(
         try {
             Log.d(TAG, "Starting sync process")
 
+            syncRepository("Transactions", transactionRepository::sync)
             syncRepository("Groups", groupRepository::sync)
             syncRepository("Users", userRepository::sync)
             syncRepository("Requisitions", requisitionRepository::sync)
             syncRepository("Bank Accounts", bankAccountRepository::sync)
             syncRepository("Payments", paymentRepository::sync)
 //            syncRepository("Payment Splits", paymentSplitRepository::syncPaymentSplits)
-            syncRepository("Transactions", transactionRepository::sync)
 
             Log.d(TAG, "Sync process completed successfully")
             Result.success()

@@ -32,7 +32,6 @@ import com.splitter.splittr.data.model.Transaction
 import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.ui.components.MultipleReauthorizationCard
 import com.splitter.splittr.ui.components.ReauthorizeBankAccountCard
-import com.splitter.splittr.ui.components.TransactionsList
 import com.splitter.splittr.ui.viewmodels.GroupViewModel
 import com.splitter.splittr.ui.viewmodels.InstitutionViewModel
 import com.splitter.splittr.ui.viewmodels.TransactionViewModel
@@ -155,12 +154,16 @@ fun AddExpenseScreen(
                 LaunchedEffect(response) {
                     response.link?.let { url ->
                         try {
+                            // Extract the requisition ID from the URL
+                            // The URL format is: https://ob.gocardless.com/ob-psd2/start/{requisitionId}/{institutionId}
+                            val requisitionId = url.split("/").dropLast(1).last()
+
                             // First update the account's reauthentication status and requisition ID
                             accountsNeedingReauth.firstOrNull()?.let { account ->
                                 account.accountId?.let { accountId ->
                                     bankAccountViewModel.updateAccountAfterReauth(
                                         accountId = accountId,
-                                        newRequisitionId = response.id
+                                        newRequisitionId = requisitionId // Now passing the extracted requisitionId
                                     )
                                     // Refresh the accounts needing reauth
                                     userId?.let { id ->
@@ -309,7 +312,8 @@ private fun handleTransactionClick(
                         "creditorName=${Uri.encode(transaction.creditorName ?: "")}&" +
                         "currency=${transaction.transactionAmount.currency}&" +
                         "bookingDateTime=${transaction.bookingDateTime}&" +
-                        "remittanceInfo=${Uri.encode(transaction.remittanceInformationUnstructured ?: "")}"
+                        "remittanceInfo=${Uri.encode(transaction.remittanceInformationUnstructured ?: "")}" +
+                        "institutionId=${transaction.institutionId}"
             ) {
                 popUpTo("groupDetails/${groupId}")
             }

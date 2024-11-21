@@ -1,8 +1,6 @@
 package com.splitter.splittr.ui.screens
 
-import PaymentItem
 import android.annotation.SuppressLint
-import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -51,6 +49,7 @@ import com.splitter.splittr.ui.components.AddMembersDialog
 import com.splitter.splittr.ui.components.GlobalFAB
 import com.splitter.splittr.ui.components.GlobalTopAppBar
 import com.splitter.splittr.data.model.GroupMember
+import com.splitter.splittr.ui.components.PaymentItem
 import com.splitter.splittr.ui.theme.GlobalTheme
 import com.splitter.splittr.ui.viewmodels.GroupViewModel
 import com.splitter.splittr.ui.viewmodels.UserViewModel
@@ -195,6 +194,7 @@ fun GroupDetailsScreen(
                             ) { payment ->
                                 PaymentItem(
                                     payment = payment,
+                                    context = context,
                                     onClick = { navController.navigate("paymentDetails/$groupId/${payment.id}") }
                                 )
                             }

@@ -6,7 +6,7 @@ import com.splitter.splittr.data.model.Institution
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 
-fun Institution.toEntity(syncStatus: SyncStatus = SyncStatus.PENDING_SYNC): InstitutionEntity {
+fun Institution.toEntity(): InstitutionEntity {
     val currentTime = DateTimeFormatter.ISO_INSTANT.format(Instant.now())
     return InstitutionEntity(
         id = this.id,
@@ -15,9 +15,9 @@ fun Institution.toEntity(syncStatus: SyncStatus = SyncStatus.PENDING_SYNC): Inst
         transactionTotalDays = this.transactionTotalDays,
         countries = this.countries,
         logo = this.logo,
+        localLogoPath = null,
         createdAt = this.createdAt ?: currentTime,
         updatedAt = currentTime,
-//        syncStatus = syncStatus
     )
 }
 

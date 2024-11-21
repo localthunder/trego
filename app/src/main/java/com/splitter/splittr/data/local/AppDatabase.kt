@@ -10,6 +10,9 @@ import com.splitter.splittr.data.local.DatabaseMigrations.MIGRATION_12_13
 import com.splitter.splittr.data.local.DatabaseMigrations.MIGRATION_13_14
 import com.splitter.splittr.data.local.DatabaseMigrations.MIGRATION_14_15
 import com.splitter.splittr.data.local.DatabaseMigrations.MIGRATION_15_16
+import com.splitter.splittr.data.local.DatabaseMigrations.MIGRATION_16_17
+import com.splitter.splittr.data.local.DatabaseMigrations.MIGRATION_17_18
+import com.splitter.splittr.data.local.DatabaseMigrations.MIGRATION_18_19
 import com.splitter.splittr.data.local.converters.Converters
 import com.splitter.splittr.data.local.dao.*
 import com.splitter.splittr.data.local.entities.*
@@ -28,7 +31,7 @@ import com.splitter.splittr.data.sync.SyncMetadata
         UserEntity::class,
         SyncMetadata:: class],
 
-    version = 15,
+    version = 19,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -63,7 +66,10 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_12_13,
                         MIGRATION_13_14,
                         MIGRATION_14_15,
-                        MIGRATION_15_16
+                        MIGRATION_15_16,
+                        MIGRATION_16_17,
+                        MIGRATION_17_18,
+                        MIGRATION_18_19,
                     )
                     .build()
                 INSTANCE = instance

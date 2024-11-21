@@ -60,7 +60,7 @@ data class PaymentEntity(
     @ColumnInfo(name = "created_at") val createdAt: String,
     @ColumnInfo(name = "updated_at") val updatedAt: String,
     @ColumnInfo(name = "split_mode") val splitMode: String,
-    @ColumnInfo(name = "institution_name") val institutionName: String?,
+    @ColumnInfo(name = "institution_id") val institutionId: String?,
     @ColumnInfo(name = "payment_type") val paymentType: String,
     @ColumnInfo(name = "currency") val currency: String?,
     @ColumnInfo(name = "deleted_at") val deletedAt: Timestamp?,

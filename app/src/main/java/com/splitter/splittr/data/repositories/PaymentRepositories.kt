@@ -10,12 +10,14 @@ import com.splitter.splittr.data.local.dao.GroupMemberDao
 import com.splitter.splittr.data.local.dao.PaymentDao
 import com.splitter.splittr.data.local.dao.PaymentSplitDao
 import com.splitter.splittr.data.local.dao.SyncMetadataDao
+import com.splitter.splittr.data.local.dao.TransactionDao
 import com.splitter.splittr.data.local.entities.PaymentEntity
 import com.splitter.splittr.data.local.entities.PaymentSplitEntity
 import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.data.sync.SyncStatus
 import com.splitter.splittr.data.model.Payment
 import com.splitter.splittr.data.model.PaymentSplit
+import com.splitter.splittr.data.model.Transaction
 import com.splitter.splittr.data.sync.SyncableRepository
 import com.splitter.splittr.data.sync.managers.PaymentSyncManager
 import com.splitter.splittr.utils.CoroutineDispatchers
@@ -41,6 +43,7 @@ class PaymentRepository(
     private val paymentSplitDao: PaymentSplitDao,
     private val groupDao: GroupDao,
     private val groupMemberDao: GroupMemberDao,
+    private val transactionDao: TransactionDao,
     private val apiService: ApiService,
     private val dispatchers: CoroutineDispatchers,
     private val context: Context,
@@ -103,6 +106,62 @@ class PaymentRepository(
             paymentDao.updatePayment(serverPayment.toEntity(SyncStatus.SYNCED))
             Result.success(serverPayment)
         } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun createPaymentFromTransaction(
+        transaction: Transaction,
+        payment: Payment,
+        splits: List<PaymentSplit>
+    ): Result<Payment> = withContext(dispatchers.io) {
+        try {
+            // Get userId and validate it exists
+            val userId = getUserIdFromPreferences(context)
+                ?: return@withContext Result.failure(IllegalStateException("User ID not found"))
+
+            // Create a complete transaction object with all required fields
+            val completeTransaction = transaction.copy(
+                userId = userId,
+                currency = transaction.transactionAmount.currency // Ensure currency is set from transactionAmount
+            )
+
+            Log.d(TAG, "Creating transaction with userId: $userId")
+
+            // First save transaction locally
+            transactionDao.insertTransaction(completeTransaction.toEntity(SyncStatus.PENDING_SYNC))
+
+            // Then create transaction on server
+            val serverTransaction = try {
+                apiService.createTransaction(completeTransaction)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to create transaction on server", e)
+                // Clean up local transaction on server failure
+                transactionDao.updateTransactionSyncStatus(
+                    completeTransaction.transactionId,
+                    SyncStatus.SYNC_FAILED
+                )
+                throw e
+            }
+
+            // Update local transaction with server response and SYNCED status
+            transactionDao.insertTransaction(serverTransaction.toEntity(SyncStatus.SYNCED))
+
+            // Small delay to ensure transaction is fully persisted
+            delay(100)
+
+            // Create the payment using existing function with the confirmed transaction ID
+            createPaymentWithSplits(
+                payment = payment.copy(
+                    transactionId = serverTransaction.transactionId,
+                    // Ensure payment has same user ID and currency
+                    paidByUserId = userId,
+                    currency = serverTransaction.transactionAmount.currency
+                ),
+                splits = splits
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error creating payment from transaction", e)
             Result.failure(e)
         }
     }

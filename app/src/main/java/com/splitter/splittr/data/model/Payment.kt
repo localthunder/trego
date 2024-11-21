@@ -18,8 +18,8 @@ data class Payment(
     @SerializedName("created_at") val createdAt: String,
     @SerializedName("updated_at") override val updatedAt: String,
     @SerializedName("split_mode") val splitMode: String,
-    @SerializedName("institutionName") val institutionName: String?,
     @SerializedName("payment_type") val paymentType: String,
     val currency: String?,
-    @SerializedName("deleted_at") val deletedAt: Timestamp?
+    @SerializedName("deleted_at") val deletedAt: Timestamp?,
+    val institutionId: String?
 ) : TimestampedEntity

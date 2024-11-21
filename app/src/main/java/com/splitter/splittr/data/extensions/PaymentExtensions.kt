@@ -23,7 +23,7 @@ fun Payment.toEntity(syncStatus: SyncStatus = SyncStatus.PENDING_SYNC): PaymentE
         createdAt = this.createdAt,
         updatedAt = this.updatedAt,
         splitMode = this.splitMode,
-        institutionName = this.institutionName,
+        institutionId = this.institutionId,
         paymentType = this.paymentType,
         currency = this.currency,
         deletedAt = this.deletedAt,
@@ -33,7 +33,7 @@ fun Payment.toEntity(syncStatus: SyncStatus = SyncStatus.PENDING_SYNC): PaymentE
 
 fun PaymentEntity.toModel(): Payment {
     return Payment(
-        id = this.serverId ?: 0,
+        id = this.serverId ?: this.id,
         groupId = this.groupId,
         paidByUserId = this.paidByUserId,
         transactionId = this.transactionId,
@@ -46,7 +46,7 @@ fun PaymentEntity.toModel(): Payment {
         createdAt = this.createdAt,
         updatedAt = this.updatedAt,
         splitMode = this.splitMode,
-        institutionName = this.institutionName,
+        institutionId = this.institutionId,
         paymentType = this.paymentType,
         currency = this.currency,
         deletedAt = this.deletedAt

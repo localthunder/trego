@@ -138,6 +138,7 @@ class SyncManagerProvider(
         paymentSplitDao = database.paymentSplitDao(),
         groupDao = database.groupDao(),
         groupMemberDao = database.groupMemberDao(),
+        transactionDao = database.transactionDao(),
         apiService = apiService,
         dispatchers = dispatchers,
         context = context,

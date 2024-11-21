@@ -33,6 +33,7 @@ import com.splitter.splittr.ui.viewmodels.PaymentsViewModel
 import com.splitter.splittr.ui.viewmodels.TransactionViewModel
 import com.splitter.splittr.ui.viewmodels.UserViewModel
 import com.splitter.splittr.utils.AppCoroutineDispatchers
+import com.splitter.splittr.utils.InstitutionLogoManager
 import com.splitter.splittr.utils.NetworkUtils
 import com.splitter.splittr.utils.NetworkUtils.isOnline
 import com.splitter.splittr.utils.SyncUtils
@@ -60,6 +61,10 @@ class MyApplication : Application(), Configuration.Provider {
     val requisitionRepository: RequisitionRepository by lazy { syncManagerProvider.provideRequisitionRepository() }
     val transactionRepository: TransactionRepository by lazy { syncManagerProvider.provideTransactionRepository() }
     val userRepository: UserRepository by lazy { syncManagerProvider.provideUserRepository() }
+
+    val institutionLogoManager: InstitutionLogoManager by lazy {
+        InstitutionLogoManager(applicationContext)
+    }
 
     val dispatchers = AppCoroutineDispatchers()
 
@@ -115,7 +120,7 @@ class MyApplication : Application(), Configuration.Provider {
                 AuthViewModel::class.java to { AuthViewModel(userRepository, dispatchers)},
                 BankAccountViewModel::class.java to { BankAccountViewModel(bankAccountRepository, dispatchers)},
                 InstitutionViewModel::class.java to { InstitutionViewModel(institutionRepository, dispatchers)},
-                PaymentsViewModel::class.java to { PaymentsViewModel(paymentRepository, paymentSplitRepository, groupRepository, this) },
+                PaymentsViewModel::class.java to { PaymentsViewModel(paymentRepository, paymentSplitRepository, groupRepository, transactionRepository, institutionRepository, userRepository,this) },
                 TransactionViewModel::class.java to { TransactionViewModel(transactionRepository, dispatchers)},
                 UserViewModel::class.java to { UserViewModel(userRepository, dispatchers)}
             )

@@ -1,7 +1,5 @@
 package com.splitter.splittr.ui.components
 
-import android.graphics.BitmapFactory
-import android.util.Log
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -27,12 +25,13 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.splitter.splittr.data.repositories.InstitutionRepository
 import com.splitter.splittr.utils.FormattingUtils.formatDate
-import java.io.File
+import com.splitter.splittr.utils.InstitutionLogoManager
 
 @Composable
 fun PaymentAndTransactionCard(
-    logoFile: File?,
+    logoInfo: InstitutionLogoManager.LogoInfo?,
     nameToShow: String,
     amount: Double,
     bookingDateTime: String?,
@@ -42,7 +41,6 @@ fun PaymentAndTransactionCard(
     paidByUser: String? = null,
     onClick: () -> Unit = {}
 ) {
-
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -57,23 +55,15 @@ fun PaymentAndTransactionCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            if (logoFile != null) {
-                val bitmap = BitmapFactory.decodeFile(logoFile.path)
-                if (bitmap != null) {
-                    Log.d("SharedTransactionCard", "Displaying logo from file: ${logoFile.path}")
-                    Image(
-                        bitmap = bitmap.asImageBitmap(),
-                        contentDescription = "Institution Logo",
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                    )
-                } else {
-                    Log.e("SharedTransactionCard", "Failed to decode image file: ${logoFile.path}")
-                    Spacer(modifier = Modifier.size(40.dp))
-                }
+            if (logoInfo != null) {
+                Image(
+                    bitmap = logoInfo.bitmap.asImageBitmap(),
+                    contentDescription = "Institution Logo",
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                )
             } else {
-                Log.d("SharedTransactionCard", "Logo file is null, displaying placeholder")
                 Spacer(modifier = Modifier.size(40.dp))
             }
 
@@ -107,9 +97,9 @@ fun PaymentAndTransactionCard(
                 horizontalAlignment = Alignment.End
             ) {
                 val formattedAmount = if (amount < 0) {
-                    "£${-amount}" // Convert negative amount to positive without "+" sign
+                    "£${-amount}"
                 } else {
-                    "+£$amount" // Add "+" sign for positive amount
+                    "+£$amount"
                 }
                 val amountColor = if (amount < 0) Color.Black else Color.Green
 

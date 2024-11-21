@@ -20,7 +20,7 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE user_id = :userId AND booking_date < :dateTo")
     fun getNonRecentTransactions(userId: Int, dateTo: String): Flow<List<TransactionEntity>>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertTransaction(transaction: TransactionEntity)
 
     @Update

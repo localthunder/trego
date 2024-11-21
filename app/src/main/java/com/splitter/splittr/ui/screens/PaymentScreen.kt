@@ -64,7 +64,8 @@ fun PaymentScreen(
             description = args.getString("description"),
             creditorName = args.getString("creditorName"),
             currency = args.getString("currency"),
-            bookingDateTime = args.getString("bookingDateTime")
+            bookingDateTime = args.getString("bookingDateTime"),
+            institutionId = args.getString("institutionId")
         )
     }
 

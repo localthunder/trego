@@ -11,6 +11,11 @@ import com.splitter.splittr.data.repositories.PaymentSplitRepository
 import com.splitter.splittr.data.model.GroupMember
 import com.splitter.splittr.data.model.Payment
 import com.splitter.splittr.data.model.PaymentSplit
+import com.splitter.splittr.data.model.Transaction
+import com.splitter.splittr.data.repositories.InstitutionRepository
+import com.splitter.splittr.data.repositories.TransactionRepository
+import com.splitter.splittr.data.repositories.UserRepository
+import com.splitter.splittr.utils.InstitutionLogoManager
 import com.splitter.splittr.utils.getUserIdFromPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,17 +32,17 @@ class PaymentsViewModel(
     private val paymentRepository: PaymentRepository,
     private val paymentSplitRepository: PaymentSplitRepository,
     private val groupRepository: GroupRepository,
+    private val transactionRepository: TransactionRepository,
+    private val institutionRepository: InstitutionRepository,
+    private val userRepository: UserRepository,
     context: Context
 ) : ViewModel() {
 
     private val _paymentScreenState = MutableStateFlow(PaymentScreenState())
     val paymentScreenState: StateFlow<PaymentScreenState> = _paymentScreenState.asStateFlow()
 
-    // Add a new state for navigation
-    sealed class NavigationState {
-        object Idle : NavigationState()
-        object NavigateBack : NavigationState()
-    }
+    private val _paymentItemInfo = MutableStateFlow<Map<Int, PaymentItemInfo>>(emptyMap())
+    val paymentItemInfo: StateFlow<Map<Int, PaymentItemInfo>> = _paymentItemInfo.asStateFlow()
 
     private val _navigationState = MutableStateFlow<NavigationState>(NavigationState.Idle)
     val navigationState: StateFlow<NavigationState> = _navigationState.asStateFlow()
@@ -48,6 +53,11 @@ class PaymentsViewModel(
         viewModelScope.launch {
             userId = getUserIdFromPreferences(context)
         }
+    }
+
+    sealed class NavigationState {
+        object Idle : NavigationState()
+        object NavigateBack : NavigationState()
     }
 
     data class PaymentScreenState(
@@ -65,6 +75,20 @@ class PaymentsViewModel(
         val expandedPaidToUserList: Boolean = false,
         val expandedPaymentTypeList: Boolean = false,
         val showDeleteDialog: Boolean = false
+    )
+
+    sealed class PaymentImage {
+        data class Logo(val logoInfo: InstitutionLogoManager.LogoInfo) : PaymentImage()
+        data class Placeholder(val type: String) : PaymentImage() // You can define placeholder types later
+        object None : PaymentImage()
+    }
+
+    data class PaymentItemInfo(
+        val paymentImage: PaymentImage = PaymentImage.None,
+        val paidByUsername: String? = null,
+        val transaction: Transaction? = null,
+        val isLoading: Boolean = false,
+        val error: String? = null
     )
 
     sealed class PaymentOperationStatus {
@@ -98,7 +122,8 @@ class PaymentsViewModel(
         val description: String?,
         val creditorName: String?,
         val currency: String?,
-        val bookingDateTime: String?
+        val bookingDateTime: String?,
+        val institutionId: String?
     )
 
     fun initializePaymentScreen(paymentId: Int, groupId: Int, transactionDetails: TransactionDetails?) {
@@ -147,7 +172,7 @@ class PaymentsViewModel(
             currency = transactionDetails.currency,
             splitMode = "equally",
             paymentType = "spent",
-            institutionName = transactionDetails.creditorName,
+            institutionId = transactionDetails.institutionId,
             createdBy = currentUserId,
             updatedBy = currentUserId,
             createdAt = System.currentTimeMillis().toString(),
@@ -181,7 +206,7 @@ class PaymentsViewModel(
             currency = "GBP",
             splitMode = "equally",
             paymentType = "spent",
-            institutionName = null,
+            institutionId = null,
             createdBy = userId,
             updatedBy = userId,
             createdAt = System.currentTimeMillis().toString(),
@@ -311,6 +336,51 @@ class PaymentsViewModel(
         }
     }
 
+    fun createPaymentFromTransaction(transaction: Transaction) {
+        viewModelScope.launch {
+            val editablePayment = _paymentScreenState.value.editablePayment ?: return@launch
+            val editableSplits = _paymentScreenState.value.editableSplits
+
+            _paymentScreenState.value = _paymentScreenState.value.copy(
+                paymentOperationStatus = PaymentOperationStatus.Loading
+            )
+
+            // Format the payment date
+            val formattedDate = formatPaymentDate(editablePayment.paymentDate)
+            val paymentToSave = editablePayment.copy(
+                paymentDate = formattedDate,
+                transactionId = transaction.transactionId
+            )
+
+            val result = paymentRepository.createPaymentFromTransaction(
+                transaction = transaction,
+                payment = paymentToSave,
+                splits = editableSplits
+            )
+
+            // Handle the result
+            result.fold(
+                onSuccess = { savedPayment ->
+                    _paymentScreenState.value = _paymentScreenState.value.copy(
+                        payment = savedPayment,
+                        editablePayment = savedPayment,
+                        splits = editableSplits,
+                        editableSplits = editableSplits,
+                        paymentOperationStatus = PaymentOperationStatus.Success
+                    )
+                    _navigationState.value = NavigationState.NavigateBack
+                },
+                onFailure = { error ->
+                    _paymentScreenState.value = _paymentScreenState.value.copy(
+                        paymentOperationStatus = PaymentOperationStatus.Error(
+                            error.message ?: "Failed to create payment from transaction"
+                        )
+                    )
+                }
+            )
+        }
+    }
+
     fun savePayment() {
         viewModelScope.launch {
             val editablePayment = _paymentScreenState.value.editablePayment ?: return@launch
@@ -324,10 +394,30 @@ class PaymentsViewModel(
             val formattedDate = formatPaymentDate(editablePayment.paymentDate)
             val paymentToSave = editablePayment.copy(paymentDate = formattedDate)
 
-            val result = if (paymentToSave.id == 0) {
-                paymentRepository.createPaymentWithSplits(paymentToSave, editableSplits)
-            } else {
-                paymentRepository.updatePaymentWithSplits(paymentToSave, editableSplits)
+            val result = when {
+                // Handle new payment from transaction
+                paymentToSave.id == 0 && _paymentScreenState.value.isTransaction -> {
+                    val transaction = paymentToSave.transactionId?.let { transactionId ->
+                        transactionRepository.getTransactionById(transactionId).firstOrNull()?.toModel()
+                    }
+                    if (transaction != null) {
+                        paymentRepository.createPaymentFromTransaction(
+                            transaction = transaction,
+                            payment = paymentToSave,
+                            splits = editableSplits
+                        )
+                    } else {
+                        Result.failure(Exception("Transaction not found"))
+                    }
+                }
+                // Handle new regular payment
+                paymentToSave.id == 0 -> {
+                    paymentRepository.createPaymentWithSplits(paymentToSave, editableSplits)
+                }
+                // Handle payment update
+                else -> {
+                    paymentRepository.updatePaymentWithSplits(paymentToSave, editableSplits)
+                }
             }
 
             result.fold(
@@ -409,6 +499,82 @@ class PaymentsViewModel(
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    fun loadPaymentItemInfo(payment: Payment) {
+        viewModelScope.launch {
+            updatePaymentItemInfo(payment.id) {
+                it?.copy(isLoading = true) ?: PaymentItemInfo(isLoading = true)
+            }
+
+            try {
+                // Load transaction if available
+                val transaction = payment.transactionId?.let { transactionId ->
+                    transactionRepository.getTransactionById(transactionId)
+                        .firstOrNull()?.toModel()
+                }
+
+                // Load username
+                val username = try {
+                    val user = userRepository.getUserById(payment.paidByUserId)
+                    user.firstOrNull()?.username
+                } catch (e: Exception) {
+                    null
+                }
+
+                // Load payment image (logo or placeholder)
+                val paymentImage = loadPaymentImage(transaction, payment)
+
+                // Update state with all info
+                updatePaymentItemInfo(payment.id) {
+                    PaymentItemInfo(
+                        paymentImage = paymentImage,
+                        paidByUsername = username,
+                        transaction = transaction,
+                        isLoading = false
+                    )
+                }
+            } catch (e: Exception) {
+                updatePaymentItemInfo(payment.id) {
+                    PaymentItemInfo(
+                        isLoading = false,
+                        error = e.message
+                    )
+                }
+            }
+        }
+    }
+
+    private suspend fun loadPaymentImage(
+        transaction: Transaction?,
+        payment: Payment
+    ): PaymentImage {
+        val effectiveInstitutionId = transaction?.institutionId ?: payment.institutionId
+
+        return try {
+            effectiveInstitutionId?.let { id ->
+                institutionRepository.getLocalInstitutionLogo(id)?.let {
+                    PaymentImage.Logo(it)
+                }
+            } ?: PaymentImage.Placeholder("default")
+        } catch (e: Exception) {
+            PaymentImage.Placeholder("error")
+        }
+    }
+
+    private fun updatePaymentItemInfo(
+        paymentId: Int,
+        update: (PaymentItemInfo?) -> PaymentItemInfo
+    ) {
+        _paymentItemInfo.update { currentMap ->
+            currentMap + (paymentId to update(currentMap[paymentId]))
+        }
+    }
+
+    fun clearPaymentItemInfo(paymentId: Int) {
+        _paymentItemInfo.update { currentMap ->
+            currentMap - paymentId
         }
     }
 

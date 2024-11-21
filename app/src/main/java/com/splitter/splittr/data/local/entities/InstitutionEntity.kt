@@ -13,6 +13,7 @@ data class InstitutionEntity(
     val transactionTotalDays: String?,
     val countries: List<String>?,
     val logo: String?,
+    val localLogoPath: String?, // Local file path
     val createdAt: String,
     val updatedAt: String,
 //    val syncStatus: SyncStatus = SyncStatus.PENDING_SYNC

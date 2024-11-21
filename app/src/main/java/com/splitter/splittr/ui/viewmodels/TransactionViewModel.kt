@@ -31,6 +31,9 @@ class TransactionViewModel(
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing
+
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
 
@@ -45,19 +48,25 @@ class TransactionViewModel(
     )
 
     fun loadTransactions(userId: Int) {
-        viewModelScope.launch(dispatchers.io) {
+        viewModelScope.launch {
             _loading.value = true
+            _error.value = null
+
             try {
-                transactionRepository.getTransactionsByUserId(userId).collect { transactionEntities ->
-                    val transactionModels = transactionEntities.map { it.toModel() }
-                    _transactions.value = transactionModels
-                }
+                val transactions = fetchTransactions(userId)
+                _transactions.value = transactions ?: emptyList()
             } catch (e: Exception) {
-                _error.value = "Failed to load transactions: ${e.message}"
+                _error.value = "Error loading transactions: ${e.message}"
             } finally {
                 _loading.value = false
             }
         }
+    }
+
+    fun refreshTransactions(userId: Int) {
+        // Force a refresh by clearing the cache
+        TransactionCache.clearCache()
+        loadTransactions(userId)
     }
 
     fun loadTransaction(transactionId: String) {
