@@ -7,10 +7,12 @@ import com.splitter.splittr.data.extensions.toModel
 import com.splitter.splittr.data.local.dao.BankAccountDao
 import com.splitter.splittr.data.local.dao.TransactionDao
 import com.splitter.splittr.data.local.dao.SyncMetadataDao
+import com.splitter.splittr.data.local.entities.TransactionEntity
 import com.splitter.splittr.data.model.Transaction
 import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.data.sync.OptimizedSyncManager
 import com.splitter.splittr.data.sync.SyncStatus
+import com.splitter.splittr.ui.viewmodels.TransactionViewModel
 import com.splitter.splittr.utils.CoroutineDispatchers
 import com.splitter.splittr.utils.NetworkUtils
 import com.splitter.splittr.utils.getUserIdFromPreferences
@@ -33,9 +35,15 @@ class TransactionSyncManager(
 
     override suspend fun syncToServer(entity: Transaction): Result<Transaction> = try {
         val result = apiService.createTransaction(entity)
+
+        // Update local sync status after successful server sync
+        transactionDao.updateTransactionSyncStatus(entity.transactionId, SyncStatus.SYNCED)
+
+        Log.d(TAG, "Successfully synced transaction ${result.transactionId}")
         Result.success(result)
     } catch (e: Exception) {
         Log.e(TAG, "Error syncing transaction to server: ${entity.transactionId}", e)
+        transactionDao.updateTransactionSyncStatus(entity.transactionId, SyncStatus.SYNC_FAILED)
         Result.failure(e)
     }
 
@@ -49,9 +57,6 @@ class TransactionSyncManager(
         throw UnsupportedOperationException("Direct server changes not supported for transactions")
     }
 
-    /**
-     * Special sync method that handles both local sync and GoCardless transaction caching
-     */
     suspend fun performFullSync(): TransactionSyncResult {
         if (!NetworkUtils.isOnline()) {
             return TransactionSyncResult.Error("No network connection available")
@@ -62,11 +67,11 @@ class TransactionSyncManager(
         )
 
         return try {
-            // First sync local saved transactions
+            // First sync local unsaved transactions to server
             val localSyncResult = syncLocalTransactions(userId)
 
-            // Then fetch and cache fresh transactions from GoCardless
-            val cachingResult = cacheGoCardlessTransactions(userId)
+            // Then fetch fresh transactions from GoCardless and update local cache
+            val cachingResult = fetchAndCacheTransactions(userId)
 
             // Combine results
             when {
@@ -127,34 +132,77 @@ class TransactionSyncManager(
         }
     }
 
-    private suspend fun cacheGoCardlessTransactions(userId: Int): TransactionSyncResult {
-        try {
+    private suspend fun fetchAndCacheTransactions(userId: Int): TransactionSyncResult {
+        return try {
+            Log.d(TAG, "Fetching fresh transactions from GoCardless")
+
             val response = apiService.getTransactionsByUserId(userId)
             val transactions = response.transactions
             val accountsNeedingReauth = response.accountsNeedingReauthentication
 
-            Log.d(TAG, "Caching ${transactions.size} transactions from GoCardless")
+            // Update in-memory cache first
+            TransactionCache.saveTransactions(transactions)
+            Log.d(TAG, "Cached ${transactions.size} transactions in memory")
 
-            // Save all transactions to local DB with SYNCED status
+            // Process accounts needing reauthorization
+            handleReauthAccounts(accountsNeedingReauth)
+
+            // Selectively update local database:
+            // 1. Only update transactions that are different from local version
+            // 2. Don't overwrite local unsynced changes
+            var updatedCount = 0
             transactions.forEach { transaction ->
-                transactionDao.insertTransaction(transaction.toEntity(SyncStatus.SYNCED))
+                val localTransaction = transactionDao.getTransactionById(transaction.transactionId)
+                    .first()
+
+                if (shouldUpdateLocalTransaction(localTransaction, transaction)) {
+                    transactionDao.insertTransaction(transaction.toEntity(SyncStatus.SYNCED))
+                    updatedCount++
+                }
             }
 
-            // Update TransactionCache
-            TransactionCache.saveTransactions(transactions)
+            Log.d(TAG, "Updated $updatedCount transactions in local database")
+            TransactionSyncResult.Success(updatedCount)
 
-            // Handle reauth accounts if needed
-            accountsNeedingReauth.forEach { account ->
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching and caching transactions", e)
+            TransactionCache.setError("Failed to fetch transactions: ${e.message}")
+            TransactionSyncResult.Error("Error caching GoCardless transactions: ${e.message}")
+        }
+    }
+
+    private suspend fun handleReauthAccounts(accountsNeedingReauth: List<TransactionViewModel.AccountReauthState>) {
+        accountsNeedingReauth.forEach { account ->
+            try {
                 Log.d(TAG, "Account ${account.accountId} needs reauthorization")
                 bankAccountDao.updateNeedsReauthentication(account.accountId, true)
+            } catch (e: Exception) {
+                Log.e(TAG,
+                    "Failed to mark account ${account.accountId} for reauth",
+                    e
+                )
             }
-
-            return TransactionSyncResult.Success(transactions.size)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error caching GoCardless transactions", e)
-            TransactionCache.setError("Failed to fetch transactions: ${e.message}")
-            return TransactionSyncResult.Error("Error caching GoCardless transactions: ${e.message}")
         }
+    }
+
+    private fun shouldUpdateLocalTransaction(local: TransactionEntity?, server: Transaction): Boolean {
+        // Don't overwrite unsynced local changes
+        if (local?.syncStatus == SyncStatus.PENDING_SYNC) {
+            return false
+        }
+
+        // If no local version exists, we should update
+        if (local == null) {
+            return true
+        }
+
+        // Compare relevant fields to determine if update is needed
+        return local.updatedAt != server.updatedAt ||
+                local.amount != server.transactionAmount.amount ||
+                local.creditorName != server.creditorName ||
+                local.debtorName != server.debtorName ||
+                local.bookingDateTime != server.bookingDateTime ||
+                local.remittanceInformationUnstructured != server.remittanceInformationUnstructured
     }
 
     sealed class TransactionSyncResult {

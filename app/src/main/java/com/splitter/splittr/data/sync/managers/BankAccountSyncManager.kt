@@ -35,6 +35,9 @@ class BankAccountSyncManager(
         val accountId = entity.accountId
         val existingAccount = bankAccountDao.getAccountById(accountId)
 
+        // Mark as pending sync before server operation
+        bankAccountDao.updateBankAccountSyncStatus(accountId, SyncStatus.PENDING_SYNC)
+
         val result = if (existingAccount == null) {
             Log.d(TAG, "Creating new bank account on server: $accountId")
             apiService.addAccount(entity)
@@ -42,9 +45,14 @@ class BankAccountSyncManager(
             Log.d(TAG, "Updating existing bank account on server: $accountId")
             apiService.updateAccount(accountId, entity)
         }
+
+        // Update local entity with server result and SYNCED status
+        bankAccountDao.updateBankAccountSyncStatus(accountId, SyncStatus.SYNCED)
+
         Result.success(result)
     } catch (e: Exception) {
         Log.e(TAG, "Error syncing bank account to server: ${entity.accountId}", e)
+        bankAccountDao.updateBankAccountSyncStatus(entity.accountId, SyncStatus.SYNC_FAILED)
         Result.failure(e)
     }
 

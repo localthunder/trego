@@ -141,6 +141,7 @@ class BankAccountRepository(
         try {
             bankAccountDao.updateNeedsReauthentication(accountId, needsReauthentication)
             apiService.updateNeedsReauthentication(accountId, needsReauthentication)
+
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -163,6 +164,8 @@ class BankAccountRepository(
 
     suspend fun updateAccountAfterReauth(accountId: String, newRequisitionId: String) = withContext(dispatchers.io) {
         try {
+            bankAccountDao.updateNeedsReauthentication(accountId, false)
+            apiService.updateNeedsReauthentication(accountId, false)
             apiService.updateAccountAfterReauth(accountId, mapOf("newRequisitionId" to newRequisitionId))
             Result.success(Unit)
         } catch (e: Exception) {

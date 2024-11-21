@@ -2,6 +2,7 @@ package com.splitter.splittr.data.network
 
 import android.net.Uri
 import com.google.gson.annotations.SerializedName
+import com.splitter.splittr.data.local.dataClasses.GroupMemberResponse
 import com.splitter.splittr.data.local.dataClasses.PaymentSyncResponse
 import com.splitter.splittr.data.local.entities.GroupMemberEntity
 import com.splitter.splittr.data.repositories.TransactionRepository
@@ -149,7 +150,7 @@ interface ApiService {
         @Path("groupId") groupId: Int,
         @Path("memberId") memberId: Int,
         @Body groupMember: GroupMember
-    ): GroupMember
+    ): GroupMemberResponse
 
     @GET("api/groups/{groupId}/invite-link")
     suspend fun getGroupInviteLink(@Path("groupId") groupId: Int): Map<String, String>
@@ -160,7 +161,7 @@ interface ApiService {
     @GET("users/{userId}/group-memberships")
     suspend fun getAllGroupMembershipsForUser(@Path("userId") userId: Int): List<GroupMember>
 
-    @GET("api/accounts/changes")
+    @GET("api/gocardless/changes")
     suspend fun getAccountsSince(
         @Query("since") timestamp: Long,
         @Query("userId") userId: Int

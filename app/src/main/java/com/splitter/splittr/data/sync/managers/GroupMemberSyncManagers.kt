@@ -31,16 +31,40 @@ class GroupMemberSyncManager(
         groupMemberDao.getUnsyncedGroupMembers().first().map { it.toModel() }
 
     override suspend fun syncToServer(entity: GroupMember): Result<GroupMember> = try {
-        val result = if (entity.id > LOCAL_ID_THRESHOLD) {
+        val serverResponse = if (entity.id > LOCAL_ID_THRESHOLD) {
             Log.d(TAG, "Creating new group member on server")
             apiService.addMemberToGroup(entity.groupId, entity)
         } else {
             Log.d(TAG, "Updating existing group member ${entity.id} on server")
-            apiService.updateGroupMember(entity.groupId, entity.id, entity)
+            apiService.updateGroupMember(entity.groupId, entity.id, entity).data
         }
-        Result.success(result)
+
+        groupMemberDao.runInTransaction {
+            // Extract data from server response and ensure timestamps
+            val syncedEntity = GroupMember(
+                id = serverResponse.id,
+                groupId = serverResponse.groupId,
+                userId = serverResponse.userId,
+                createdAt = serverResponse.createdAt ,
+                updatedAt = serverResponse.updatedAt,
+                removedAt = serverResponse.removedAt
+            ).toEntity(SyncStatus.SYNCED)
+
+            groupMemberDao.updateGroupMember(syncedEntity)
+            groupMemberDao.updateGroupMemberSyncStatus(syncedEntity.id, SyncStatus.SYNCED)
+            Log.d(TAG, "Updated local group member ${syncedEntity.id} with sync status SYNCED")
+        }
+
+        Result.success(serverResponse)
     } catch (e: Exception) {
         Log.e(TAG, "Error syncing group member to server", e)
+        entity.id.let { id ->
+            try {
+                groupMemberDao.updateGroupMemberSyncStatus(id, SyncStatus.SYNC_FAILED)
+            } catch (e2: Exception) {
+                Log.e(TAG, "Error updating sync status for group member $id", e2)
+            }
+        }
         Result.failure(e)
     }
 

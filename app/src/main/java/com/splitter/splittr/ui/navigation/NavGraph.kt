@@ -59,7 +59,7 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
 
     NavHost(
         navController = navController,
-        startDestination = "login",
+        startDestination = "home",
         modifier = modifier
     ) {
         composable(route = "login") {

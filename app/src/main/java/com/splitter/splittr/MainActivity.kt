@@ -58,6 +58,29 @@ class MainActivity : FragmentActivity() {
 
                     Log.d("MainActivity", "User ID: $userId")
 
+                    LaunchedEffect(Unit) {
+                        Log.d("MainActivity", "LaunchedEffect triggered")
+                        if (userId != null) {
+                            Log.d("MainActivity", "User exists, prompting for biometrics")
+                            AuthManager.promptForBiometrics(
+                                this@MainActivity,
+                                onSuccess = {
+                                    Log.d("MainActivity", "Biometric authentication succeeded, navigating to home")
+                                    navController.navigate("home") {
+                                        popUpTo(navController.graph.startDestinationId) { inclusive = true }
+                                    }
+                                },
+                                onFailure = {
+                                    Log.e("MainActivity", "Biometric authentication failed")
+                                    // Stay on current screen
+                                }
+                            )
+                        } else {
+                            Log.d("MainActivity", "No user found, navigating to login")
+                            navController.navigate("login")
+                        }
+                    }
+
                     NavigationSetup(
                         navController = navController,
                         context = context,
