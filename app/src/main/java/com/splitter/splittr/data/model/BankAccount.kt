@@ -4,17 +4,17 @@ import com.google.gson.annotations.SerializedName
 import com.splitter.splittr.utils.TimestampedEntity
 
 data class BankAccount(
-    @SerializedName("account_id") val accountId: String,
-    @SerializedName("requisition_id") val requisitionId: String,
-    @SerializedName("user_id") val userId: Int,
+    @SerializedName("accountId") val accountId: String,
+    @SerializedName("requisitionId") val requisitionId: String,
+    @SerializedName("userId") val userId: Int,
     @SerializedName("iban") val iban: String?,
-    @SerializedName("institution_id") val institutionId: String,
+    @SerializedName("institutionId") val institutionId: String,
     @SerializedName("currency") val currency: String?,
-    @SerializedName("owner_name") val ownerName: String?,
+    @SerializedName("ownerName") val ownerName: String?,
     @SerializedName("name") val name: String?,
     @SerializedName("product") val product: String?,
-    @SerializedName("cash_account_type") val cashAccountType: String?,
-    @SerializedName("created_at") val createdAt: String,
-    @SerializedName("updated_at") override val updatedAt: String,
+    @SerializedName("cashAccountType") val cashAccountType: String?,
+    @SerializedName("createdAt") val createdAt: String,
+    @SerializedName("updatedAt") override val updatedAt: String,
     val needsReauthentication: Boolean = false
 ) : TimestampedEntity

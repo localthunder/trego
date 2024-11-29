@@ -37,14 +37,19 @@ import com.splitter.splittr.utils.InstitutionLogoManager
 import com.splitter.splittr.utils.NetworkUtils
 import com.splitter.splittr.utils.NetworkUtils.isOnline
 import com.splitter.splittr.utils.SyncUtils
+import com.splitter.splittr.utils.getUserIdFromPreferences
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 class MyApplication : Application(), Configuration.Provider {
     lateinit var viewModelFactory: AppViewModelFactory
 
     val database: AppDatabase by lazy { AppDatabase.getDatabase(this) }
     val apiService: ApiService by lazy { RetrofitClient.getInstance(this).create(ApiService::class.java) }
+    val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    private val syncManagerProvider by lazy {
+    val syncManagerProvider by lazy {
         SyncManagerProvider(
             context = this,
             apiService = apiService,
@@ -103,8 +108,14 @@ class MyApplication : Application(), Configuration.Provider {
             // Initialize WorkManager manually
             WorkManager.initialize(this, config)
 
-            if (isOnline()){
-                SyncWorker.requestSync(this)
+            // Only request sync if userId is valid
+            val userId = getUserIdFromPreferences(this)
+            if (userId != null && userId != -1) {
+                if (isOnline()) {
+                    SyncWorker.requestSync(this)
+                }
+            } else {
+                android.util.Log.d("MyApplication", "Sync not requested as user id is null or -1")
             }
         }
 

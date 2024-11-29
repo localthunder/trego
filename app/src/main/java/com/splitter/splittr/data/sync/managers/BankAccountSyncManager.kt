@@ -63,6 +63,8 @@ class BankAccountSyncManager(
     }
 
     override suspend fun applyServerChange(serverEntity: BankAccount) {
+        Log.d(TAG, "Fetching account with ID: ${serverEntity.accountId}")
+        Log.d(TAG, "Account details: $serverEntity")
         val localEntity = bankAccountDao.getAccountById(serverEntity.accountId)?.toModel()
 
         if (localEntity == null) {

@@ -2,8 +2,14 @@ package com.splitter.splittr.data.network
 
 import android.net.Uri
 import com.google.gson.annotations.SerializedName
+import com.splitter.splittr.data.local.dataClasses.AuthResponse
 import com.splitter.splittr.data.local.dataClasses.GroupMemberResponse
+import com.splitter.splittr.data.local.dataClasses.GroupMemberWithGroupResponse
+import com.splitter.splittr.data.local.dataClasses.LoginRequest
 import com.splitter.splittr.data.local.dataClasses.PaymentSyncResponse
+import com.splitter.splittr.data.local.dataClasses.RequisitionRequest
+import com.splitter.splittr.data.local.dataClasses.RequisitionResponseWithRedirect
+import com.splitter.splittr.data.local.dataClasses.UploadResponsed
 import com.splitter.splittr.data.local.entities.GroupMemberEntity
 import com.splitter.splittr.data.repositories.TransactionRepository
 import com.splitter.splittr.data.model.BankAccount
@@ -16,40 +22,12 @@ import com.splitter.splittr.data.model.Requisition
 import com.splitter.splittr.data.model.Transaction
 import com.splitter.splittr.data.model.User
 import com.splitter.splittr.data.model.*
-import com.splitter.splittr.ui.screens.LoginRequest
 import com.splitter.splittr.ui.screens.RegisterRequest
 import com.splitter.splittr.ui.screens.UserBalanceWithCurrency
 import com.splitter.splittr.ui.viewmodels.GroupViewModel
 import okhttp3.MultipartBody
 import retrofit2.Response
 import retrofit2.http.*
-
-data class AuthResponse(
-    val token: String?,
-    val userId: Int,
-    val success: Boolean = true,
-    val message: String?,
-    val refreshToken: String?
-)
-
-data class RequisitionRequest(
-    val baseUrl: String,
-    @SerializedName("institution_id") val institutionId: String,
-    val reference: String,
-    @SerializedName("user_language") val userLanguage: String
-)
-
-data class UploadResponsed(
-    val success: Boolean,
-    val message: String,
-    val imagePath: String
-)
-
-data class RequisitionResponseWithRedirect(
-    val id: String,
-    val link: String,
-    val redirectUrl: String
-)
 
 interface ApiService {
     @GET("/api/users/{userId}")
@@ -177,7 +155,7 @@ interface ApiService {
     suspend fun getGroupMembersSince(
         @Query("since") timestamp: Long,
         @Query("userId") userId: Int
-    ): List<GroupMember>
+    ): List<GroupMemberWithGroupResponse>
 
     @GET("api/payments/changes")
     suspend fun getPaymentsSince(
@@ -185,11 +163,24 @@ interface ApiService {
         @Query("userId") userId: Int
     ): PaymentSyncResponse
 
+    @GET("api/gocardless/requisition/changes")
+    suspend fun getRequisitionsSince(
+        @Query("since") timestamp: Long,
+        @Query("userId") userId: Int
+    ): List<Requisition>
+
+    @GET("api/gocardless/transaction/changes")
+    suspend fun getTransactionsSince(
+        @Query("since") timestamp: Long,
+        @Query("userId") userId: Int
+    ): List<Transaction>
+
     @GET("api/users/changes")
     suspend fun getUsersSince(
         @Query("since") timestamp: Long,
         @Query("userId") userId: Int
     ): List<User>
+
 
     @GET("api/groups/{groupId}/members")
     suspend fun getMembersOfGroup(@Path("groupId") groupId: Int): List<GroupMember>

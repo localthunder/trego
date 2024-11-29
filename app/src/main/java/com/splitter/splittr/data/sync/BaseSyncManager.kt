@@ -1,6 +1,7 @@
 package com.splitter.splittr.data.sync
 
 import com.splitter.splittr.data.local.dao.SyncMetadataDao
+import com.splitter.splittr.data.local.dataClasses.SyncResult
 import com.splitter.splittr.utils.CoroutineDispatchers
 import kotlinx.coroutines.withContext
 import java.time.Duration

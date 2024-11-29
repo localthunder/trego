@@ -1,6 +1,7 @@
 package com.splitter.splittr.ui.screens
 
 import android.content.Context
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -14,22 +15,25 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.splitter.splittr.MyApplication
+import com.splitter.splittr.data.local.dataClasses.LoginRequest
+import com.splitter.splittr.data.repositories.InstitutionRepository
 import com.splitter.splittr.data.sync.SyncWorker
 import com.splitter.splittr.ui.viewmodels.AuthViewModel
+import com.splitter.splittr.ui.viewmodels.InstitutionViewModel
 import com.splitter.splittr.utils.AuthUtils
 import com.splitter.splittr.utils.TokenManager
 import com.splitter.splittr.utils.storeUserIdInPreferences
-
-data class LoginRequest(
-    val email: String,
-    val password: String
-)
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun LoginScreen(navController: NavController) {
     val context = LocalContext.current
     val myApplication = context.applicationContext as MyApplication
     val authViewModel: AuthViewModel = viewModel(factory = myApplication.viewModelFactory)
+    val institutionViewModel: InstitutionViewModel = viewModel(factory = myApplication.viewModelFactory)
 
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -39,7 +43,29 @@ fun LoginScreen(navController: NavController) {
 
     LaunchedEffect(authResult) {
         authResult?.onSuccess { authResponse ->
-            handleLoginSuccess(context, authResponse.userId, authResponse.token ?: "")
+            // Store credentials in background
+            withContext(Dispatchers.IO) {
+                TokenManager.saveAccessToken(context, authResponse.token ?: "")
+                AuthUtils.storeLoginState(context, authResponse.token ?: "")
+                storeUserIdInPreferences(context, authResponse.userId)
+            }
+
+            // Show toast on main thread
+            withContext(Dispatchers.Main) {
+                Toast.makeText(context, "Login Successful", Toast.LENGTH_SHORT).show()
+            }
+
+            delay(200) // Ensure token propagation
+
+            myApplication.applicationScope.launch(Dispatchers.IO) {
+                try {
+                    institutionViewModel.syncInstitutions("GB")
+                    SyncWorker.requestSync(context)
+                } catch(e: Exception) {
+                    Log.e("LoginScreen", "Error during sync", e)
+                }
+            }
+
             navController.navigate("home") {
                 popUpTo("login") { inclusive = true }
             }
@@ -59,7 +85,9 @@ fun LoginScreen(navController: NavController) {
             label = { Text("Email") },
             modifier = Modifier.fillMaxWidth()
         )
+
         Spacer(modifier = Modifier.height(8.dp))
+
         TextField(
             value = password,
             onValueChange = { password = it },
@@ -67,7 +95,9 @@ fun LoginScreen(navController: NavController) {
             visualTransformation = PasswordVisualTransformation(),
             modifier = Modifier.fillMaxWidth()
         )
+
         Spacer(modifier = Modifier.height(16.dp))
+
         Button(
             onClick = {
                 val loginRequest = LoginRequest(email = email, password = password)
@@ -82,24 +112,21 @@ fun LoginScreen(navController: NavController) {
                 Text("Login")
             }
         }
+
         authResult?.onFailure { error ->
             Spacer(modifier = Modifier.height(8.dp))
-            Text(error.message ?: "Unknown error occurred", color = MaterialTheme.colorScheme.error)
+            Text(
+                error.message ?: "Unknown error occurred",
+                color = MaterialTheme.colorScheme.error
+            )
         }
+
         Spacer(modifier = Modifier.height(8.dp))
+
         TextButton(
-            onClick = {
-                navController.navigate("register")
-            }
+            onClick = { navController.navigate("register") }
         ) {
             Text("Don't have an account? Register")
         }
     }
-}
-
-private fun handleLoginSuccess(context: Context, userId: Int, token: String) {
-    storeUserIdInPreferences(context, userId)
-    AuthUtils.storeLoginState(context, token)
-    TokenManager.saveAccessToken(context, token)
-    Toast.makeText(context, "Login Successful", Toast.LENGTH_SHORT).show()
 }

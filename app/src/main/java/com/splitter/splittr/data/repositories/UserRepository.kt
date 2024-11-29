@@ -3,16 +3,15 @@ package com.splitter.splittr.data.repositories
 import android.content.Context
 import android.util.Log
 import com.splitter.splittr.data.extensions.toEntity
-import com.splitter.splittr.data.extensions.toModel
 import com.splitter.splittr.data.local.dao.SyncMetadataDao
 import com.splitter.splittr.data.local.dao.UserDao
 import com.splitter.splittr.data.local.entities.UserEntity
 import com.splitter.splittr.data.network.ApiService
-import com.splitter.splittr.data.network.AuthResponse
+import com.splitter.splittr.data.local.dataClasses.AuthResponse
+import com.splitter.splittr.data.local.dataClasses.LoginRequest
 import com.splitter.splittr.data.sync.SyncStatus
 import com.splitter.splittr.data.sync.SyncableRepository
 import com.splitter.splittr.data.sync.managers.UserSyncManager
-import com.splitter.splittr.ui.screens.LoginRequest
 import com.splitter.splittr.ui.screens.RegisterRequest
 import com.splitter.splittr.utils.AuthUtils.getLoginState
 import com.splitter.splittr.utils.AuthUtils.storeLoginState
@@ -20,10 +19,7 @@ import com.splitter.splittr.utils.CoroutineDispatchers
 import com.splitter.splittr.utils.DateUtils
 import com.splitter.splittr.utils.NetworkUtils
 import com.splitter.splittr.utils.TokenManager
-import com.splitter.splittr.utils.TokenManager.getRefreshToken
 import com.splitter.splittr.utils.getUserIdFromPreferences
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.forEach
 import kotlinx.coroutines.withContext
 import java.io.IOException
 

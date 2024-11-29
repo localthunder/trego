@@ -3,6 +3,7 @@ package com.splitter.splittr.data.local.dao
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import com.splitter.splittr.data.local.entities.InstitutionEntity
 import com.splitter.splittr.data.model.Institution
@@ -10,6 +11,11 @@ import com.splitter.splittr.data.model.Institution
 @Dao
 interface InstitutionDao {
 
+    @Transaction
+    open suspend fun <R> runInTransaction(block: suspend () -> R): R {
+        // Room automatically handles transactions for suspend functions
+        return block()
+    }
     @Insert
     suspend fun insert(institutionEntity: InstitutionEntity)
 

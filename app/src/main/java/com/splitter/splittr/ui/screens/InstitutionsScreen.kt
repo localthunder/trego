@@ -26,7 +26,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.splitter.splittr.MyApplication
-import com.splitter.splittr.data.network.RequisitionRequest
+import com.splitter.splittr.data.local.dataClasses.RequisitionRequest
 import com.splitter.splittr.data.model.Institution
 import com.splitter.splittr.ui.viewmodels.InstitutionViewModel
 import com.splitter.splittr.utils.GradientBorderUtils

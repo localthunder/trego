@@ -1,5 +1,6 @@
 package com.splitter.splittr.data.extensions
 
+import com.splitter.splittr.data.local.dataClasses.GroupMemberWithGroupResponse
 import com.splitter.splittr.data.local.entities.GroupMemberEntity
 import com.splitter.splittr.data.sync.SyncStatus
 import com.splitter.splittr.data.model.GroupMember
@@ -25,5 +26,29 @@ fun GroupMemberEntity.toModel(): GroupMember {
         createdAt = this.createdAt,
         updatedAt = this.updatedAt,
         removedAt = this.removedAt
+    )
+}
+
+fun GroupMemberWithGroupResponse.toEntity(syncStatus: SyncStatus = SyncStatus.PENDING_SYNC): GroupMemberEntity {
+    return GroupMemberEntity(
+        id = id,
+        serverId = id,
+        groupId = group_id,
+        userId = user_id,
+        createdAt = created_at,
+        updatedAt = updated_at,
+        removedAt = removed_at,
+        syncStatus = syncStatus
+    )
+}
+
+fun GroupMemberWithGroupResponse.toGroupMember(): GroupMember {
+    return GroupMember(
+        id = this.id,
+        groupId = this.group_id,
+        userId = this.user_id,
+        createdAt = this.created_at,
+        updatedAt = this.updated_at,
+        removedAt = this.removed_at
     )
 }

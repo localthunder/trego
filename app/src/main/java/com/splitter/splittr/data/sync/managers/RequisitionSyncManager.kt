@@ -41,7 +41,7 @@ class RequisitionSyncManager(
     override suspend fun getServerChanges(since: Long): List<Requisition> {
         val userId = getUserIdFromPreferences(context) ?: throw IllegalStateException("User ID not found")
         Log.d(TAG, "Fetching requisitions for user $userId")
-        return apiService.getRequisitionsByUserId(userId)
+        return apiService.getRequisitionsSince(since, userId)
     }
 
     override suspend fun applyServerChange(serverEntity: Requisition) {

@@ -41,6 +41,7 @@ class SyncManagerProvider(
     val groupMemberSyncManager by lazy {
         GroupMemberSyncManager(
             groupMemberDao = database.groupMemberDao(),
+            groupDao = database.groupDao(),
             apiService = apiService,
             syncMetadataDao = syncMetadataDao,
             dispatchers = dispatchers,

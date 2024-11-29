@@ -4,8 +4,8 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.splitter.splittr.data.repositories.InstitutionRepository
-import com.splitter.splittr.data.network.RequisitionRequest
-import com.splitter.splittr.data.network.RequisitionResponseWithRedirect
+import com.splitter.splittr.data.local.dataClasses.RequisitionRequest
+import com.splitter.splittr.data.local.dataClasses.RequisitionResponseWithRedirect
 import com.splitter.splittr.data.model.Institution
 import com.splitter.splittr.utils.CoroutineDispatchers
 import com.splitter.splittr.utils.InstitutionLogoManager
@@ -54,6 +54,20 @@ class InstitutionViewModel(
             try {
                 val fetchedInstitutions = institutionRepository.getAllInstitutions()
                 _institutions.value = fetchedInstitutions
+                _error.value = null
+            } catch (e: Exception) {
+                _error.value = "Failed to fetch institutions: ${e.message}"
+            } finally {
+                _loading.value = false
+            }
+        }
+    }
+
+    fun syncInstitutions(country: String) {
+        viewModelScope.launch(dispatchers.io) {
+            _loading.value = true
+            try {
+                institutionRepository.syncInstitutions(country)
                 _error.value = null
             } catch (e: Exception) {
                 _error.value = "Failed to fetch institutions: ${e.message}"

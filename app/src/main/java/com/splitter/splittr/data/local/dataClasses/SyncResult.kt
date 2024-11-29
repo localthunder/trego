@@ -1,6 +1,5 @@
-package com.splitter.splittr.data.sync
+package com.splitter.splittr.data.local.dataClasses
 
-// SyncResult.kt
 sealed class SyncResult<T> {
     data class Success<T>(
         val updatedItems: List<T>,

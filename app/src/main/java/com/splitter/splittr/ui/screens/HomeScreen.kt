@@ -3,22 +3,35 @@ package com.splitter.splittr.ui.screens
 import android.content.Context
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Logout
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.splitter.splittr.ui.components.GlobalTopAppBar
+import com.splitter.splittr.ui.components.LogoutDialog
 import com.splitter.splittr.utils.getUserIdFromPreferences
 
 @Composable
 fun HomeScreen(navController: NavController, context: Context) {
+    var showLogoutDialog by remember { mutableStateOf(false) }
     val userId = getUserIdFromPreferences(context)
 
     Scaffold(
         topBar = {
             GlobalTopAppBar(
-                title = { Text("Home") }
+                title = { Text("Home") },
+                actions = {
+                    IconButton(onClick = { showLogoutDialog = true }) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Logout,
+                            contentDescription = "Logout"
+                        )
+                    }
+                }
             )
         },
         content = { padding ->
@@ -55,5 +68,11 @@ fun HomeScreen(navController: NavController, context: Context) {
                 }
             }
         }
+    )
+
+    LogoutDialog(
+        showDialog = showLogoutDialog,
+        onDismiss = { showLogoutDialog = false },
+        navController = navController
     )
 }

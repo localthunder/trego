@@ -21,16 +21,16 @@ class SyncWorker(
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result = coroutineScope {
+
         try {
             Log.d(TAG, "Starting sync process")
 
-            syncRepository("Transactions", transactionRepository::sync)
-            syncRepository("Groups", groupRepository::sync)
             syncRepository("Users", userRepository::sync)
+            syncRepository("Groups", groupRepository::sync)
             syncRepository("Requisitions", requisitionRepository::sync)
             syncRepository("Bank Accounts", bankAccountRepository::sync)
+            syncRepository("Transactions", transactionRepository::sync)
             syncRepository("Payments", paymentRepository::sync)
-//            syncRepository("Payment Splits", paymentSplitRepository::syncPaymentSplits)
 
             Log.d(TAG, "Sync process completed successfully")
             Result.success()

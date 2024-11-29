@@ -7,15 +7,14 @@ import androidx.compose.ui.graphics.Color
 import com.splitter.splittr.data.extensions.toEntity
 import com.splitter.splittr.data.extensions.toModel
 import com.splitter.splittr.data.local.dao.InstitutionDao
+import com.splitter.splittr.data.local.dataClasses.RequisitionRequest
+import com.splitter.splittr.data.local.dataClasses.RequisitionResponseWithRedirect
 import com.splitter.splittr.data.network.ApiService
-import com.splitter.splittr.data.network.RequisitionRequest
-import com.splitter.splittr.data.network.RequisitionResponseWithRedirect
 import com.splitter.splittr.data.model.Institution
 import com.splitter.splittr.utils.CoroutineDispatchers
 import com.splitter.splittr.utils.GradientBorderUtils
 import com.splitter.splittr.utils.InstitutionLogoManager
 import downloadAndSaveImage
-import isLogoSaved
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -148,59 +147,24 @@ class InstitutionRepository(
         )
     }
 
-    suspend fun syncInstitutions() = withContext(dispatchers.io) {
-        // Sync local unsynced institutions to the server
-//        institutionDao.getUnsyncedInstitutions().forEach { institutionEntity ->
-        institutionDao.getAllInstitutions().forEach { institutionEntity ->
-            try {
-                institutionDao.insert(institutionEntity)
-//                institutionDao.updateInstitutionSyncStatus(institutionEntity.id, SyncStatus.SYNCED.name)
-            } catch (e: Exception) {
-//                institutionDao.updateInstitutionSyncStatus(institutionEntity.id, SyncStatus.SYNC_FAILED.name)
-                Log.e("SyncInstitutions", "Failed to sync institution ${institutionEntity.id}", e)
-            }
-        }
-
-        // Sync all local institutions with the server (including creation of new institutions on the server)
-        institutionDao.getAllInstitutions().forEach { institutionEntity ->
-            try {
-                // Check if the institution exists on the server
-                val serverInstitution = try {
-                    apiService.getInstitutionById(institutionEntity.id)
-                } catch (e: Exception) {
-                    null // Institution doesn't exist on the server
-                }
-
-                if (serverInstitution == null) {
-                    // Institution doesn't exist on the server, so create it
-                    apiService.insertInstitution(institutionEntity.toModel())
-                } else {
-                    // Institution exists, so update it
-//                    apiService.updateInstitution(institutionEntity.id, institutionEntity.toModel())
-                }
-//                institutionDao.updateInstitutionSyncStatus(institutionEntity.id, SyncStatus.SYNCED.name)
-            } catch (e: Exception) {
-                Log.e("ReverseSyncInstitutions", "Failed to sync institution ${institutionEntity.id}", e)
-//                institutionDao.updateInstitutionSyncStatus(institutionEntity.id, SyncStatus.SYNC_FAILED.name)
-            }
-        }
-
-        // Fetch all institutions from the server and update local database
-        // MUST CHANGE GB HERE!! This is only needed for rebuilding the server database after the crash
+    suspend fun syncInstitutions(country: String) = withContext(dispatchers.io) {
         try {
-            val serverInstitutions = apiService.getInstitutions("GB")
-            serverInstitutions.forEach { serverInstitution ->
-                val localInstitution = institutionDao.getInstitutionById(serverInstitution.id)
-                if (localInstitution == null) {
-                    // New institution from server, insert it locally
-                    institutionDao.insert(serverInstitution.toEntity())
-                } else {
-                    // Update existing institution
-                    institutionDao.updateInstitution(serverInstitution.toEntity())
+            val serverInstitutions = apiService.getInstitutions(country)
+
+            // Update local database in a single transaction
+            institutionDao.runInTransaction {
+                serverInstitutions.forEach { serverInstitution ->
+                    val localInstitution = institutionDao.getInstitutionById(serverInstitution.id)
+                    if (localInstitution == null) {
+                        institutionDao.insert(serverInstitution.toEntity())
+                    } else {
+                        institutionDao.updateInstitution(serverInstitution.toEntity())
+                    }
                 }
             }
         } catch (e: Exception) {
-            Log.e("FetchServerInstitutions", "Failed to fetch institutions from server", e)
+            Log.e("InstitutionRepository", "Failed to sync institutions", e)
+            throw e
         }
     }
 }

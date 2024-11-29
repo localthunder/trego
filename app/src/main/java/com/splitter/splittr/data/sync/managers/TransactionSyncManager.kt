@@ -9,6 +9,7 @@ import com.splitter.splittr.data.local.dao.TransactionDao
 import com.splitter.splittr.data.local.dao.SyncMetadataDao
 import com.splitter.splittr.data.local.entities.TransactionEntity
 import com.splitter.splittr.data.model.Transaction
+import com.splitter.splittr.data.model.User
 import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.data.sync.OptimizedSyncManager
 import com.splitter.splittr.data.sync.SyncStatus
@@ -48,13 +49,50 @@ class TransactionSyncManager(
     }
 
     override suspend fun getServerChanges(since: Long): List<Transaction> {
-        // Not used - we handle server changes differently for transactions
-        return emptyList()
+        val userId = getUserIdFromPreferences(context) ?: throw IllegalStateException("User ID not found")
+        Log.d(TransactionSyncManager.TAG, "Fetching transactions since $since")
+        return apiService.getTransactionsSince(since, userId)
     }
 
     override suspend fun applyServerChange(serverEntity: Transaction) {
-        // Not used - we handle server changes differently for transactions
-        throw UnsupportedOperationException("Direct server changes not supported for transactions")
+        try {
+            val localTransaction =
+                transactionDao.getTransactionById(serverEntity.transactionId).first()
+
+            // Don't overwrite unsynced local changes
+            if (localTransaction?.syncStatus == SyncStatus.PENDING_SYNC) {
+                Log.d(
+                    TAG,
+                    "Skipping server transaction ${serverEntity.transactionId} due to pending local changes"
+                )
+                return
+            }
+
+            when {
+                localTransaction == null -> {
+                    Log.d(
+                        TAG,
+                        "Inserting new transaction from server: ${serverEntity.transactionId}"
+                    )
+                    transactionDao.insertTransaction(serverEntity.toEntity(SyncStatus.SYNCED))
+                }
+
+                serverEntity.updatedAt!! > (localTransaction.updatedAt ?: "") -> {
+                    Log.d(
+                        TAG,
+                        "Updating existing transaction from server: ${serverEntity.transactionId}"
+                    )
+                    transactionDao.insertTransaction(serverEntity.toEntity(SyncStatus.SYNCED))
+                }
+
+                else -> {
+                    Log.d(TAG, "Local transaction ${serverEntity.transactionId} is up to date")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error applying server transaction ${serverEntity.transactionId}", e)
+            throw e
+        }
     }
 
     suspend fun performFullSync(): TransactionSyncResult {

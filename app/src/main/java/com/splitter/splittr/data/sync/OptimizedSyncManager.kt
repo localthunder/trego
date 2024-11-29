@@ -23,26 +23,14 @@ abstract class OptimizedSyncManager<T : Any>(
     suspend fun performSync() = withContext(dispatchers.io) {
         try {
             Log.d(TAG, "Starting sync for $entityType")
-
-            // Get the timestamp we'll use for this sync BEFORE updating metadata
             val syncFromTimestamp = syncMetadataDao.getMetadata(entityType)?.lastSyncTimestamp ?: 0
             Log.d(TAG, "Will sync changes since: $syncFromTimestamp")
-
-            // Now update sync status to pending (this will update timestamp but we'll use our saved one)
-            syncMetadataDao.updateSyncStatus(
-                entityType = entityType,
-                status = SyncStatus.PENDING_SYNC
-            )
-
-            // First sync local changes to server
-            val localChanges = getLocalChanges()
-            Log.d(TAG, "Found ${localChanges.size} local changes to sync")
 
             var successCount = 0
             var failureCount = 0
 
-            // Process local changes in batches
-            localChanges.chunked(batchSize).forEach { batch ->
+            // Sync local changes
+            getLocalChanges().chunked(batchSize).forEach { batch ->
                 batch.forEach { entity ->
                     try {
                         withRetry {
@@ -57,32 +45,41 @@ abstract class OptimizedSyncManager<T : Any>(
                 delay(100)
             }
 
-            // Get and apply server changes using our saved timestamp
-            val serverChanges = getServerChanges(syncFromTimestamp)  // Using saved timestamp
-            Log.d(TAG, "Found ${serverChanges.size} server changes to apply")
-
-            // Rest of the sync logic...
-
-            val syncStatus = if (failureCount == 0) SyncStatus.SYNCED else SyncStatus.SYNC_FAILED
-            val syncResult = buildString {
-                append("Sync completed. ")
-                append("Successes: $successCount, ")
-                append("Failures: $failureCount")
+            // Sync server changes
+            getServerChanges(syncFromTimestamp).chunked(batchSize).forEach { batch ->
+                batch.forEach { serverEntity ->
+                    try {
+                        withRetry {
+                            applyServerChange(serverEntity)
+                            successCount++
+                        }
+                    } catch (e: Exception) {
+                        failureCount++
+                        Log.e(TAG, "Error applying server change", e)
+                    }
+                }
+                delay(100)
             }
 
-            syncMetadataDao.update(entityType) {
-                it.copy(
-                    lastSyncTimestamp = System.currentTimeMillis(),
-                    syncStatus = syncStatus,
-                    lastSyncResult = syncResult,
-                    updateCount = it.updateCount + 1
-                )
+            // Only update metadata on successful sync
+            if (failureCount == 0) {
+                syncMetadataDao.update(entityType) {
+                    it.copy(
+                        lastSyncTimestamp = System.currentTimeMillis(),
+                        syncStatus = SyncStatus.SYNCED,
+                        lastSyncResult = "Sync completed. Successes: $successCount",
+                        updateCount = it.updateCount + 1
+                    )
+                }
+            } else {
+                syncMetadataDao.update(entityType) {
+                    it.copy(
+                        syncStatus = SyncStatus.SYNC_FAILED,
+                        lastSyncResult = "Sync completed with failures: $failureCount"
+                    )
+                }
             }
-
-            Log.d(TAG, syncResult)
-
         } catch (e: Exception) {
-            Log.e(TAG, "Sync failed for $entityType", e)
             syncMetadataDao.update(entityType) {
                 it.copy(
                     syncStatus = SyncStatus.SYNC_FAILED,

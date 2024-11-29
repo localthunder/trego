@@ -36,10 +36,12 @@ object TokenManager {
     }
 
     fun clearTokens(context: Context) {
-        val editor = getPreferences(context).edit()
-        editor.remove(KEY_ACCESS_TOKEN)
-        editor.remove(KEY_REFRESH_TOKEN)
-        editor.apply()
+        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        prefs.edit().apply {
+            remove(KEY_ACCESS_TOKEN)
+            remove(KEY_REFRESH_TOKEN)
+            apply()
+        }
     }
 
     fun isTokenExpired(context: Context): Boolean {

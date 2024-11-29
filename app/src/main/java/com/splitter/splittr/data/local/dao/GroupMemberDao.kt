@@ -27,6 +27,9 @@ interface GroupMemberDao {
     @Query("SELECT * FROM group_members WHERE id = :id")
     fun getGroupMemberById(id: Int): Flow<GroupMemberEntity?>
 
+    @Query("SELECT * FROM group_members WHERE id = :id")
+    suspend fun getGroupMemberByIdSync(id: Int): GroupMemberEntity?
+
     @Query("SELECT * FROM group_members WHERE user_id = :userId")
     fun getGroupMemberByUserId(userId: Int): Flow<GroupMemberEntity?>
 

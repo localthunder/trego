@@ -3,9 +3,10 @@ package com.splitter.splittr.ui.viewmodels
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.splitter.splittr.data.local.dataClasses.AuthResponse
+import com.splitter.splittr.data.local.dataClasses.LoginRequest
+import com.splitter.splittr.data.repositories.InstitutionRepository
 import com.splitter.splittr.data.repositories.UserRepository
-import com.splitter.splittr.data.network.AuthResponse
-import com.splitter.splittr.ui.screens.LoginRequest
 import com.splitter.splittr.ui.screens.RegisterRequest
 import com.splitter.splittr.utils.CoroutineDispatchers
 import kotlinx.coroutines.flow.MutableStateFlow

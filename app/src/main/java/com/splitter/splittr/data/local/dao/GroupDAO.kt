@@ -19,6 +19,9 @@ interface GroupDao {
     @Query("SELECT * FROM groups WHERE id = :groupId")
     fun getGroupById(groupId: Int): Flow<GroupEntity?>
 
+    @Query("SELECT * FROM groups WHERE id = :groupId")
+    suspend fun getGroupByIdSync(groupId: Int): GroupEntity?
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertGroup(group: GroupEntity): Long
 
