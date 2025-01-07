@@ -1,10 +1,11 @@
 package com.splitter.splittr.data.repositories
 
+import android.content.ContentValues.TAG
 import android.content.Context
 import android.util.Log
+import com.splitter.splittr.MyApplication
 import com.splitter.splittr.data.extensions.toEntity
 import com.splitter.splittr.data.extensions.toModel
-import com.splitter.splittr.data.local.converters.LocalIdGenerator
 import com.splitter.splittr.data.local.dao.GroupDao
 import com.splitter.splittr.data.local.dao.GroupMemberDao
 import com.splitter.splittr.data.local.dao.PaymentDao
@@ -12,7 +13,6 @@ import com.splitter.splittr.data.local.dao.PaymentSplitDao
 import com.splitter.splittr.data.local.dao.SyncMetadataDao
 import com.splitter.splittr.data.local.dao.TransactionDao
 import com.splitter.splittr.data.local.entities.PaymentEntity
-import com.splitter.splittr.data.local.entities.PaymentSplitEntity
 import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.data.sync.SyncStatus
 import com.splitter.splittr.data.model.Payment
@@ -24,6 +24,9 @@ import com.splitter.splittr.utils.CoroutineDispatchers
 import com.splitter.splittr.utils.DateUtils
 import com.splitter.splittr.utils.NetworkUtils
 import com.splitter.splittr.utils.NetworkUtils.isOnline
+import com.splitter.splittr.utils.ServerIdUtil
+import com.splitter.splittr.utils.ServerIdUtil.getLocalId
+import com.splitter.splittr.utils.ServerIdUtil.getServerId
 import com.splitter.splittr.utils.getUserIdFromPreferences
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -54,6 +57,8 @@ class PaymentRepository(
     override val entityType = "payments"
     override val syncPriority = 4
 
+    val myApplication = context.applicationContext as MyApplication
+
     private val _payments = MutableStateFlow<List<Payment>>(emptyList())
     val payments: StateFlow<List<Payment>> = _payments.asStateFlow()
 
@@ -64,6 +69,7 @@ class PaymentRepository(
         paymentDao.getPaymentByTransactionId(transactionId).map { it?.toModel() }
 
     fun getPaymentsByGroup(groupId: Int): Flow<List<PaymentEntity>> = flow {
+        Log.d(TAG, "Getting payments for group $groupId")
         // Emit local data first
         val localPayments = paymentDao.getPaymentsByGroup(groupId).first()
         emit(localPayments)
@@ -71,41 +77,123 @@ class PaymentRepository(
         // Then try to fetch from API and update local database
         if (isOnline()) {
             try {
-                val apiPayments = apiService.getPaymentsByGroup(groupId)
-                val paymentEntities = apiPayments.map { it.toEntity(SyncStatus.SYNCED) }
-                Log.d("PaymentRepository", "Converted API payments to entities: $paymentEntities")
-                paymentDao.insertOrUpdatePayments(paymentEntities)
+                val serverGroupId = getServerId(groupId, "groups", context) ?: return@flow
+                Log.d(TAG, "Fetching payments from server for group ID: $serverGroupId")
 
-                // Emit updated data
+                // Fetch payments
+                val apiPayments = apiService.getPaymentsByGroup(serverGroupId)
+
+                // Process in a transaction to maintain consistency
+                paymentDao.runInTransaction {
+                    apiPayments.forEach { serverPayment ->
+                        // Convert and save payment
+                        val paymentEntity = myApplication.entityServerConverter
+                            .convertPaymentFromServer(serverPayment)
+                            .getOrNull() ?: return@forEach
+
+                        paymentDao.insertOrUpdatePayment(paymentEntity)
+
+                        // Fetch and save splits for this payment
+                        val serverSplits = apiService.getPaymentSplitsByPayment(serverPayment.id)
+                        serverSplits.forEach { serverSplit ->
+                            val splitEntity = myApplication.entityServerConverter
+                                .convertPaymentSplitFromServer(serverSplit)
+                                .getOrNull() ?: return@forEach
+
+                            paymentSplitDao.insertOrUpdatePaymentSplit(splitEntity)
+                        }
+                    }
+                }
+
+                // Emit updated data if changed
                 val updatedPayments = paymentDao.getPaymentsByGroup(groupId).first()
                 if (updatedPayments != localPayments) {
                     emit(updatedPayments)
                 }
             } catch (e: Exception) {
-                Log.e("PaymentRepository", "Error fetching payments from API", e)
+                Log.e(TAG, "Error fetching or processing payments from API", e)
             }
         }
     }.flowOn(dispatchers.io)
 
     suspend fun createPayment(payment: Payment): Result<Payment> = withContext(dispatchers.io) {
         try {
-            val localId = paymentDao.insertPayment(payment.toEntity(SyncStatus.PENDING_SYNC))
-            val serverPayment = apiService.createPayment(payment)
-            val updatedPayment = serverPayment.copy(id = localId.toInt())
-            paymentDao.updatePayment(updatedPayment.toEntity(SyncStatus.SYNCED))
-            Result.success(updatedPayment)
+            // First save locally with PENDING_SYNC status
+            val localPayment = payment.toEntity(SyncStatus.PENDING_SYNC)
+            val localId = paymentDao.insertPayment(localPayment)
+
+            // Attempt to sync with server if online
+            if (isOnline()) {
+                try {
+                    // Pass the saved local entity to the converter
+                    val serverModel = myApplication.entityServerConverter
+                        .convertPaymentToServer(localPayment)
+                        .getOrElse { return@withContext Result.failure(it) }
+
+                    val serverPayment = apiService.createPayment(serverModel)
+
+                    // Update local payment with server data while preserving local ID
+                    val syncedPayment = serverPayment.copy(
+                        id = localId.toInt(),
+                        updatedAt = DateUtils.getCurrentTimestamp()
+                    ).toEntity(SyncStatus.SYNCED)
+                    paymentDao.updatePayment(syncedPayment)
+
+                    Result.success(syncedPayment.toModel())
+                } catch (e: Exception) {
+                    Log.e("PaymentRepository", "Failed to sync payment with server", e)
+                    // Return the local payment even if server sync fails
+                    Result.success(localPayment.toModel())
+                }
+            } else {
+                // When offline, return the local payment
+                Result.success(localPayment.toModel())
+            }
         } catch (e: Exception) {
+            Log.e("PaymentRepository", "Failed to create payment", e)
             Result.failure(e)
         }
     }
 
     suspend fun updatePayment(payment: Payment): Result<Payment> = withContext(dispatchers.io) {
         try {
-            paymentDao.updatePayment(payment.toEntity(SyncStatus.PENDING_SYNC))
-            val serverPayment = apiService.updatePayment(payment.id, payment)
-            paymentDao.updatePayment(serverPayment.toEntity(SyncStatus.SYNCED))
-            Result.success(serverPayment)
+            // First get existing payment to preserve any local-only data
+            val existingPayment = paymentDao.getPaymentById(payment.id).first()
+
+            // Update locally with PENDING_SYNC status
+            val localPayment = payment.copy(
+                updatedAt = DateUtils.getCurrentTimestamp()
+            ).toEntity(SyncStatus.PENDING_SYNC)
+
+            // Preserve any local-only fields from existing payment
+            val updatedLocalPayment = existingPayment?.let { existing ->
+                localPayment.copy(serverId = existing.serverId) } ?: localPayment
+
+            paymentDao.updatePayment(updatedLocalPayment)
+
+            // Attempt to sync with server if online
+            if (isOnline()) {
+                try {
+                    val serverPayment = apiService.updatePayment(payment.id, payment)
+
+                    // Merge server response with local data
+                    val syncedPayment = serverPayment.copy(
+                        id = payment.id,
+                        updatedAt = DateUtils.getCurrentTimestamp()).toEntity(SyncStatus.SYNCED)
+
+                    paymentDao.updatePayment(syncedPayment)
+                    Result.success(syncedPayment.toModel())
+                } catch (e: Exception) {
+                    Log.e("PaymentRepository", "Failed to sync payment update with server", e)
+                    // Return the local payment even if server sync fails
+                    Result.success(updatedLocalPayment.toModel())
+                }
+            } else {
+                // When offline, return the local payment
+                Result.success(updatedLocalPayment.toModel())
+            }
         } catch (e: Exception) {
+            Log.e("PaymentRepository", "Failed to update payment", e)
             Result.failure(e)
         }
     }
@@ -166,174 +254,325 @@ class PaymentRepository(
         }
     }
 
-
-    suspend fun createPaymentWithSplits(payment: Payment, splits: List<PaymentSplit>): Result<Payment> =
-        withContext(dispatchers.io) {
-            Log.d(TAG, "Starting createPaymentWithSplits")
-            Log.d(TAG, "Payment: $payment")
-            Log.d(TAG, "Splits: ${splits.map { "Split(id=${it.id}, paymentId=${it.paymentId}, userId=${it.userId}, amount=${it.amount})" }}")
-
-            try {
-                val member = groupMemberDao.getGroupMemberByUserId(payment.paidByUserId).first()
-                Log.d(TAG, "Member check result: ${member != null}, removedAt: ${member?.removedAt}")
-
-                if (member == null || member.removedAt != null) {
-                    return@withContext Result.failure(IllegalStateException("User is not a member of this group"))
-                }
-
-                val currentTime = DateUtils.getCurrentTimestamp()
-
-                if (NetworkUtils.isOnline()) {
-                    Log.d(TAG, "Device is online, creating payment on server")
-                    try {
-                        // Create payment on server
-                        val serverPayment = apiService.createPayment(payment)
-                        Log.d(TAG, "Server payment created successfully: id=${serverPayment.id}")
-
-                        // Create splits on server
-                        val serverSplits = splits.map { split ->
-                            Log.d(TAG, "Creating server split: userId=${split.userId}, amount=${split.amount}")
-                            val splitWithCorrectPaymentId = split.copy(paymentId = serverPayment.id)
-                            val serverSplit = apiService.createPaymentSplit(serverPayment.id, splitWithCorrectPaymentId)
-                            Log.d(TAG, "Server split created: id=${serverSplit.id}, paymentId=${serverSplit.paymentId}")
-                            serverSplit
-                        }
-
-                        // Save to local DB
-                        paymentDao.runInTransaction {
-                            try {
-                                // Save payment
-                                val localPayment = serverPayment.toEntity(SyncStatus.SYNCED)
-                                Log.d(TAG, "Inserting local payment: id=${localPayment.id}, serverId=${localPayment.serverId}")
-                                paymentDao.insertPayment(localPayment)
-
-                                // Save splits
-                                serverSplits.forEach { serverSplit ->
-                                    val localSplit = serverSplit.toEntity(SyncStatus.SYNCED)
-                                    Log.d(TAG, "Attempting to insert local split: " +
-                                            "id=${localSplit.id}, " +
-                                            "serverId=${localSplit.serverId}, " +
-                                            "paymentId=${localSplit.paymentId}, " +
-                                            "userId=${localSplit.userId}, " +
-                                            "amount=${localSplit.amount}")
-
-                                    try {
-                                        val splitId = paymentSplitDao.insertPaymentSplit(localSplit)
-                                        Log.d(TAG, "Successfully inserted split with returned id: $splitId")
-                                    } catch (e: Exception) {
-                                        Log.e(TAG, "Error inserting split: ${e.message}")
-                                        Log.e(TAG, "Split that failed: $localSplit", e)
-                                        throw e // Re-throw to trigger transaction rollback
-                                    }
-                                }
-
-                                Log.d(TAG, "All splits inserted successfully")
-
-                                // Update group timestamp
-                                groupDao.updateGroupTimestamp(payment.groupId, currentTime)
-                                Log.d(TAG, "Updated group ${payment.groupId} timestamp")
-                            } catch (e: Exception) {
-                                Log.e(TAG, "Transaction failed", e)
-                                throw e
-                            }
-                        }
-
-                        Log.d(TAG, "Entire operation completed successfully")
-                        return@withContext Result.success(serverPayment)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error during server operation", e)
-                        throw e
-                    }
-                } else {
-                    Log.d(TAG, "Device is offline, creating local-only records")
-                    // Local-only creation with logging
-                    val localPaymentId = LocalIdGenerator.nextId()
-                    Log.d(TAG, "Generated local payment ID: $localPaymentId")
-
-                    val localPayment = payment.copy(id = localPaymentId).toEntity(SyncStatus.PENDING_SYNC)
-                    val localSplits = splits.map { split ->
-                        val localSplitId = LocalIdGenerator.nextId()
-                        Log.d(TAG, "Generated local split ID: $localSplitId for payment: $localPaymentId")
-                        split.copy(
-                            id = localSplitId,
-                            paymentId = localPaymentId
-                        ).toEntity(SyncStatus.PENDING_SYNC)
-                    }
-
-                    paymentDao.runInTransaction {
-                        try {
-                            paymentDao.insertPayment(localPayment)
-                            Log.d(TAG, "Local payment inserted: $localPaymentId")
-
-                            localSplits.forEach { splitEntity ->
-                                try {
-                                    val splitId = paymentSplitDao.insertPaymentSplit(splitEntity)
-                                    Log.d(TAG, "Local split inserted: original=${splitEntity.id}, returned=$splitId")
-                                } catch (e: Exception) {
-                                    Log.e(TAG, "Error inserting local split", e)
-                                    Log.e(TAG, "Failed split entity: $splitEntity")
-                                    throw e
-                                }
-                            }
-
-                            groupDao.updateGroupTimestamp(payment.groupId, currentTime)
-                            Log.d(TAG, "Local operations completed successfully")
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Local transaction failed", e)
-                            throw e
-                        }
-                    }
-
-                    return@withContext Result.success(localPayment.toModel())
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Operation failed", e)
-                return@withContext Result.failure(e)
-            }
-        }
-
-    // Helper function for local-only creation
-    private suspend fun createLocalPaymentWithSplits(
+    suspend fun createPaymentWithSplits(
         payment: Payment,
-        splits: List<PaymentSplit>,
-        timestamp: String
-    ): Result<Payment> {
-        try {
-            // Generate local IDs
-            val localPaymentId = LocalIdGenerator.nextId()
-            val localPayment = payment.copy(id = localPaymentId).toEntity(SyncStatus.PENDING_SYNC)
+        splits: List<PaymentSplit>
+    ): Result<Payment> = withContext(dispatchers.io) {
+        Log.d(TAG, "Starting createPaymentWithSplits")
+        Log.d(TAG, "Payment: $payment")
+        Log.d(TAG, "Splits: ${splits.map { "Split(id=${it.id}, paymentId=${it.paymentId}, userId=${it.userId}, amount=${it.amount})" }}")
 
-            // Create local splits with correct payment ID reference
+        try {
+            // Validate membership first
+            val member = groupMemberDao.getGroupMemberByUserId(payment.paidByUserId).first()
+            Log.d(TAG, "Member check result: ${member != null}, removedAt: ${member?.removedAt}")
+
+            if (member == null || member.removedAt != null) {
+                return@withContext Result.failure(IllegalStateException("User is not a member of this group"))
+            }
+
+            val currentTime = DateUtils.getCurrentTimestamp()
+
+            // Step 1: Create local payment first
+            val localPayment = payment.toEntity(SyncStatus.PENDING_SYNC)
+            val paymentId = paymentDao.insertPayment(localPayment)
+            Log.d(TAG, "Local payment created with ID: $paymentId")
+
+            // Step 2: Create all splits using the new payment ID
             val localSplits = splits.map { split ->
                 split.copy(
-                    id = LocalIdGenerator.nextId(),
-                    paymentId = localPaymentId
+                    id = 0,
+                    paymentId = paymentId.toInt()
                 ).toEntity(SyncStatus.PENDING_SYNC)
             }
 
-            // Save everything in a single transaction
-            paymentDao.runInTransaction {
-                // Save payment
-                paymentDao.insertPayment(localPayment)
-                Log.d(TAG, "Inserted payment locally with id: $localPaymentId")
+            // Step 3: Insert splits and update group timestamp in a transaction
+            val createdPayment = paymentDao.runInTransaction {
+                try {
+                    localSplits.forEach { splitEntity ->
+                        val splitId = paymentSplitDao.insertPaymentSplit(splitEntity)
+                        Log.d(TAG, "Local split created with ID: $splitId")
+                    }
 
-                // Save splits
-                localSplits.forEach { splitEntity ->
-                    paymentSplitDao.insertPaymentSplit(splitEntity)
-                    Log.d(TAG, "Inserted split locally with id: ${splitEntity.id}")
+                    // Update group timestamp
+                    groupDao.updateGroupTimestamp(payment.groupId, currentTime)
+                    Log.d(TAG, "Updated group ${payment.groupId} timestamp")
+
+                    // Return the created payment with its generated ID
+                    localPayment.copy(id = paymentId.toInt())
+                } catch (e: Exception) {
+                    Log.e(TAG, "Local transaction failed", e)
+                    throw e
                 }
-
-                // Update group timestamp
-                groupDao.updateGroupTimestamp(payment.groupId, timestamp)
-                Log.d(TAG, "Updated group ${payment.groupId} timestamp to $timestamp")
             }
 
-            return Result.success(localPayment.toModel())
+            // Step 4: Try to sync with server if online
+            if (isOnline()) {
+                try {
+                    Log.d(TAG, "Attempting server sync")
+
+                    // Convert to server model first
+                    val paymentServerModel = myApplication.entityServerConverter
+                        .convertPaymentToServer(createdPayment)
+                        .getOrElse {
+                            Log.e(TAG, "Failed to convert payment to server model", it)
+                            throw it
+                        }
+                    Log.d(TAG, "Converted to server model: ${paymentServerModel}")
+
+                    // Create payment on server with converted IDs
+                    val serverPayment = apiService.createPayment(paymentServerModel)
+                    Log.d(TAG, "Server payment created successfully: id=${serverPayment.id}")
+
+                    // Convert splits to server models
+                    val serverSplits = localSplits.map { split ->
+                        Log.d(TAG, "Converting split to server model: userId=${split.userId}")
+                        val splitServerModel = myApplication.entityServerConverter
+                            .convertPaymentSplitToServer(split)
+                            .getOrElse {
+                                Log.e(TAG, "Failed to convert split to server model", it)
+                                throw it
+                            }
+                        Log.d(TAG, "Creating server split with converted IDs")
+                        val serverSplit = apiService.createPaymentSplit(serverPayment.id, splitServerModel)
+                        Log.d(TAG, "Server split created: id=${serverSplit.id}")
+                        serverSplit
+                    }
+
+                    // Update local records with server IDs
+                    paymentDao.runInTransaction {
+                        try {
+                            // Convert server payment back to local entity
+                            val updatedPayment = myApplication.entityServerConverter.convertPaymentFromServer(serverPayment, createdPayment)
+                                .getOrElse {
+                                    Log.e(TAG, "Failed to convert server payment back to local entity", it)
+                                    throw it
+                                }
+                            paymentDao.updatePayment(updatedPayment)
+
+                            // Update all splits with server IDs
+                            serverSplits.forEach { serverSplit ->
+                                val existingSplit = localSplits.find { it.paymentId == updatedPayment.id }
+                                val updatedSplit = myApplication.entityServerConverter.convertPaymentSplitFromServer(serverSplit, existingSplit)
+                                    .getOrElse {
+                                        Log.e(TAG, "Failed to convert server split back to local entity", it)
+                                        throw it
+                                    }
+                                paymentSplitDao.updatePaymentSplit(updatedSplit)
+                            }
+
+                            Log.d(TAG, "Local records updated with server IDs")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to update local records with server IDs", e)
+                            // Don't throw - we still have valid local data
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Server sync failed", e)
+                    // Don't throw - we still have valid local data
+                }
+            }
+
+            // Always return the local result
+            Result.success(createdPayment.toModel())
         } catch (e: Exception) {
-            Log.e(TAG, "Error creating local payment", e)
-            return Result.failure(e)
+            Log.e(TAG, "Operation failed", e)
+            Result.failure(e)
         }
     }
+
+//    suspend fun createPaymentWithSplits(
+//        payment: Payment,
+//        splits: List<PaymentSplit>
+//    ): Result<Payment> = withContext(dispatchers.io) {
+//        Log.d(TAG, "Starting createPaymentWithSplits")
+//        Log.d(TAG, "Payment: $payment")
+//        Log.d(TAG, "Splits: ${splits.map { "Split(id=${it.id}, paymentId=${it.paymentId}, userId=${it.userId}, amount=${it.amount})" }}")
+//
+//        val idGenerator = IDGenerator.getInstance(context)
+//
+//        try {
+//            val member = groupMemberDao.getGroupMemberByUserId(payment.paidByUserId).first()
+//            Log.d(TAG, "Member check result: ${member != null}, removedAt: ${member?.removedAt}")
+//
+//            if (member == null || member.removedAt != null) {
+//                return@withContext Result.failure(IllegalStateException("User is not a member of this group"))
+//            }
+//
+//            val currentTime = DateUtils.getCurrentTimestamp()
+//
+//            if (isOnline()) {
+//                Log.d(TAG, "Device is online, creating payment on server")
+//                try {
+//                    // Create payment on server and handle locally
+//                    val serverPayment = apiService.createPayment(payment)
+//                    Log.d(TAG, "Server payment created successfully: id=${serverPayment.id}")
+//
+//                    // Create splits on server
+//                    val serverSplits = splits.map { split ->
+//                        Log.d(TAG, "Creating server split: userId=${split.userId}, amount=${split.amount}")
+//                        val splitWithCorrectPaymentId = split.copy(paymentId = serverPayment.id)
+//                        val serverSplit = apiService.createPaymentSplit(serverPayment.id, splitWithCorrectPaymentId)
+//                        Log.d(TAG, "Server split created: id=${serverSplit.id}, paymentId=${serverSplit.paymentId}")
+//                        serverSplit
+//                    }
+//
+//                    // Save to local DB
+//                    paymentDao.runInTransaction {
+//                        try {
+//                            // Save payment
+//                            val localPayment = serverPayment.toEntity(SyncStatus.SYNCED)
+//                            Log.d(TAG, "Inserting local payment: id=${localPayment.id}, serverId=${localPayment.serverId}")
+//                            paymentDao.insertPayment(localPayment)
+//
+//                            // Save splits
+//                            serverSplits.forEach { serverSplit ->
+//                                val localSplit = serverSplit.toEntity(SyncStatus.SYNCED)
+//                                Log.d(TAG, "Attempting to insert local split: " +
+//                                        "id=${localSplit.id}, " +
+//                                        "serverId=${localSplit.serverId}, " +
+//                                        "paymentId=${localSplit.paymentId}, " +
+//                                        "userId=${localSplit.userId}, " +
+//                                        "amount=${localSplit.amount}")
+//
+//                                try {
+//                                    val splitId = paymentSplitDao.insertPaymentSplit(localSplit)
+//                                    Log.d(TAG, "Successfully inserted split with returned id: $splitId")
+//                                } catch (e: Exception) {
+//                                    Log.e(TAG, "Error inserting split: ${e.message}")
+//                                    Log.e(TAG, "Split that failed: $localSplit", e)
+//                                    throw e // Re-throw to trigger transaction rollback
+//                                }
+//                            }
+//
+//                            Log.d(TAG, "All splits inserted successfully")
+//
+//                            // Update group timestamp
+//                            groupDao.updateGroupTimestamp(payment.groupId, currentTime)
+//                            Log.d(TAG, "Updated group ${payment.groupId} timestamp")
+//                        } catch (e: Exception) {
+//                            Log.e(TAG, "Transaction failed", e)
+//                            throw e
+//                        }
+//                    }
+//
+//                    Log.d(TAG, "Entire operation completed successfully")
+//                    return@withContext Result.success(serverPayment)
+//                } catch (e: Exception) {
+//                    Log.e(TAG, "Error during server operation", e)
+//                    throw e
+//                }
+//            } else {
+//                Log.d(TAG, "Device is offline, creating local-only records")
+//
+//                // Generate local payment ID
+//                idGenerator.nextId().fold(
+//                    onSuccess = { localPaymentId ->
+//                        Log.d(TAG, "Generated local payment ID: $localPaymentId")
+//
+//                        val localPayment = payment.copy(id = localPaymentId).toEntity(SyncStatus.PENDING_SYNC)
+//
+//                        // Generate local split IDs and create entities
+//                        val localSplitsResults = splits.map { split ->
+//                            idGenerator.nextId().map { localSplitId ->
+//                                Log.d(TAG, "Generated local split ID: $localSplitId for payment: $localPaymentId")
+//                                split.copy(
+//                                    id = localSplitId,
+//                                    paymentId = localPaymentId
+//                                ).toEntity(SyncStatus.PENDING_SYNC)
+//                            }
+//                        }
+//
+//                        // Check if all split IDs were generated successfully
+//                        val allSplitsSuccess = localSplitsResults.all { it.isSuccess }
+//                        if (!allSplitsSuccess) {
+//                            val error = localSplitsResults.first { it.isFailure }.exceptionOrNull()
+//                                ?: Exception("Failed to generate split IDs")
+//                            return@withContext Result.failure(error)
+//                        }
+//
+//                        val localSplits = localSplitsResults.map { it.getOrNull()!! }
+//
+//                        paymentDao.runInTransaction {
+//                            try {
+//                                paymentDao.insertPayment(localPayment)
+//                                Log.d(TAG, "Local payment inserted: $localPaymentId")
+//
+//                                localSplits.forEach { splitEntity ->
+//                                    try {
+//                                        val splitId = paymentSplitDao.insertPaymentSplit(splitEntity)
+//                                        Log.d(TAG, "Local split inserted: original=${splitEntity.id}, returned=$splitId")
+//                                    } catch (e: Exception) {
+//                                        Log.e(TAG, "Error inserting local split", e)
+//                                        Log.e(TAG, "Failed split entity: $splitEntity")
+//                                        throw e
+//                                    }
+//                                }
+//
+//                                groupDao.updateGroupTimestamp(payment.groupId, currentTime)
+//                                Log.d(TAG, "Local operations completed successfully")
+//
+//                                Result.success(localPayment.toModel())
+//                            } catch (e: Exception) {
+//                                Log.e(TAG, "Local transaction failed", e)
+//                                throw e
+//                            }
+//                        }
+//                    },
+//                    onFailure = { error ->
+//                        Log.e(TAG, "Failed to generate payment ID", error)
+//                        Result.failure(error)
+//                    }
+//                )
+//            }
+//        } catch (e: Exception) {
+//            Log.e(TAG, "Operation failed", e)
+//            Result.failure(e)
+//        }
+//    }
+
+//    // Helper function for local-only creation
+//    private suspend fun createLocalPaymentWithSplits(
+//        payment: Payment,
+//        splits: List<PaymentSplit>,
+//        timestamp: String
+//    ): Result<Payment> {
+//        try {
+//            // Generate local IDs
+//            val localPaymentId = LocalIdGenerator.nextId()
+//            val localPayment = payment.copy(id = localPaymentId).toEntity(SyncStatus.PENDING_SYNC)
+//
+//            // Create local splits with correct payment ID reference
+//            val localSplits = splits.map { split ->
+//                split.copy(
+//                    id = LocalIdGenerator.nextId(),
+//                    paymentId = localPaymentId
+//                ).toEntity(SyncStatus.PENDING_SYNC)
+//            }
+//
+//            // Save everything in a single transaction
+//            paymentDao.runInTransaction {
+//                // Save payment
+//                paymentDao.insertPayment(localPayment)
+//                Log.d(TAG, "Inserted payment locally with id: $localPaymentId")
+//
+//                // Save splits
+//                localSplits.forEach { splitEntity ->
+//                    paymentSplitDao.insertPaymentSplit(splitEntity)
+//                    Log.d(TAG, "Inserted split locally with id: ${splitEntity.id}")
+//                }
+//
+//                // Update group timestamp
+//                groupDao.updateGroupTimestamp(payment.groupId, timestamp)
+//                Log.d(TAG, "Updated group ${payment.groupId} timestamp to $timestamp")
+//            }
+//
+//            return Result.success(localPayment.toModel())
+//        } catch (e: Exception) {
+//            Log.e(TAG, "Error creating local payment", e)
+//            return Result.failure(e)
+//        }
+//    }
 
     suspend fun updatePaymentWithSplits(payment: Payment, splits: List<PaymentSplit>): Result<Payment> =
         withContext(dispatchers.io) {
@@ -343,7 +582,7 @@ class PaymentRepository(
                 paymentDao.updatePaymentSyncStatus(payment.id, SyncStatus.PENDING_SYNC)
 
                 // Update group's updatedAt timestamp
-                val currentTime = System.currentTimeMillis().toString()
+                val currentTime = DateUtils.getCurrentTimestamp()
                 groupDao.updateGroupTimestamp(payment.groupId, currentTime)
                 Log.d(TAG, "Updated group ${payment.groupId} timestamp to $currentTime")
 
@@ -410,7 +649,7 @@ class PaymentRepository(
         val localId = paymentSplitDao.insertPaymentSplit(paymentSplit.toEntity(SyncStatus.PENDING_SYNC))
         val localSplit = paymentSplit.copy(id = localId.toInt())
         try {
-            if (NetworkUtils.isOnline()) {
+            if (isOnline()) {
                 val serverSplit = apiService.createPaymentSplit(paymentSplit.paymentId, localSplit)
 
                 // Update both split and parent payment in a transaction
@@ -448,7 +687,7 @@ class PaymentRepository(
             paymentSplitDao.updatePaymentSplit(paymentSplit.toEntity(SyncStatus.PENDING_SYNC))
             paymentSplitDao.updatePaymentSplitSyncStatus(paymentSplit.id, SyncStatus.PENDING_SYNC)
 
-            if (NetworkUtils.isOnline()) {
+            if (isOnline()) {
                 val serverSplit = apiService.updatePaymentSplit(
                     paymentSplit.paymentId,
                     paymentSplit.id,
@@ -485,20 +724,57 @@ class PaymentRepository(
 
     suspend fun archivePayment(paymentId: Int): Result<Unit> = withContext(dispatchers.io) {
         try {
-            apiService.archivePayment(paymentId)
-            paymentDao.archivePayment(paymentId, DateUtils.getCurrentTimestamp())
+            // Archive locally first
+            val timestamp = DateUtils.getCurrentTimestamp()
+            paymentDao.archivePayment(paymentId, timestamp)
+
+            // Also update the payment's sync status
+            paymentDao.updatePaymentSyncStatus(paymentId, SyncStatus.PENDING_SYNC)
+
+            // Attempt to sync with server if online
+            if (isOnline()) {
+                try {
+                    apiService.archivePayment(paymentId)
+
+                    // Update sync status to indicate successful sync
+                    paymentDao.updatePaymentSyncStatus(paymentId, SyncStatus.SYNCED)
+                } catch (e: Exception) {
+                    Log.e("PaymentRepository", "Failed to sync payment archive with server", e)
+                    // Don't fail the operation if server sync fails
+                    // The background sync can handle it later
+                }
+            }
+
+            // Return success regardless of server sync status
+            // since we've successfully archived locally
             Result.success(Unit)
         } catch (e: Exception) {
+            Log.e("PaymentRepository", "Failed to archive payment", e)
+            // Only return failure if local archiving failed
             Result.failure(e)
         }
     }
 
     suspend fun restorePayment(paymentId: Int): Result<Unit> = withContext(dispatchers.io) {
         try {
-            apiService.restorePayment(paymentId)
+            // Restore locally first
             paymentDao.restorePayment(paymentId)
+            paymentDao.updatePaymentSyncStatus(paymentId, SyncStatus.PENDING_SYNC)
+
+            // Attempt server sync if online
+            if (NetworkUtils.isOnline()) {
+                try {
+                    apiService.restorePayment(paymentId)
+                    paymentDao.updatePaymentSyncStatus(paymentId, SyncStatus.SYNCED)
+                } catch (e: Exception) {
+                    Log.e("PaymentRepository", "Failed to sync payment restoration", e)
+                    // Continue since local restore succeeded
+                }
+            }
+
             Result.success(Unit)
         } catch (e: Exception) {
+            Log.e("PaymentRepository", "Failed to restore payment", e)
             Result.failure(e)
         }
     }

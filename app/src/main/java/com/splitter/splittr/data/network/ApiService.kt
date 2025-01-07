@@ -252,4 +252,7 @@ interface ApiService {
         @Path("accountId") accountId: String,
         @Body newRequisitionId: Map<String, String>
     ): Response<Unit>
+
+    @GET("/api/health")
+    suspend fun healthCheck(): Response<Unit>
 }

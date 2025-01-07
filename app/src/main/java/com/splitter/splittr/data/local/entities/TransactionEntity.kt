@@ -30,7 +30,7 @@ import com.splitter.splittr.data.sync.SyncStatus
         Index("user_id"),
         Index("account_id"),
         Index("institution_id"),
-        Index("server_id")
+        Index(value = ["server_id"], unique = true)
     ]
 )
 data class TransactionEntity(

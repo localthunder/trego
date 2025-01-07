@@ -144,19 +144,37 @@ class GroupViewModel(
             try {
                 // Launch the existing loading functions
                 launch {
-                    loadGroup(groupId)
-                    hasLoadedGroup = true
-                    checkInitialLoadComplete()
+                    try {
+                        loadGroup(groupId)
+                    } catch (e: Exception) {
+                        Log.e("GroupViewModel", "Error loading group", e)
+                        _groupDetailsState.update { it.copy(
+                            error = "Failed to load group details: ${e.message}"
+                        )}
+                    } finally {
+                        hasLoadedGroup = true
+                        checkInitialLoadComplete()
+                    }
                 }
                 launch {
-                    loadGroupMembers(groupId)
-                    hasLoadedMembers = true
-                    checkInitialLoadComplete()
+                    try {
+                        loadGroupMembers(groupId)
+                    } catch (e: Exception) {
+                        Log.e("GroupViewModel", "Error loading members", e)
+                    } finally {
+                        hasLoadedMembers = true
+                        checkInitialLoadComplete()
+                    }
                 }
                 launch {
-                    loadPayments(groupId)
-                    hasLoadedPayments = true
-                    checkInitialLoadComplete()
+                    try {
+                        loadPayments(groupId)
+                    } catch (e: Exception) {
+                        Log.e("GroupViewModel", "Error loading payments", e)
+                    } finally {
+                        hasLoadedPayments = true
+                        checkInitialLoadComplete()
+                    }
                 }
             } catch (e: Exception) {
                 Log.e("GroupViewModel", "Error loading group details", e)
@@ -173,22 +191,27 @@ class GroupViewModel(
     private suspend fun loadGroup(groupId: Int) {
         try {
             groupRepository.getGroupById(groupId).collect { group ->
-                Log.d("GroupViewModel", "Loading group with image path: ${group?.groupImg}")
                 _groupDetailsState.update { currentState ->
                     currentState.copy(
                         group = group ?: currentState.group,
                         groupImage = group?.groupImg,
-                        imageLoadingState = if (group?.groupImg != null) {
-                            ImageLoadingState.Success
-                        } else {
-                            ImageLoadingState.Idle
+                        error = if (group == null && currentState.group == null)
+                            "Unable to load group" else null,
+                        imageLoadingState = when {
+                            group?.groupImg != null -> ImageLoadingState.Success
+                            else -> ImageLoadingState.Idle
                         }
                     )
                 }
             }
         } catch (e: Exception) {
             Log.e("GroupViewModel", "Error loading group", e)
-            throw e
+            _groupDetailsState.update { currentState ->
+                currentState.copy(
+                    error = if (currentState.group == null)
+                        "Unable to load group: ${e.message}" else null
+                )
+            }
         }
     }
 
@@ -306,10 +329,19 @@ class GroupViewModel(
         }
     }
 
+
     fun createGroup(group: Group, creatorUserId: Int) {
+        Log.d("GroupViewModel", "Creating group: ${group.name} for user: $creatorUserId")
         viewModelScope.launch {
-            val result = groupRepository.createGroupWithMember(group, creatorUserId)
-            _groupCreationStatus.value = result
+            try {
+                Log.d("GroupViewModel", "Starting group creation in coroutine")
+                val result = groupRepository.createGroupWithMember(group, creatorUserId)
+                Log.d("GroupViewModel", "Group creation result: ${result.isSuccess}")
+                _groupCreationStatus.value = result
+            } catch (e: Exception) {
+                Log.e("GroupViewModel", "Error creating group", e)
+                _groupCreationStatus.value = Result.failure(e)
+            }
         }
     }
 
@@ -334,13 +366,21 @@ class GroupViewModel(
         viewModelScope.launch {
             _loading.value = true
             _error.value = null
+
             try {
                 val userId = getUserIdFromPreferences(context)
                 if (userId != null) {
+                    // First get current group members to exclude
+                    val currentGroupMembers = groupRepository.getGroupMembers(groupId)
+                        .first()
+                        .map { it.userId }
+                        .toSet()
+
+                    // Then get all users from groups
                     groupRepository.getGroupsByUserId(userId)
                         .flatMapLatest { groups ->
                             if (groups.isEmpty()) {
-                                flowOf(emptyList<GroupMemberEntity>())
+                                flowOf(emptyList())
                             } else {
                                 combine(
                                     groups.map { group ->
@@ -352,10 +392,17 @@ class GroupViewModel(
                             }
                         }
                         .collect { allMembers ->
-                            val uniqueUserIds = allMembers.map { it.userId }.distinct()
+                            val uniqueUserIds = allMembers
+                                .map { it.userId }
+                                .distinct()
+                                .filter { it !in currentGroupMembers } // Exclude current group members
+
                             userRepository.getUsersByIds(uniqueUserIds)
                                 .collect { users ->
-                                    _usernames.value = users.associateBy({ it.userId }, { it.username })
+                                    _usernames.value = users.associateBy(
+                                        { it.userId },
+                                        { it.username }
+                                    )
                                     _loading.value = false
                                 }
                         }
@@ -364,6 +411,7 @@ class GroupViewModel(
                     _loading.value = false
                 }
             } catch (e: Exception) {
+                Log.e("GroupViewModel", "Error fetching usernames", e)
                 _error.value = e.message
                 _loading.value = false
             }

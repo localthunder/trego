@@ -8,6 +8,7 @@ import androidx.room.Update
 import com.splitter.splittr.data.local.entities.PaymentSplitEntity
 import com.splitter.splittr.data.local.entities.RequisitionEntity
 import com.splitter.splittr.data.sync.SyncStatus
+import com.splitter.splittr.utils.DateUtils
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -38,7 +39,7 @@ interface RequisitionDao {
     suspend fun updateRequisition(requisition: RequisitionEntity) {
         // Create a copy of the requisition with the current timestamp
         val updatedRequisition = requisition.copy(
-            updatedAt = System.currentTimeMillis().toString(),
+            updatedAt = DateUtils.getCurrentTimestamp(),
             syncStatus = SyncStatus.PENDING_SYNC
         )
         updateRequisitionDirect(updatedRequisition)

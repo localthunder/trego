@@ -204,4 +204,63 @@ object DatabaseMigrations {
             database.execSQL("CREATE INDEX index_payments_server_id ON payments(server_id)")
         }
     }
+    val MIGRATION_19_20 = object : Migration(19, 20) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL("""
+            ALTER TABLE users 
+            ADD COLUMN is_provisional INTEGER NOT NULL DEFAULT 0
+        """)
+            database.execSQL("""
+            ALTER TABLE users 
+            ADD COLUMN invited_by INTEGER DEFAULT NULL
+        """)
+            database.execSQL("""
+            ALTER TABLE users 
+            ADD COLUMN invitation_email TEXT DEFAULT NULL
+        """)
+        }
+    }
+    val MIGRATION_20_21 = object : Migration(20, 21) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL("""
+            ALTER TABLE users 
+            ADD COLUMN merged_into_user_id INTEGER DEFAULT NULL
+        """)
+        }
+    }
+    val MIGRATION_21_22 = object : Migration(21, 22) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            // Drop existing indices first
+            database.execSQL("DROP INDEX IF EXISTS `index_users_username`")
+            database.execSQL("DROP INDEX IF EXISTS `index_users_email`")
+            database.execSQL("DROP INDEX IF EXISTS `index_users_server_id`")
+
+            // Recreate indices with updated constraints
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_users_username` ON `users` (`username`)")
+            database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_users_email` ON `users` (`email`)")
+            database.execSQL("CREATE INDEX IF NOT EXISTS `index_users_server_id` ON `users` (`server_id`)")
+        }
+    }
+    val MIGRATION_22_23 = object : Migration(22, 23) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            // Drop existing indices if they exist
+            database.execSQL("DROP INDEX IF EXISTS `index_id_mappings_localId_entityType`")
+            database.execSQL("DROP INDEX IF EXISTS `index_id_mappings_serverId_entityType`")
+
+            // Drop the table if it exists
+            database.execSQL("DROP TABLE IF EXISTS `id_mappings`")
+
+            // Create the table with exact schema Room expects
+            database.execSQL("""
+            CREATE TABLE IF NOT EXISTS `id_mappings` (
+                `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                `localId` INTEGER NOT NULL,
+                `serverId` TEXT,
+                `entityType` TEXT NOT NULL,
+                `createdAt` INTEGER NOT NULL,
+                `status` TEXT NOT NULL DEFAULT 'PENDING_SYNC'
+            )
+        """)
+        }
+    }
 }

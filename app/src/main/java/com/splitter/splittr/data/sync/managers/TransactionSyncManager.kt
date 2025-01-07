@@ -2,11 +2,13 @@ package com.splitter.splittr.data.sync.managers
 
 import android.content.Context
 import android.util.Log
+import com.splitter.splittr.MyApplication
 import com.splitter.splittr.data.extensions.toEntity
 import com.splitter.splittr.data.extensions.toModel
 import com.splitter.splittr.data.local.dao.BankAccountDao
 import com.splitter.splittr.data.local.dao.TransactionDao
 import com.splitter.splittr.data.local.dao.SyncMetadataDao
+import com.splitter.splittr.data.local.dao.UserDao
 import com.splitter.splittr.data.local.entities.TransactionEntity
 import com.splitter.splittr.data.model.Transaction
 import com.splitter.splittr.data.model.User
@@ -21,6 +23,7 @@ import kotlinx.coroutines.flow.first
 
 class TransactionSyncManager(
     private val transactionDao: TransactionDao,
+    private val userDao: UserDao,
     private val apiService: ApiService,
     private val bankAccountDao: BankAccountDao,
     syncMetadataDao: SyncMetadataDao,
@@ -31,14 +34,24 @@ class TransactionSyncManager(
     override val entityType = "transactions"
     override val batchSize = 50
 
+    val myApplication = context.applicationContext as MyApplication
+
     override suspend fun getLocalChanges(): List<Transaction> =
-        transactionDao.getUnsyncedTransactions().first().map { it.toModel() }
+        transactionDao.getUnsyncedTransactions().first().mapNotNull { transactionEntity ->
+            myApplication.entityServerConverter.convertTransactionToServer(transactionEntity).getOrNull()
+        }
 
     override suspend fun syncToServer(entity: Transaction): Result<Transaction> = try {
         val result = apiService.createTransaction(entity)
 
-        // Update local sync status after successful server sync
-        transactionDao.updateTransactionSyncStatus(entity.transactionId, SyncStatus.SYNCED)
+        // Convert server response back to local entity and update
+        myApplication.entityServerConverter.convertTransactionFromServer(
+            result,
+            transactionDao.getTransactionById(entity.transactionId).first()
+        ).onSuccess { localTransaction ->
+            transactionDao.insertTransaction(localTransaction)
+            transactionDao.updateTransactionSyncStatus(entity.transactionId, SyncStatus.SYNCED)
+        }
 
         Log.d(TAG, "Successfully synced transaction ${result.transactionId}")
         Result.success(result)
@@ -48,43 +61,46 @@ class TransactionSyncManager(
         Result.failure(e)
     }
 
+
     override suspend fun getServerChanges(since: Long): List<Transaction> {
         val userId = getUserIdFromPreferences(context) ?: throw IllegalStateException("User ID not found")
         Log.d(TransactionSyncManager.TAG, "Fetching transactions since $since")
-        return apiService.getTransactionsSince(since, userId)
+
+        // Get the server ID from the local user ID
+        val localUser = userDao.getUserByIdDirect(userId)
+            ?: throw IllegalStateException("User not found in local database")
+
+        val serverUserId = localUser.serverId
+            ?: throw IllegalStateException("No server ID found for user $userId")
+
+        return apiService.getTransactionsSince(since, serverUserId)
     }
 
     override suspend fun applyServerChange(serverEntity: Transaction) {
         try {
-            val localTransaction =
-                transactionDao.getTransactionById(serverEntity.transactionId).first()
+            val localTransaction = transactionDao.getTransactionById(serverEntity.transactionId).first()
 
             // Don't overwrite unsynced local changes
             if (localTransaction?.syncStatus == SyncStatus.PENDING_SYNC) {
-                Log.d(
-                    TAG,
-                    "Skipping server transaction ${serverEntity.transactionId} due to pending local changes"
-                )
+                Log.d(TAG, "Skipping server transaction ${serverEntity.transactionId} due to pending local changes")
                 return
             }
 
+            // Convert server transaction to local entity
+            val convertedTransaction = myApplication.entityServerConverter.convertTransactionFromServer(
+                serverEntity,
+                localTransaction
+            ).getOrNull() ?: throw Exception("Failed to convert server transaction")
+
             when {
                 localTransaction == null -> {
-                    Log.d(
-                        TAG,
-                        "Inserting new transaction from server: ${serverEntity.transactionId}"
-                    )
-                    transactionDao.insertTransaction(serverEntity.toEntity(SyncStatus.SYNCED))
+                    Log.d(TAG, "Inserting new transaction from server: ${serverEntity.transactionId}")
+                    transactionDao.insertTransaction(convertedTransaction)
                 }
-
-                serverEntity.updatedAt!! > (localTransaction.updatedAt ?: "") -> {
-                    Log.d(
-                        TAG,
-                        "Updating existing transaction from server: ${serverEntity.transactionId}"
-                    )
-                    transactionDao.insertTransaction(serverEntity.toEntity(SyncStatus.SYNCED))
+                shouldUpdateLocalTransaction(localTransaction, serverEntity) -> {
+                    Log.d(TAG, "Updating existing transaction from server: ${serverEntity.transactionId}")
+                    transactionDao.insertTransaction(convertedTransaction)
                 }
-
                 else -> {
                     Log.d(TAG, "Local transaction ${serverEntity.transactionId} is up to date")
                 }
@@ -170,7 +186,7 @@ class TransactionSyncManager(
         }
     }
 
-    private suspend fun fetchAndCacheTransactions(userId: Int): TransactionSyncResult {
+    suspend fun fetchAndCacheTransactions(userId: Int): TransactionSyncResult {
         return try {
             Log.d(TAG, "Fetching fresh transactions from GoCardless")
 
@@ -178,30 +194,14 @@ class TransactionSyncManager(
             val transactions = response.transactions
             val accountsNeedingReauth = response.accountsNeedingReauthentication
 
-            // Update in-memory cache first
+            // Only update the in-memory cache
             TransactionCache.saveTransactions(transactions)
             Log.d(TAG, "Cached ${transactions.size} transactions in memory")
 
-            // Process accounts needing reauthorization
+            // Handle reauth accounts
             handleReauthAccounts(accountsNeedingReauth)
 
-            // Selectively update local database:
-            // 1. Only update transactions that are different from local version
-            // 2. Don't overwrite local unsynced changes
-            var updatedCount = 0
-            transactions.forEach { transaction ->
-                val localTransaction = transactionDao.getTransactionById(transaction.transactionId)
-                    .first()
-
-                if (shouldUpdateLocalTransaction(localTransaction, transaction)) {
-                    transactionDao.insertTransaction(transaction.toEntity(SyncStatus.SYNCED))
-                    updatedCount++
-                }
-            }
-
-            Log.d(TAG, "Updated $updatedCount transactions in local database")
-            TransactionSyncResult.Success(updatedCount)
-
+            TransactionSyncResult.Success(transactions.size)
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching and caching transactions", e)
             TransactionCache.setError("Failed to fetch transactions: ${e.message}")
@@ -223,18 +223,9 @@ class TransactionSyncManager(
         }
     }
 
-    private fun shouldUpdateLocalTransaction(local: TransactionEntity?, server: Transaction): Boolean {
-        // Don't overwrite unsynced local changes
-        if (local?.syncStatus == SyncStatus.PENDING_SYNC) {
-            return false
-        }
+    private fun shouldUpdateLocalTransaction(local: TransactionEntity, server: Transaction): Boolean {
+        if (local.syncStatus == SyncStatus.PENDING_SYNC) return false
 
-        // If no local version exists, we should update
-        if (local == null) {
-            return true
-        }
-
-        // Compare relevant fields to determine if update is needed
         return local.updatedAt != server.updatedAt ||
                 local.amount != server.transactionAmount.amount ||
                 local.creditorName != server.creditorName ||

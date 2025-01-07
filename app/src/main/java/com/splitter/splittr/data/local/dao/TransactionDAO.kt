@@ -4,6 +4,7 @@ import androidx.room.*
 import com.splitter.splittr.data.local.entities.RequisitionEntity
 import com.splitter.splittr.data.local.entities.TransactionEntity
 import com.splitter.splittr.data.sync.SyncStatus
+import com.splitter.splittr.utils.DateUtils
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -37,7 +38,7 @@ interface TransactionDao {
     suspend fun updateTransaction(transaction: TransactionEntity) {
         // Create a copy of the transaction with the current timestamp
         val updatedTransaction = transaction.copy(
-            updatedAt = System.currentTimeMillis().toString(),
+            updatedAt = DateUtils.getCurrentTimestamp(),
             syncStatus = SyncStatus.PENDING_SYNC
         )
         updateTransactionDirect(updatedTransaction)

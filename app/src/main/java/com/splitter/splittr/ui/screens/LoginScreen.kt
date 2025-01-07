@@ -20,6 +20,7 @@ import com.splitter.splittr.data.repositories.InstitutionRepository
 import com.splitter.splittr.data.sync.SyncWorker
 import com.splitter.splittr.ui.viewmodels.AuthViewModel
 import com.splitter.splittr.ui.viewmodels.InstitutionViewModel
+import com.splitter.splittr.ui.viewmodels.UserViewModel
 import com.splitter.splittr.utils.AuthUtils
 import com.splitter.splittr.utils.TokenManager
 import com.splitter.splittr.utils.storeUserIdInPreferences
@@ -34,6 +35,7 @@ fun LoginScreen(navController: NavController) {
     val myApplication = context.applicationContext as MyApplication
     val authViewModel: AuthViewModel = viewModel(factory = myApplication.viewModelFactory)
     val institutionViewModel: InstitutionViewModel = viewModel(factory = myApplication.viewModelFactory)
+    val userViewModel: UserViewModel = viewModel(factory = myApplication.viewModelFactory)
 
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -43,31 +45,61 @@ fun LoginScreen(navController: NavController) {
 
     LaunchedEffect(authResult) {
         authResult?.onSuccess { authResponse ->
-            // Store credentials in background
-            withContext(Dispatchers.IO) {
-                TokenManager.saveAccessToken(context, authResponse.token ?: "")
-                AuthUtils.storeLoginState(context, authResponse.token ?: "")
-                storeUserIdInPreferences(context, authResponse.userId)
-            }
+            try {
+                // 1. First store the tokens and wait for completion
+                withContext(Dispatchers.IO) {
+                    val token = authResponse.token ?: throw IllegalStateException("No token received")
+                    TokenManager.saveAccessToken(context, token)
+                    AuthUtils.storeLoginState(context, token)
+                }
 
-            // Show toast on main thread
-            withContext(Dispatchers.Main) {
-                Toast.makeText(context, "Login Successful", Toast.LENGTH_SHORT).show()
-            }
+                // 2. Get user info and store user ID
+                withContext(Dispatchers.IO) {
+                    val userResult = userViewModel.getUserByServerId(authResponse.userId)
+                    val user = userResult.getOrNull()
+                        ?: throw IllegalStateException("Failed to get user info")
 
-            delay(200) // Ensure token propagation
+                    storeUserIdInPreferences(context, user.userId)
+                }
 
-            myApplication.applicationScope.launch(Dispatchers.IO) {
-                try {
-                    institutionViewModel.syncInstitutions("GB")
-                    SyncWorker.requestSync(context)
-                } catch(e: Exception) {
-                    Log.e("LoginScreen", "Error during sync", e)
+                // 3. Show success message on main thread
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Login Successful", Toast.LENGTH_SHORT).show()
+                }
+
+                // 4. Start background sync operations
+                myApplication.applicationScope.launch(Dispatchers.IO) {
+                    try {
+                        institutionViewModel.syncInstitutions("GB")
+                        SyncWorker.requestSync(context)
+                    } catch(e: Exception) {
+                        Log.e("LoginScreen", "Error during sync", e)
+                    }
+                }
+
+                // 5. Navigate to home screen
+                withContext(Dispatchers.Main) {
+                    navController.navigate("home") {
+                        popUpTo("login") { inclusive = true }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("LoginScreen", "Error during login sequence", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        context,
+                        "Login failed: ${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
             }
-
-            navController.navigate("home") {
-                popUpTo("login") { inclusive = true }
+        }?.onFailure { error ->
+            withContext(Dispatchers.Main) {
+                Toast.makeText(
+                    context,
+                    "Login failed: ${error.message}",
+                    Toast.LENGTH_LONG
+                ).show()
             }
         }
     }

@@ -15,6 +15,7 @@ import com.splitter.splittr.data.model.Transaction
 import com.splitter.splittr.data.repositories.InstitutionRepository
 import com.splitter.splittr.data.repositories.TransactionRepository
 import com.splitter.splittr.data.repositories.UserRepository
+import com.splitter.splittr.utils.DateUtils
 import com.splitter.splittr.utils.InstitutionLogoManager
 import com.splitter.splittr.utils.getUserIdFromPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -167,16 +168,15 @@ class PaymentsViewModel(
             amount = transactionDetails.amount ?: 0.0,
             description = transactionDetails.description,
             notes = "",
-            paymentDate = transactionDetails.bookingDateTime ?: System.currentTimeMillis()
-                .toString(),
+            paymentDate = transactionDetails.bookingDateTime ?: DateUtils.getCurrentTimestamp(),
             currency = transactionDetails.currency,
             splitMode = "equally",
             paymentType = "spent",
             institutionId = transactionDetails.institutionId,
             createdBy = currentUserId,
             updatedBy = currentUserId,
-            createdAt = System.currentTimeMillis().toString(),
-            updatedAt = System.currentTimeMillis().toString(),
+            createdAt = DateUtils.getCurrentTimestamp(),
+            updatedAt = DateUtils.getCurrentTimestamp(),
             deletedAt = null
         )
         viewModelScope.launch {
@@ -202,15 +202,15 @@ class PaymentsViewModel(
             amount = 0.0,
             description = "",
             notes = "",
-            paymentDate = System.currentTimeMillis().toString(),
+            paymentDate = DateUtils.getCurrentTimestamp(),
             currency = "GBP",
             splitMode = "equally",
             paymentType = "spent",
             institutionId = null,
             createdBy = userId,
             updatedBy = userId,
-            createdAt = System.currentTimeMillis().toString(),
-            updatedAt = System.currentTimeMillis().toString(),
+            createdAt = DateUtils.getCurrentTimestamp(),
+            updatedAt = DateUtils.getCurrentTimestamp(),
             deletedAt = null
         )
         viewModelScope.launch {
@@ -327,8 +327,8 @@ class PaymentsViewModel(
                 userId = member.userId,
                 amount = perPerson,
                 currency = _paymentScreenState.value.editablePayment?.currency ?: "GBP",
-                createdAt = System.currentTimeMillis().toString(),
-                updatedAt = System.currentTimeMillis().toString(),
+                createdAt = DateUtils.getCurrentTimestamp(),
+                updatedAt = DateUtils.getCurrentTimestamp(),
                 createdBy = userId,
                 updatedBy = userId,
                 deletedAt = null

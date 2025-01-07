@@ -9,6 +9,6 @@ data class Requisition(
     @SerializedName("institutionId") val institutionId: String?,
     @SerializedName("reference") val reference: String?,
     @SerializedName("createdAt") val createdAt: String?,
-    @SerializedName("updatedAt") val updatedAt: String
+    @SerializedName("updatedAt") val updatedAt: String?
 )
 

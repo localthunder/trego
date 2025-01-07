@@ -8,7 +8,6 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.TypeConverters
 import com.splitter.splittr.data.local.converters.Converters
-import com.splitter.splittr.data.local.converters.LocalIdGenerator
 import com.splitter.splittr.data.sync.SyncStatus
 import java.sql.Timestamp
 
@@ -43,13 +42,13 @@ import java.sql.Timestamp
     indices = [
         Index("payment_id"),
         Index("user_id"),
-        Index("server_id")
+        Index(value = ["server_id"], unique = true)
     ]
 )
 @TypeConverters(Converters::class)
 data class PaymentSplitEntity(
-    @PrimaryKey val id: Int,
-    @ColumnInfo(name = "server_id") val serverId: Int? = 0,
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    @ColumnInfo(name = "server_id") val serverId: Int? = null,
     @ColumnInfo(name = "payment_id") val paymentId: Int,
     @ColumnInfo(name = "user_id") val userId: Int,
     @ColumnInfo(name = "amount") val amount: Double,

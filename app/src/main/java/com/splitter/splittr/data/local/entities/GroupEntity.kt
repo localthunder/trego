@@ -4,16 +4,16 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
-import com.splitter.splittr.data.local.converters.LocalIdGenerator
 import com.splitter.splittr.data.sync.SyncStatus
 
 @Entity(
     tableName = "groups",
-    indices = [Index("server_id")]
-)
+    indices = [
+        Index(value = ["server_id"], unique = true)
+    ])
 data class GroupEntity(
-    @PrimaryKey @ColumnInfo(name = "id") val id: Int,
-    @ColumnInfo(name = "server_id") val serverId: Int? = 0,
+    @PrimaryKey(autoGenerate = true) @ColumnInfo(name = "id") val id: Int = 0,
+    @ColumnInfo(name = "server_id") val serverId: Int? = null,
     @ColumnInfo(name = "name") val name: String,
     @ColumnInfo(name = "description") val description: String?,
     @ColumnInfo(name = "group_img") val groupImg: String?,

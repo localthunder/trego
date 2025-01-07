@@ -33,8 +33,10 @@ import com.splitter.splittr.ui.viewmodels.PaymentsViewModel
 import com.splitter.splittr.ui.viewmodels.TransactionViewModel
 import com.splitter.splittr.ui.viewmodels.UserViewModel
 import com.splitter.splittr.utils.AppCoroutineDispatchers
+import com.splitter.splittr.utils.EntityServerConverter
 import com.splitter.splittr.utils.InstitutionLogoManager
 import com.splitter.splittr.utils.NetworkUtils
+import com.splitter.splittr.utils.NetworkUtils.hasNetworkCapabilities
 import com.splitter.splittr.utils.NetworkUtils.isOnline
 import com.splitter.splittr.utils.SyncUtils
 import com.splitter.splittr.utils.getUserIdFromPreferences
@@ -48,6 +50,7 @@ class MyApplication : Application(), Configuration.Provider {
     val database: AppDatabase by lazy { AppDatabase.getDatabase(this) }
     val apiService: ApiService by lazy { RetrofitClient.getInstance(this).create(ApiService::class.java) }
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val entityServerConverter by lazy { EntityServerConverter(this) }
 
     val syncManagerProvider by lazy {
         SyncManagerProvider(
@@ -93,7 +96,7 @@ class MyApplication : Application(), Configuration.Provider {
             transactionRepository
         )
 
-        NetworkUtils.initialize(this)
+        NetworkUtils.initialize(this, apiService)
 
 
         if (isTestMode()) {
@@ -111,7 +114,7 @@ class MyApplication : Application(), Configuration.Provider {
             // Only request sync if userId is valid
             val userId = getUserIdFromPreferences(this)
             if (userId != null && userId != -1) {
-                if (isOnline()) {
+                if (hasNetworkCapabilities()) {
                     SyncWorker.requestSync(this)
                 }
             } else {

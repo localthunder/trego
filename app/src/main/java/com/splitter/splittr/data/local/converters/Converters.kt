@@ -6,18 +6,6 @@ import com.google.gson.reflect.TypeToken
 import java.sql.Timestamp
 import java.util.concurrent.atomic.AtomicInteger
 
-object LocalIdGenerator {
-    private val counter = AtomicInteger(99000000) // Start from 99 million
-
-    fun nextId(): Int {
-        return counter.getAndIncrement()
-    }
-
-    fun toLocalId(value: Int): Int {
-        return if (value >= 99000000) value else nextId()
-    }
-}
-
 class Converters {
 
     @TypeConverter

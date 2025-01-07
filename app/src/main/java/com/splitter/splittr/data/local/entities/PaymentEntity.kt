@@ -5,7 +5,6 @@ import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
-import com.splitter.splittr.data.local.converters.LocalIdGenerator
 import com.splitter.splittr.data.sync.SyncStatus
 import java.sql.Timestamp
 
@@ -41,13 +40,13 @@ import java.sql.Timestamp
         Index("group_id"),
         Index("paid_by_user_id"),
         Index("transaction_id"),
-        Index("server_id")
+        Index(value = ["server_id"], unique = true)
     ]
 )
 
 data class PaymentEntity(
-    @PrimaryKey val id: Int,
-    @ColumnInfo(name = "server_id") val serverId: Int? = 0,
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    @ColumnInfo(name = "server_id") val serverId: Int? = null,
     @ColumnInfo(name = "group_id") val groupId: Int,
     @ColumnInfo(name = "paid_by_user_id") val paidByUserId: Int,
     @ColumnInfo(name = "transaction_id") val transactionId: String?,

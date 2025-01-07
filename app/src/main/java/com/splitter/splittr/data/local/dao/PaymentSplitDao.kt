@@ -5,6 +5,7 @@ import androidx.room.*
 import com.splitter.splittr.data.local.entities.PaymentEntity
 import com.splitter.splittr.data.local.entities.PaymentSplitEntity
 import com.splitter.splittr.data.sync.SyncStatus
+import com.splitter.splittr.utils.DateUtils
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -21,6 +22,9 @@ interface PaymentSplitDao {
 
     @Query("SELECT * FROM payment_splits WHERE id = :paymentSplitId")
     fun getPaymentSplitsById(paymentSplitId: Int): List<PaymentSplitEntity>
+
+    @Query("SELECT * FROM payment_splits WHERE server_id = :serverId")
+    fun getPaymentSplitByServerId(serverId: Int): PaymentSplitEntity
 
     @Query("SELECT * FROM payment_splits WHERE payment_id = :paymentId")
     fun getPaymentSplitsByPayment(paymentId: Int): Flow<List<PaymentSplitEntity>>
@@ -66,7 +70,7 @@ interface PaymentSplitDao {
     suspend fun updatePaymentSplit(paymentSplit: PaymentSplitEntity) {
         // Create a copy of the payment split with the current timestamp
         val updatedPaymentSplit = paymentSplit.copy(
-            updatedAt = System.currentTimeMillis().toString(),
+            updatedAt = DateUtils.getCurrentTimestamp(),
             syncStatus = SyncStatus.PENDING_SYNC
         )
         updatePaymentSplitDirect(updatedPaymentSplit)
@@ -76,11 +80,39 @@ interface PaymentSplitDao {
     fun getUnsyncedPaymentSplits(): Flow<List<PaymentSplitEntity>>
 
     @Query("UPDATE payment_splits SET sync_status = :status, updated_at = :timestamp WHERE id = :splitId")
-    suspend fun updatePaymentSplitSyncStatus(splitId: Int, status: SyncStatus, timestamp: String = System.currentTimeMillis().toString())
+    suspend fun updatePaymentSplitSyncStatus(splitId: Int, status: SyncStatus, timestamp: String = DateUtils.getCurrentTimestamp())
 
     @Transaction
     suspend fun updatePaymentSplitWithSync(split: PaymentSplitEntity, syncStatus: SyncStatus) {
         updatePaymentSplitDirect(split)
         updatePaymentSplitSyncStatus(split.id, syncStatus)
+    }
+
+
+    @Transaction
+    suspend fun insertOrUpdatePaymentSplit(split: PaymentSplitEntity) {
+        // Try to find existing split by server ID if it exists
+        val existingSplit = split.serverId?.let { serverId ->
+            getPaymentSplitByServerId(serverId)
+        }
+
+        if (existingSplit != null) {
+            // Update existing split while preserving its local ID
+            val updatedSplit = split.copy(
+                id = existingSplit.id,
+                updatedAt = DateUtils.getCurrentTimestamp()
+            )
+            updatePaymentSplitDirect(updatedSplit)
+        } else {
+            // Insert new split
+            insertPaymentSplit(split)
+        }
+    }
+
+    @Transaction
+    suspend fun insertOrUpdatePaymentSplits(splits: List<PaymentSplitEntity>) {
+        splits.forEach { split ->
+            insertOrUpdatePaymentSplit(split)
+        }
     }
 }

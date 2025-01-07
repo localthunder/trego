@@ -31,6 +31,7 @@ class SyncManagerProvider(
     val bankAccountSyncManager by lazy {
         BankAccountSyncManager(
             bankAccountDao = database.bankAccountDao(),
+            userDao = database.userDao(),
             apiService = apiService,
             syncMetadataDao = syncMetadataDao,
             dispatchers = dispatchers,
@@ -42,6 +43,7 @@ class SyncManagerProvider(
         GroupMemberSyncManager(
             groupMemberDao = database.groupMemberDao(),
             groupDao = database.groupDao(),
+            userDao = database.userDao(),
             apiService = apiService,
             syncMetadataDao = syncMetadataDao,
             dispatchers = dispatchers,
@@ -52,6 +54,7 @@ class SyncManagerProvider(
     val groupSyncManager by lazy {
         GroupSyncManager(
             groupDao = database.groupDao(),
+            userDao = database.userDao(),
             apiService = apiService,
             syncMetadataDao = syncMetadataDao,
             dispatchers = dispatchers,
@@ -64,6 +67,7 @@ class SyncManagerProvider(
         PaymentSyncManager(
             paymentDao = database.paymentDao(),
             paymentSplitDao = database.paymentSplitDao(),
+            userDao = database.userDao(),
             apiService = apiService,
             syncMetadataDao = syncMetadataDao,
             dispatchers = dispatchers,
@@ -74,6 +78,7 @@ class SyncManagerProvider(
     val requisitionSyncManager by lazy {
         RequisitionSyncManager(
             requisitionDao = database.requisitionDao(),
+            userDao = database.userDao(),
             apiService = apiService,
             syncMetadataDao = syncMetadataDao,
             dispatchers = dispatchers,
@@ -85,6 +90,7 @@ class SyncManagerProvider(
         TransactionSyncManager(
             transactionDao = database.transactionDao(),
             bankAccountDao = database.bankAccountDao(),
+            userDao = database.userDao(),
             apiService = apiService,
             syncMetadataDao = syncMetadataDao,
             dispatchers = dispatchers,
@@ -180,6 +186,7 @@ class SyncManagerProvider(
         apiService = apiService,
         dispatchers = dispatchers,
         syncMetadataDao = syncMetadataDao,
-        userSyncManager = userSyncManager
+        userSyncManager = userSyncManager,
+        context = context
     )
 }

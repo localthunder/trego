@@ -13,5 +13,9 @@ data class User(
     @SerializedName("createdAt") val createdAt: String,
     @SerializedName("updatedAt") override val updatedAt: String,
     @SerializedName("defaultCurrency") val defaultCurrency: String?,
-    @SerializedName("lastLoginDate") val lastLoginDate: String?
+    @SerializedName("lastLoginDate") val lastLoginDate: String?,
+    @SerializedName("isProvisional") val isProvisional: Boolean,
+    @SerializedName("invitedBy") val invitedBy: Int?,
+    @SerializedName("invitationEmail") val invitationEmail: String?,
+    @SerializedName("mergedIntoUserId") val mergedIntoUserId: Int?
 ) : TimestampedEntity

@@ -4,6 +4,7 @@ import androidx.room.*
 import com.splitter.splittr.data.local.entities.GroupEntity
 import com.splitter.splittr.data.local.entities.GroupMemberEntity
 import com.splitter.splittr.data.sync.SyncStatus
+import com.splitter.splittr.utils.DateUtils
 import com.splitter.splittr.utils.DateUtils.isUpdateNeeded
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -50,7 +51,7 @@ interface GroupMemberDao {
     suspend fun updateGroupMember(groupMember: GroupMemberEntity) {
         // Create a copy of the group member with the current timestamp
         val updatedGroupMember = groupMember.copy(
-            updatedAt = System.currentTimeMillis().toString(),
+            updatedAt = DateUtils.getCurrentTimestamp(),
             syncStatus = SyncStatus.PENDING_SYNC
         )
         updateGroupMemberDirect(updatedGroupMember)

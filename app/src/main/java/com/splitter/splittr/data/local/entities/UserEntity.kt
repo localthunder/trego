@@ -2,20 +2,19 @@ package com.splitter.splittr.data.local.entities
 
 import androidx.room.*
 import com.google.gson.annotations.SerializedName
-import com.splitter.splittr.data.local.converters.LocalIdGenerator
 import com.splitter.splittr.data.sync.SyncStatus
 
 @Entity(
     tableName = "users",
     indices = [
-        Index("server_id"),
+        Index(value = ["server_id"], unique = true),
         Index("email", unique = true),
-        Index("username", unique = true)
+        Index("username")
     ]
 )
 data class UserEntity(
-    @PrimaryKey @ColumnInfo(name = "user_id") val userId: Int = LocalIdGenerator.nextId(),
-    @SerializedName("server_id") @ColumnInfo(name = "server_id") val serverId: Int? = 0,
+    @PrimaryKey(autoGenerate = true) @ColumnInfo(name = "user_id") val userId: Int = 0,
+    @SerializedName("server_id") @ColumnInfo(name = "server_id") val serverId: Int? = null,
     @ColumnInfo(name = "username") val username: String,
     @ColumnInfo(name = "email") val email: String = "",
     @ColumnInfo(name = "password_hash") val passwordHash: String? = null,
@@ -25,5 +24,9 @@ data class UserEntity(
     @ColumnInfo(name = "updated_at") val updatedAt: String,
     @ColumnInfo(name = "default_currency") val defaultCurrency: String = "GBP",
     @ColumnInfo(name = "last_login_date") val lastLoginDate: String? = null,
-    @ColumnInfo(name = "sync_status") var syncStatus: SyncStatus = SyncStatus.PENDING_SYNC
-)
+    @ColumnInfo(name = "sync_status") var syncStatus: SyncStatus = SyncStatus.PENDING_SYNC,
+    @ColumnInfo(name = "is_provisional") val isProvisional: Boolean = false,
+    @ColumnInfo(name = "invited_by") val invitedBy: Int? = null,
+    @ColumnInfo(name = "invitation_email") val invitationEmail: String? = null,
+    @ColumnInfo(name = "merged_into_user_id") val mergedIntoUserId: Int? = null
+    )

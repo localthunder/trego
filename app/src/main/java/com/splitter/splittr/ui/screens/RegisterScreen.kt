@@ -14,7 +14,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.splitter.splittr.MyApplication
 import com.splitter.splittr.ui.viewmodels.AuthViewModel
+import com.splitter.splittr.ui.viewmodels.UserViewModel
+import com.splitter.splittr.utils.AuthUtils
 import com.splitter.splittr.utils.TokenManager
+import com.splitter.splittr.utils.storeUserIdInPreferences
 
 data class RegisterRequest(
     val email: String,
@@ -27,6 +30,7 @@ fun RegisterScreen(navController: NavController) {
     val context = LocalContext.current
     val myApplication = context.applicationContext as MyApplication
     val authViewModel: AuthViewModel = viewModel(factory = myApplication.viewModelFactory)
+    val userViewModel: UserViewModel = viewModel(factory = myApplication.viewModelFactory)
 
     var username by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
@@ -39,10 +43,19 @@ fun RegisterScreen(navController: NavController) {
         authResult?.onSuccess { authResponse ->
             if (authResponse.success && authResponse.token != null) {
                 TokenManager.saveAccessToken(context, authResponse.token)
-                Toast.makeText(context, "Registration successful!", Toast.LENGTH_SHORT).show()
-                navController.navigate("home") {
-                    popUpTo("register") { inclusive = true }
-                }
+                AuthUtils.storeLoginState(context, authResponse.token)
+
+                userViewModel.getUserByServerId(authResponse.userId)
+                    .onSuccess { userEntity ->
+                        storeUserIdInPreferences(context, userEntity.userId)
+                        Toast.makeText(context, "Registration successful!", Toast.LENGTH_SHORT).show()
+                        navController.navigate("home") {
+                            popUpTo("register") { inclusive = true }
+                        }
+                    }
+                    .onFailure { error ->
+                        Toast.makeText(context, "Error: ${error.message}", Toast.LENGTH_SHORT).show()
+                    }
             }
         }
     }

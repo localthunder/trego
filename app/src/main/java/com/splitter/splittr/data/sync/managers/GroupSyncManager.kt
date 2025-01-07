@@ -2,11 +2,13 @@ package com.splitter.splittr.data.sync
 
 import android.content.Context
 import android.util.Log
+import com.splitter.splittr.MyApplication
 import com.splitter.splittr.data.extensions.toEntity
 import com.splitter.splittr.data.extensions.toModel
 import com.splitter.splittr.data.local.dao.GroupDao
 import com.splitter.splittr.data.local.dao.GroupMemberDao
 import com.splitter.splittr.data.local.dao.SyncMetadataDao
+import com.splitter.splittr.data.local.dao.UserDao
 import com.splitter.splittr.data.model.Group
 import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.data.sync.managers.GroupMemberSyncManager
@@ -17,19 +19,23 @@ import kotlinx.coroutines.flow.first
 
 class GroupSyncManager(
     private val groupDao: GroupDao,
+    private val userDao: UserDao,
     private val apiService: ApiService,
     syncMetadataDao: SyncMetadataDao,
     dispatchers: CoroutineDispatchers,
     private val context: Context,
     private val groupMemberSyncManager: GroupMemberSyncManager
-
 ) : OptimizedSyncManager<Group>(syncMetadataDao, dispatchers) {
 
     override val entityType = "groups"
     override val batchSize = 20
 
+    val myApplication = context.applicationContext as MyApplication
+
     override suspend fun getLocalChanges(): List<Group> =
-        groupDao.getUnsyncedGroups().first().map { it.toModel() }
+        groupDao.getUnsyncedGroups().first().mapNotNull { groupEntity ->
+            myApplication.entityServerConverter.convertGroupToServer(groupEntity).getOrNull()
+        }
 
     override suspend fun syncToServer(entity: Group): Result<Group> = try {
         val result = if (entity.id > LOCAL_ID_THRESHOLD) {
@@ -39,6 +45,15 @@ class GroupSyncManager(
             Log.d(TAG, "Updating existing group ${entity.id} on server")
             apiService.updateGroup(entity.id, entity)
         }
+
+        // Convert server response back to local entity and save
+        myApplication.entityServerConverter.convertGroupFromServer(
+            result,
+            groupDao.getGroupByIdSync(entity.id)
+        ).onSuccess { localGroup ->
+            groupDao.insertGroup(localGroup.copy(syncStatus = SyncStatus.SYNCED))
+        }
+
         Result.success(result)
     } catch (e: Exception) {
         Log.e(TAG, "Error syncing group to server", e)
@@ -46,45 +61,63 @@ class GroupSyncManager(
     }
 
     override suspend fun getServerChanges(since: Long): List<Group> {
-        val userId = getUserIdFromPreferences(context) ?: throw IllegalStateException("User ID not found")
-        Log.d(TAG, "Fetching groups since $since")
-        return apiService.getGroupsSince(since, userId)
+        try {
+            val userId = getUserIdFromPreferences(context)
+                ?: throw IllegalStateException("User ID not found")
+
+            // Get the server ID from the local user ID
+            val localUser = userDao.getUserByIdDirect(userId)
+                ?: throw IllegalStateException("User not found in local database")
+
+            val serverUserId = localUser.serverId
+                ?: throw IllegalStateException("No server ID found for user $userId")
+
+            Log.d(TAG, "Fetching groups since $since for server user ID: $serverUserId")
+            return apiService.getGroupsSince(since, serverUserId)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching server changes", e)
+            throw e
+        }
     }
 
     override suspend fun applyServerChange(serverEntity: Group) {
-        val localEntity = groupDao.getGroupByIdSync(serverEntity.id)  // Add this sync query method
+        // Convert server group to local entity
+        val localGroup = myApplication.entityServerConverter.convertGroupFromServer(
+            serverEntity,
+            groupDao.getGroupByIdSync(serverEntity.id)
+        ).getOrNull() ?: throw Exception("Failed to convert server group")
 
         when {
-            localEntity == null -> {
+            localGroup.id == 0 -> {
                 Log.d(TAG, "Inserting new group from server: ${serverEntity.id}")
                 groupDao.insertGroup(
-                    serverEntity
-                        .copy(updatedAt = DateUtils.standardizeTimestamp(serverEntity.updatedAt))
-                        .toEntity(SyncStatus.SYNCED)
+                    localGroup.copy(
+                        updatedAt = DateUtils.standardizeTimestamp(serverEntity.updatedAt),
+                        syncStatus = SyncStatus.SYNCED
+                    )
                 )
                 groupMemberSyncManager.performSync()
             }
-                DateUtils.isUpdateNeeded(
-                    serverEntity.updatedAt,
-                    localEntity.updatedAt,
-                    "Group-${serverEntity.id}"
-                ) -> {
-
-                    groupDao.updateGroup(
-                        serverEntity
-                            .copy(updatedAt = DateUtils.standardizeTimestamp(serverEntity.updatedAt))
-                            .toEntity(SyncStatus.SYNCED)
+            DateUtils.isUpdateNeeded(
+                serverEntity.updatedAt,
+                localGroup.updatedAt,
+                "Group-${serverEntity.id}"
+            ) -> {
+                groupDao.updateGroup(
+                    localGroup.copy(
+                        updatedAt = DateUtils.standardizeTimestamp(serverEntity.updatedAt),
+                        syncStatus = SyncStatus.SYNCED
                     )
-
-                    // Trigger member sync after updating group
-                    Log.d(TAG, "Triggering member sync for updated group: ${serverEntity.id}")
-                    groupMemberSyncManager.performSync()
-                }
-                else -> {
-                    Log.d(TAG, "Local group ${serverEntity.id} is up to date")
-                }
+                )
+                // Trigger member sync after updating group
+                Log.d(TAG, "Triggering member sync for updated group: ${serverEntity.id}")
+                groupMemberSyncManager.performSync()
+            }
+            else -> {
+                Log.d(TAG, "Local group ${serverEntity.id} is up to date")
             }
         }
+    }
 
     companion object {
         const val TAG = "GroupSyncManager"

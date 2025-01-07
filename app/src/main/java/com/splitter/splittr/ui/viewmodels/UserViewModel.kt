@@ -1,6 +1,7 @@
 package com.splitter.splittr.ui.viewmodels
 
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.splitter.splittr.data.extensions.toModel
@@ -10,6 +11,7 @@ import com.splitter.splittr.utils.CoroutineDispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class UserViewModel(
     private val userRepository: UserRepository,
@@ -89,6 +91,33 @@ class UserViewModel(
             } finally {
                 _loading.value = (false)
             }
+        }
+    }
+
+    suspend fun createProvisionalUser(username: String, email: String?, inviteLater: Boolean): Result<Int> {
+        _loading.value = true
+        return try {
+            // Simply delegate to repository and return the result
+            userRepository.createProvisionalUser(username, email, inviteLater)
+        } catch (e: Exception) {
+            Log.e("UserViewModel", "Failed to create provisional user", e)
+            _error.value = "Failed to create provisional user: ${e.message}"
+            Result.failure(e)
+        } finally {
+            _loading.value = false
+        }
+    }
+
+    suspend fun getUserByServerId(serverId: Int): Result<User> = withContext(dispatchers.io) {
+        try {
+            val user = userRepository.getUserByServerId(serverId)?.toModel()
+            if (user != null) {
+                Result.success(user)
+            } else {
+                Result.failure(Exception("User not found"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 

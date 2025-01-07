@@ -19,6 +19,7 @@ import com.splitter.splittr.utils.ConflictResolver
 import com.splitter.splittr.utils.CoroutineDispatchers
 import com.splitter.splittr.utils.DateUtils
 import com.splitter.splittr.utils.NetworkUtils
+import com.splitter.splittr.utils.ServerIdUtil.getServerId
 import com.splitter.splittr.utils.SyncUtils
 import com.splitter.splittr.utils.getUserIdFromPreferences
 import kotlinx.coroutines.flow.Flow
@@ -114,7 +115,9 @@ class BankAccountRepository(
             // Try to sync if online
             if (NetworkUtils.isOnline()) {
                 try {
-                    val serverAccount = apiService.addAccount(account)
+                    val serverUserId = getServerId(account.userId, "users", context)
+                    val serverAccountRequest = account.copy(userId = serverUserId ?: account.userId)
+                    val serverAccount = apiService.addAccount(serverAccountRequest)
                     val resolution = ConflictResolver.resolve(account, serverAccount)
                     when (resolution) {
                         is ConflictResolution.ServerWins -> {

@@ -3,6 +3,7 @@ package com.splitter.splittr.data.repositories
 import android.content.ContentValues.TAG
 import android.content.Context
 import android.util.Log
+import com.splitter.splittr.MyApplication
 import com.splitter.splittr.data.extensions.toEntity
 import com.splitter.splittr.data.extensions.toModel
 import com.splitter.splittr.data.local.dao.GroupDao
@@ -31,6 +32,8 @@ class PaymentSplitRepository(
     private val dispatchers: CoroutineDispatchers,
     private val context: Context
 ) {
+    val myApplication = context.applicationContext as MyApplication
+
     fun getPaymentSplitsByPayment(paymentId: Int): Flow<List<PaymentSplit>> = flow {
         // Emit data from local database first
         emitAll(paymentSplitDao.getPaymentSplitsByPayment(paymentId).map { entities ->
@@ -49,6 +52,7 @@ class PaymentSplitRepository(
             Log.e("PaymentSplitRepository", "Error fetching payment splits from API", e)
         }
     }.flowOn(dispatchers.io)
+
     suspend fun createPaymentSplit(paymentSplit: PaymentSplit): Result<PaymentSplit> = withContext(dispatchers.io) {
         try {
             val localId = paymentSplitDao.insertPaymentSplit(paymentSplit.toEntity(SyncStatus.PENDING_SYNC))

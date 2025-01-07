@@ -3,6 +3,7 @@ package com.splitter.splittr.data.local.dao
 import androidx.room.*
 import com.splitter.splittr.data.local.entities.GroupEntity
 import com.splitter.splittr.data.sync.SyncStatus
+import com.splitter.splittr.utils.DateUtils
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -45,7 +46,7 @@ interface GroupDao {
     suspend fun updateGroup(group: GroupEntity) {
         // Create a copy of the group with the current timestamp
         val updatedGroup = group.copy(
-            updatedAt = System.currentTimeMillis().toString(),
+            updatedAt = DateUtils.getCurrentTimestamp(),
             syncStatus = SyncStatus.PENDING_SYNC
         )
         updateGroupDirect(updatedGroup)
@@ -84,7 +85,7 @@ interface GroupDao {
     suspend fun updateGroupImage(
         groupId: Int,
         imagePath: String,
-        timestamp: String = System.currentTimeMillis().toString(),
+        timestamp: String = DateUtils.getCurrentTimestamp(),
         syncStatus: SyncStatus = SyncStatus.PENDING_SYNC
     )
 
@@ -92,7 +93,7 @@ interface GroupDao {
     suspend fun updateGroupImageSyncStatus(
         groupId: Int,
         status: SyncStatus,
-        timestamp: String = System.currentTimeMillis().toString()
+        timestamp: String = DateUtils.getCurrentTimestamp()
     )
 
     // Sync-related queries

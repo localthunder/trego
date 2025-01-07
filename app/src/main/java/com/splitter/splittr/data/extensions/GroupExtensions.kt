@@ -8,8 +8,8 @@ import com.splitter.splittr.data.model.Group
 
 fun Group.toEntity(syncStatus: SyncStatus = SyncStatus.PENDING_SYNC): GroupEntity {
     return GroupEntity(
-        id = this.id,
-        serverId = this.id, // This will be set after syncing with the server
+        id = 0, // Let Room auto-generate the local ID
+        serverId = id.takeIf { it > 0 }, // Only use the ID from API as serverId if it exists
         name = this.name,
         description = this.description,
         groupImg = this.groupImg,
@@ -24,7 +24,7 @@ fun Group.toEntity(syncStatus: SyncStatus = SyncStatus.PENDING_SYNC): GroupEntit
 
 fun GroupEntity.toModel(): Group {
     return Group(
-        id = this.serverId ?: 0,
+        id = serverId ?: id, // Use serverId if available, fall back to local id
         name = this.name,
         description = this.description,
         groupImg = this.groupImg,

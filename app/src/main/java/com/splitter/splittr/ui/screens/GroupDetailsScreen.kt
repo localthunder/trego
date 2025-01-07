@@ -2,18 +2,14 @@ package com.splitter.splittr.ui.screens
 
 import android.annotation.SuppressLint
 import android.net.Uri
-import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
@@ -24,37 +20,25 @@ import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
 import androidx.compose.runtime.*
-import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
-import coil.compose.rememberImagePainter
-import coil.request.ImageRequest
-import com.splitter.splitter.R
 import com.splitter.splittr.MyApplication
-import com.splitter.splittr.ui.components.AddMembersDialog
 import com.splitter.splittr.ui.components.GlobalFAB
 import com.splitter.splittr.ui.components.GlobalTopAppBar
 import com.splitter.splittr.data.model.GroupMember
+import com.splitter.splittr.ui.components.AddMembersBottomSheet
 import com.splitter.splittr.ui.components.PaymentItem
 import com.splitter.splittr.ui.theme.GlobalTheme
 import com.splitter.splittr.ui.viewmodels.GroupViewModel
 import com.splitter.splittr.ui.viewmodels.UserViewModel
 import com.splitter.splittr.utils.ImageUtils
-import kotlinx.coroutines.Dispatchers
 
 @SuppressLint("UnrememberedMutableState")
 @OptIn(ExperimentalMaterialApi::class)
@@ -70,7 +54,7 @@ fun GroupDetailsScreen(
 
     val groupDetailsState by groupViewModel.groupDetailsState.collectAsState()
 
-    var showAddMembersDialog by remember { mutableStateOf(false) }
+    var showAddMembersBottomSheet by remember { mutableStateOf(false) }
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -161,7 +145,7 @@ fun GroupDetailsScreen(
                             }
                             item {
                                 GroupActionButtons(
-                                    onAddMembersClick = { showAddMembersDialog = true },
+                                    onAddMembersClick = { showAddMembersBottomSheet = true },
                                     onBalancesClick = { navController.navigate("groupBalances/$groupId") }
                                 )
                             }
@@ -211,11 +195,13 @@ fun GroupDetailsScreen(
             }
         }
 
-        if (showAddMembersDialog) {
-            AddMembersDialog(
-                onDismissRequest = { showAddMembersDialog = false },
-                onCreateInviteLinkClick = { /* Handle create invite link */ },
-                onInviteMembersClick = { navController.navigate("inviteMembers/$groupId") }
+        if (showAddMembersBottomSheet) {
+            AddMembersBottomSheet(
+                groupId = groupId,
+                onDismissRequest = {
+                    showAddMembersBottomSheet = false
+                    groupViewModel.loadGroupDetails(groupId) // Reload group details when sheet is dismissed
+                }
             )
         }
     }

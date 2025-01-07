@@ -5,6 +5,7 @@ package com.splitter.splittr.data.local.dao
 import androidx.room.*
 import com.splitter.splittr.data.sync.SyncMetadata
 import com.splitter.splittr.data.sync.SyncStatus
+import com.splitter.splittr.utils.DateUtils
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -50,7 +51,7 @@ interface SyncMetadataDao {
     """)
     suspend fun updateSyncStatus(
         entityType: String,
-        timestamp: Long = System.currentTimeMillis(),
+        timestamp: Long = DateUtils.getCurrentTimestamp().toLong(),
         status: SyncStatus
     )
 

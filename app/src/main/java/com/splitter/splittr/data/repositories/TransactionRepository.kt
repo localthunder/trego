@@ -15,6 +15,7 @@ import com.splitter.splittr.data.sync.SyncableRepository
 import com.splitter.splittr.data.sync.managers.TransactionSyncManager
 import com.splitter.splittr.ui.viewmodels.TransactionViewModel
 import com.splitter.splittr.utils.CoroutineDispatchers
+import com.splitter.splittr.utils.DateUtils
 import com.splitter.splittr.utils.NetworkUtils
 import com.splitter.splittr.utils.getUserIdFromPreferences
 import kotlinx.coroutines.flow.first
@@ -138,17 +139,41 @@ class TransactionRepository(
         }
     }
 
-    suspend fun createTransaction(transaction: Transaction): Result<Transaction> =
-        withContext(dispatchers.io) {
-            try {
-                transactionDao.insertTransaction(transaction.toEntity(SyncStatus.PENDING_SYNC))
-                val serverTransaction = apiService.createTransaction(transaction)
-                transactionDao.insertTransaction(serverTransaction.toEntity(SyncStatus.SYNCED))
-                Result.success(serverTransaction)
-            } catch (e: Exception) {
-                Result.failure(e)
+    suspend fun createTransaction(transaction: Transaction): Result<Transaction> = withContext(dispatchers.io) {
+        try {
+            // Save locally first
+            val localTransaction = transaction.copy(
+                updatedAt = DateUtils.getCurrentTimestamp()
+            ).toEntity(SyncStatus.PENDING_SYNC)
+
+            transactionDao.insertTransaction(localTransaction)
+
+            // Try to sync if online
+            if (NetworkUtils.isOnline()) {
+                try {
+                    val serverTransaction = apiService.createTransaction(transaction)
+
+                    // Update local with server data while preserving local fields
+                    val syncedTransaction = serverTransaction.copy(
+                        transactionId = transaction.transactionId,
+                        updatedAt = DateUtils.getCurrentTimestamp()
+                    ).toEntity(SyncStatus.SYNCED)
+
+                    transactionDao.insertTransaction(syncedTransaction)
+                    Result.success(syncedTransaction.toModel())
+                } catch (e: Exception) {
+                    Log.e("TransactionRepository", "Failed to sync with server", e)
+                    // Return local transaction if sync fails
+                    Result.success(localTransaction.toModel())
+                }
+            } else {
+                Result.success(localTransaction.toModel())
             }
+        } catch (e: Exception) {
+            Log.e("TransactionRepository", "Failed to create transaction", e)
+            Result.failure(e)
         }
+    }
 
     suspend fun saveTransaction(transaction: Transaction): Result<Transaction> = withContext(dispatchers.io) {
         try {
@@ -173,84 +198,32 @@ class TransactionRepository(
         }
     }
 
-    private suspend fun fetchAndCacheTransactions(userId: Int?) {
-        if (userId == null) return
-
-        try {
-            Log.d("TransactionRepository", "Fetching fresh transactions from GoCardless")
-
-            val response = apiService.getTransactionsByUserId(userId)
-            val transactions = response.transactions
-            val accountsNeedingReauth = response.accountsNeedingReauthentication
-
-            // Cache the transactions
-            TransactionCache.saveTransactions(transactions)
-            Log.d("TransactionRepository", "Cached ${transactions.size} transactions")
-
-            // Handle reauth accounts
-            accountsNeedingReauth.forEach { reauthAccount ->
-                try {
-                    Log.d("TransactionRepository",
-                        "Account ${reauthAccount.accountId} needs reauthorization")
-                    bankAccountDao.updateNeedsReauthentication(reauthAccount.accountId, true)
-                } catch (e: Exception) {
-                    Log.e("TransactionRepository",
-                        "Failed to mark account ${reauthAccount.accountId} for reauth", e)
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("TransactionRepository", "Error fetching transactions from GoCardless", e)
-            TransactionCache.setError("Failed to fetch transactions: ${e.message}")
-        }
-    }
-
     override suspend fun sync() = withContext(dispatchers.io) {
         try {
             Log.d(TAG, "Starting transaction sync process")
 
-            // Perform the specialized transaction sync
-            when (val result = transactionSyncManager.performFullSync()) {
-                is TransactionSyncManager.TransactionSyncResult.Success -> {
-                    Log.d(TAG, "Transaction sync completed successfully. Synced: ${result.syncedCount}")
+            // First do GoCardless fetch and cache
+            val userId = getUserIdFromPreferences(context) ?: throw IllegalStateException("User ID not found")
+            transactionSyncManager.fetchAndCacheTransactions(userId)
 
-                    // Update sync metadata
-                    syncMetadataDao.update(entityType) {
-                        it.copy(
-                            lastSyncTimestamp = System.currentTimeMillis(),
-                            syncStatus = SyncStatus.SYNCED,
-                            lastSyncResult = "Successfully synced ${result.syncedCount} transactions"
-                        )
-                    }
-                }
+            // Then do database sync
+            transactionSyncManager.performSync()
 
-                is TransactionSyncManager.TransactionSyncResult.PartialSuccess -> {
-                    Log.w(TAG, "Transaction sync partially completed. " +
-                            "Synced: ${result.syncedCount}, Failed: ${result.failedCount}")
-
-                    syncMetadataDao.update(entityType) {
-                        it.copy(
-                            lastSyncTimestamp = System.currentTimeMillis(),
-                            syncStatus = SyncStatus.SYNC_FAILED,
-                            lastSyncResult = "Partial sync: ${result.syncedCount} succeeded, " +
-                                    "${result.failedCount} failed"
-                        )
-                    }
-                }
-
-                is TransactionSyncManager.TransactionSyncResult.Error -> {
-                    Log.e(TAG, "Transaction sync failed: ${result.message}")
-
-                    syncMetadataDao.update(entityType) {
-                        it.copy(
-                            syncStatus = SyncStatus.SYNC_FAILED,
-                            lastSyncResult = "Sync failed: ${result.message}"
-                        )
-                    }
-                    throw Exception(result.message)
-                }
+            syncMetadataDao.update(entityType) {
+                it.copy(
+                    lastSyncTimestamp = System.currentTimeMillis(),
+                    syncStatus = SyncStatus.SYNCED,
+                    lastSyncResult = "Successfully synced transactions"
+                )
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error during transaction sync", e)
+            syncMetadataDao.update(entityType) {
+                it.copy(
+                    syncStatus = SyncStatus.SYNC_FAILED,
+                    lastSyncResult = "Sync failed: ${e.message}"
+                )
+            }
             throw e
         }
     }
