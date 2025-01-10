@@ -3,6 +3,7 @@ package com.splitter.splittr.data.repositories
 import android.accounts.Account
 import android.content.Context
 import android.util.Log
+import com.splitter.splittr.MyApplication
 import com.splitter.splittr.data.local.dao.TransactionDao
 import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.data.model.Transaction
@@ -17,6 +18,7 @@ import com.splitter.splittr.ui.viewmodels.TransactionViewModel
 import com.splitter.splittr.utils.CoroutineDispatchers
 import com.splitter.splittr.utils.DateUtils
 import com.splitter.splittr.utils.NetworkUtils
+import com.splitter.splittr.utils.ServerIdUtil
 import com.splitter.splittr.utils.getUserIdFromPreferences
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -40,6 +42,8 @@ class TransactionRepository(
     override val syncPriority = 3
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
 
+    val myApplication = context.applicationContext as MyApplication
+
     data class TransactionsApiResponse(
         val transactions: List<Transaction>,
         val accountsNeedingReauthentication: List<TransactionViewModel.AccountReauthState>
@@ -51,7 +55,6 @@ class TransactionRepository(
 
     suspend fun fetchTransactions(userId: Int): List<Transaction>? = withContext(dispatchers.io) {
         Log.d("TransactionRepository", "Fetching transactions for user $userId")
-
         try {
             // Return cached transactions immediately if they exist
             val cachedTransactions = TransactionCache.getTransactions()
@@ -60,15 +63,26 @@ class TransactionRepository(
             if (!TransactionCache.isCacheFresh() || cachedTransactions == null) {
                 Log.d("TransactionRepository", "Cache not fresh or empty, fetching from API")
                 try {
-                    val response = apiService.getTransactionsByUserId(userId)
+                    // Convert local user ID to server ID
+                    val serverUserId = ServerIdUtil.getServerId(userId, "users", context)
+                        ?: throw Exception("Could not resolve server user ID for $userId")
+
+                    val response = apiService.getTransactionsByUserId(serverUserId)
+
                     if (response.transactions.isNotEmpty()) {
-                        TransactionCache.saveTransactions(response.transactions)
-                        Log.d("TransactionRepository", "Updated cache with ${response.transactions.size} transactions")
-                        return@withContext response.transactions
+                        // Convert the server response transactions to use local user IDs
+                        val localizedTransactions = response.transactions.map { transaction ->
+                            transaction.copy(
+                                userId = userId  // Use the local user ID
+                            )
+                        }
+
+                        TransactionCache.saveTransactions(localizedTransactions)
+                        Log.d("TransactionRepository", "Updated cache with ${localizedTransactions.size} transactions")
+                        return@withContext localizedTransactions
                     }
                 } catch (e: Exception) {
                     Log.e("TransactionRepository", "Error refreshing transactions", e)
-                    // On refresh error, return cached data if available
                     if (cachedTransactions != null) {
                         return@withContext cachedTransactions
                     }
@@ -76,7 +90,6 @@ class TransactionRepository(
                 }
             }
 
-            // Return cached transactions (fresh or stale)
             cachedTransactions
         } catch (e: Exception) {
             Log.e("TransactionRepository", "Error in transaction fetch workflow", e)
@@ -151,7 +164,8 @@ class TransactionRepository(
             // Try to sync if online
             if (NetworkUtils.isOnline()) {
                 try {
-                    val serverTransaction = apiService.createTransaction(transaction)
+                    val serverTransactionModel = myApplication.entityServerConverter.convertTransactionToServer(transaction.toEntity())
+                    val serverTransaction = apiService.createTransaction(serverTransactionModel.getOrThrow())
 
                     // Update local with server data while preserving local fields
                     val syncedTransaction = serverTransaction.copy(

@@ -110,13 +110,10 @@ class MainActivity : FragmentActivity() {
             Log.d("MainActivity", "scheme: $scheme, host: $host, reference: $reference")
 
             if (scheme == "splitter" && host == "bankaccounts" && reference != null) {
+                // This part is crucial:
                 referenceState.value = reference
                 Log.d("MainActivity", "Reference set: $reference")
-            } else {
-                Log.e("MainActivity", "Deep link data is invalid or incomplete")
             }
-        } else {
-            Log.e("MainActivity", "Intent data is null")
         }
     }
 

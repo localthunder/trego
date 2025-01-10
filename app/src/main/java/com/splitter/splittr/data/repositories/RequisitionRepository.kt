@@ -2,6 +2,7 @@ package com.splitter.splittr.data.repositories
 
 import android.content.Context
 import android.util.Log
+import com.splitter.splittr.MyApplication
 import com.splitter.splittr.data.extensions.toEntity
 import com.splitter.splittr.data.extensions.toModel
 import com.splitter.splittr.data.local.dao.RequisitionDao
@@ -29,6 +30,8 @@ class RequisitionRepository(
     override val entityType = "requisitions"
     override val syncPriority = 2  // Sync before bank accounts but after groups
 
+    val myApplication = context.applicationContext as MyApplication
+
     suspend fun insert(requisition: Requisition) {
         requisitionDao.insert(requisition.toEntity())
     }
@@ -46,24 +49,39 @@ class RequisitionRepository(
     }
 
     suspend fun getRequisitionByReference(reference: String): Requisition? {
-        // First, try to get the requisition from the local database
-        var requisition = requisitionDao.getRequisitionByReference(reference)?.toModel()
-
-        // If not found in the database, fetch from the API
-        if (requisition == null) {
-            try {
-                requisition = apiService.getRequisitionByReference(reference)
-                // Save the fetched requisition to the local database
-                requisition?.let {
-                    requisitionDao.insert(it.toEntity())
-                }
-            } catch (e: Exception) {
-                // Handle network errors
-                Log.e("RequisitionRepository", "Error fetching requisition: ${e.message}")
+        Log.d(TAG, "Fetching requisition for reference: $reference")
+        try {
+            // First try local
+            val localRequisition = requisitionDao.getRequisitionByReference(reference)?.toModel()
+            if (localRequisition != null) {
+                Log.d(TAG, "Found requisition in local DB")
+                return localRequisition
             }
-        }
 
-        return requisition
+            // If not in local DB, fetch from server
+            val serverRequisition = apiService.getRequisitionByReference(reference)
+            Log.d(TAG, "Got requisition from server: $serverRequisition")
+
+            if (serverRequisition != null) {
+                // Convert server IDs to local IDs before saving
+                myApplication.entityServerConverter.convertRequisitionFromServer(serverRequisition).fold(
+                    onSuccess = { localEntity ->
+                        requisitionDao.insert(localEntity)
+                        Log.d(TAG, "Successfully saved converted requisition to local DB")
+                        return localEntity.toModel()
+                    },
+                    onFailure = { error ->
+                        Log.e(TAG, "Failed to convert server requisition", error)
+                        throw error
+                    }
+                )
+            }
+
+            return serverRequisition
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in getRequisitionByReference", e)
+            throw e
+        }
     }
     override suspend fun sync(): Unit = withContext(dispatchers.io) {
         try {

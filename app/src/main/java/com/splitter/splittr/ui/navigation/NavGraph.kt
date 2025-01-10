@@ -39,15 +39,6 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
     val database: AppDatabase by lazy {
         AppDatabase.getDatabase(context)
     }
-    val bankAccountDao = database.bankAccountDao()
-    val groupDao = database.groupDao()
-    val groupMemberDao = database.groupMemberDao()
-    val institutionDao = database.institutionDao()
-    val paymentDao = database.paymentDao()
-    val paymentSplitDao = database.paymentSplitDao()
-    val transactionDao = database.transactionDao()
-    val syncMetadataDao = database.syncMetadataDao()
-    val userDao = database.userDao()
 
     val syncManagerProvider = remember {
         SyncManagerProvider(

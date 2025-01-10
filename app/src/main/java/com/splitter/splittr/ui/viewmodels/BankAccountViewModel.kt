@@ -24,20 +24,48 @@ class BankAccountViewModel(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
 
-    fun loadBankAccounts(userId: Int) {
+    fun loadAccountsForRequisition(requisitionId: String, userId: Int) {
+        Log.d("BankAccountViewModel", "Loading accounts for requisition: $requisitionId")
         viewModelScope.launch {
             _loading.value = true
             _error.value = null
 
             try {
-                // Launch a new coroutine for collecting the flow
+                // First try to get accounts from the requisition
+                val result = bankAccountRepository.getBankAccounts(requisitionId)
+
+                result.onSuccess { accounts ->
+                    Log.d("BankAccountViewModel", "Successfully loaded ${accounts.size} accounts from requisition")
+                    _bankAccounts.value = accounts
+
+                    // After saving requisition accounts, load all user accounts
+                    loadBankAccounts(userId)
+                }.onFailure { e ->
+                    Log.e("BankAccountViewModel", "Failed to load accounts from requisition", e)
+                    _error.value = "Failed to load accounts: ${e.message}"
+                }
+            } catch (e: Exception) {
+                Log.e("BankAccountViewModel", "Error loading accounts", e)
+                _error.value = "Error loading accounts: ${e.message}"
+            } finally {
+                _loading.value = false
+            }
+        }
+    }
+
+    // Keep existing functions but add logging
+    fun loadBankAccounts(userId: Int) {
+        Log.d("BankAccountViewModel", "Loading all accounts for user: $userId")
+        viewModelScope.launch {
+            try {
                 bankAccountRepository.getUserAccounts(userId)
                     .flowOn(dispatchers.io)
                     .catch { e ->
+                        Log.e("BankAccountViewModel", "Error loading user accounts", e)
                         _error.value = "Failed to load bank accounts: ${e.message}"
-                        Log.e("BankAccountViewModel", "Error loading bank accounts", e)
                     }
                     .collect { accounts ->
+                        Log.d("BankAccountViewModel", "Received ${accounts.size} user accounts")
                         _bankAccounts.value = accounts
                     }
             } finally {

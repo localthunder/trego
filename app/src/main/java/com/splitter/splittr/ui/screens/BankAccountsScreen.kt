@@ -2,6 +2,7 @@ package com.splitter.splittr.ui.screens
 
 import BankAccountViewModel
 import android.content.Context
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -22,25 +23,27 @@ import com.splitter.splittr.data.model.BankAccount
 import kotlinx.coroutines.launch
 
 @Composable
-fun BankAccountsScreen(navController: NavController, context: Context, requisitionId: String, userId: Int) {
+fun BankAccountsScreen(
+    navController: NavController,
+    context: Context,
+    requisitionId: String,
+    userId: Int
+) {
+    Log.d("BankAccountsScreen", "Screen initialized with requisitionId: $requisitionId")
+
     val myApplication = context.applicationContext as MyApplication
     val bankAccountViewModel: BankAccountViewModel = viewModel(factory = myApplication.viewModelFactory)
 
-    // Observe the state from the ViewModel
     val bankAccounts by bankAccountViewModel.bankAccounts.collectAsState(emptyList())
-    val existingAccounts by bankAccountViewModel.bankAccounts.collectAsState(emptyList())
     val loading by bankAccountViewModel.loading.collectAsState(false)
     val error by bankAccountViewModel.error.collectAsState(null)
 
     val coroutineScope = rememberCoroutineScope()
-    val addedAccounts = remember { existingAccounts.map { it.accountId }.toSet() }
 
-    val context = LocalContext.current
-
-
-    // Trigger loading bank accounts and existing accounts when the screen is launched
-    LaunchedEffect(requisitionId, userId) {
-        bankAccountViewModel.loadBankAccounts(userId)
+    // Launch the account loading when the screen is created
+    LaunchedEffect(requisitionId) {
+        Log.d("BankAccountsScreen", "LaunchedEffect triggered for requisitionId: $requisitionId")
+        bankAccountViewModel.loadAccountsForRequisition(requisitionId, userId)
     }
 
     Column(
@@ -51,27 +54,35 @@ fun BankAccountsScreen(navController: NavController, context: Context, requisiti
         verticalArrangement = Arrangement.Center
     ) {
         if (loading) {
+            Log.d("BankAccountsScreen", "Showing loading indicator")
             CircularProgressIndicator()
+        } else if (error != null) {
+            Text(
+                text = error ?: "Unknown error occurred",
+                color = Color.Red,
+                modifier = Modifier.padding(16.dp)
+            )
         } else {
             Text("Available Bank Accounts", style = MaterialTheme.typography.h6)
             Spacer(modifier = Modifier.height(16.dp))
-            LazyColumn {
-                items(bankAccounts) { account ->
-                    BankAccountCard(account, context, navController, addedAccounts) { accountId ->
-                        if (addedAccounts.contains(accountId)) {
-                            navController.navigate("transactions/$userId")
-                        } else {
-                            coroutineScope.launch {
-                                val success = bankAccountViewModel.addBankAccount(account)
-                                if (success) {
-                                    Toast.makeText(context, "Account added successfully", Toast.LENGTH_SHORT).show()
-                                    // Refetch accounts to include newly added one
-                                    bankAccountViewModel.loadBankAccounts(userId)
-                                } else {
-                                    Toast.makeText(context, "Failed to add account", Toast.LENGTH_SHORT).show()
-                                }
+
+            if (bankAccounts.isEmpty()) {
+                Text(
+                    "No bank accounts found",
+                    modifier = Modifier.padding(16.dp)
+                )
+            } else {
+                LazyColumn {
+                    items(bankAccounts) { account ->
+                        BankAccountCard(
+                            account = account,
+                            context = context,
+                            navController = navController,
+                            addedAccounts = bankAccounts.map { it.accountId }.toSet(),
+                            onClick = { accountId ->
+                                // Your existing onClick logic
                             }
-                        }
+                        )
                     }
                 }
             }

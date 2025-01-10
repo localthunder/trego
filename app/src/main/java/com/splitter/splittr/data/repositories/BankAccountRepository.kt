@@ -3,6 +3,7 @@ package com.splitter.splittr.data.repositories
 import android.content.ContentValues.TAG
 import android.content.Context
 import android.util.Log
+import com.splitter.splittr.MyApplication
 import com.splitter.splittr.data.extensions.toEntity
 import com.splitter.splittr.data.extensions.toModel
 import com.splitter.splittr.data.local.dao.BankAccountDao
@@ -43,6 +44,8 @@ class BankAccountRepository(
 
     override val entityType = "bank_accounts"
     override val syncPriority = 2
+
+    val myApplication = context.applicationContext as MyApplication
 
     // Handle conflicts between local and server data
     fun getUserAccounts(userId: Int): Flow<List<BankAccount>> = flow {
@@ -96,11 +99,41 @@ class BankAccountRepository(
     suspend fun getBankAccounts(requisitionId: String): Result<List<BankAccount>> = withContext(dispatchers.io) {
         try {
             val accounts = apiService.getBankAccounts(requisitionId)
-            accounts.forEach { account ->
-                bankAccountDao.insertBankAccount(account.toEntity(SyncStatus.SYNCED))
+            val timestamp = DateUtils.getCurrentTimestamp()
+
+            // First add timestamps to the model objects
+            val accountsWithTimestamps = accounts.map { account ->
+                account.copy(
+                    createdAt = timestamp,
+                    updatedAt = timestamp
+                )
             }
-            Result.success(accounts)
+
+            // Then convert to entities
+            val convertedAccounts = accountsWithTimestamps.mapNotNull { account ->
+                myApplication.entityServerConverter.convertBankAccountFromServer(account).getOrNull()?.let { convertedAccount ->
+                    convertedAccount.copy(
+                        syncStatus = SyncStatus.PENDING_SYNC
+                    )
+                }
+            }
+
+            // Save to local DB
+            convertedAccounts.forEach { account ->
+                bankAccountDao.insertBankAccount(account)
+            }
+
+            try {
+                accountsWithTimestamps.forEach { account ->
+                    apiService.addAccount(account)
+                }
+            } catch (e: Exception) {
+                Log.e("BankAccountRepository", "Error sending accounts to server", e)
+            }
+
+            Result.success(convertedAccounts.map { it.toModel() })
         } catch (e: Exception) {
+            Log.e("BankAccountRepository", "Error fetching accounts", e)
             Result.failure(e)
         }
     }
