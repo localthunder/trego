@@ -307,10 +307,10 @@ private fun handleTransactionClick(
             navController.navigate(
                 "paymentDetails/$groupId/0?" +
                         "transactionId=${transaction.transactionId}&" +
-                        "amount=${transaction.transactionAmount.amount}&" +
+                        "amount=${transaction.getEffectiveAmount()}&" +
                         "description=${Uri.encode(description)}&" +
                         "creditorName=${Uri.encode(transaction.creditorName ?: "")}&" +
-                        "currency=${transaction.transactionAmount.currency}&" +
+                        "currency=${transaction.getEffectiveCurrency()}&" +
                         "bookingDateTime=${transaction.bookingDateTime}&" +
                         "remittanceInfo=${Uri.encode(transaction.remittanceInformationUnstructured ?: "")}" +
                         "institutionId=${transaction.institutionId}"

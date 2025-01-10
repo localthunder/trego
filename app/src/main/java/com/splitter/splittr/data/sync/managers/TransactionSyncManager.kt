@@ -190,7 +190,14 @@ class TransactionSyncManager(
         return try {
             Log.d(TAG, "Fetching fresh transactions from GoCardless")
 
-            val response = apiService.getTransactionsByUserId(userId)
+            // Get the server ID from the local user ID
+            val localUser = userDao.getUserByIdDirect(userId)
+                ?: throw IllegalStateException("User not found in local database")
+
+            val serverUserId = localUser.serverId
+                ?: throw IllegalStateException("No server ID found for user $userId")
+
+            val response = apiService.getTransactionsByUserId(serverUserId)
             val transactions = response.transactions
             val accountsNeedingReauth = response.accountsNeedingReauthentication
 
@@ -227,7 +234,7 @@ class TransactionSyncManager(
         if (local.syncStatus == SyncStatus.PENDING_SYNC) return false
 
         return local.updatedAt != server.updatedAt ||
-                local.amount != server.transactionAmount.amount ||
+                local.amount != server.transactionAmount?.amount ||
                 local.creditorName != server.creditorName ||
                 local.debtorName != server.debtorName ||
                 local.bookingDateTime != server.bookingDateTime ||

@@ -18,6 +18,7 @@ import com.splitter.splittr.data.sync.SyncStatus
 import com.splitter.splittr.data.model.Payment
 import com.splitter.splittr.data.model.PaymentSplit
 import com.splitter.splittr.data.model.Transaction
+import com.splitter.splittr.data.model.TransactionAmount
 import com.splitter.splittr.data.sync.SyncableRepository
 import com.splitter.splittr.data.sync.managers.PaymentSyncManager
 import com.splitter.splittr.utils.CoroutineDispatchers
@@ -204,27 +205,33 @@ class PaymentRepository(
         splits: List<PaymentSplit>
     ): Result<Payment> = withContext(dispatchers.io) {
         try {
-            // Get userId and validate it exists
             val userId = getUserIdFromPreferences(context)
                 ?: return@withContext Result.failure(IllegalStateException("User ID not found"))
 
             // Create a complete transaction object with all required fields
             val completeTransaction = transaction.copy(
                 userId = userId,
-                currency = transaction.transactionAmount.currency // Ensure currency is set from transactionAmount
+                transactionAmount = TransactionAmount(
+                    amount = transaction.getEffectiveAmount(),
+                    currency = transaction.getEffectiveCurrency()
+                )
             )
 
             Log.d(TAG, "Creating transaction with userId: $userId")
+
+            // Convert to server model
+            val serverTransaction = myApplication.entityServerConverter
+                .convertTransactionToServer(completeTransaction.toEntity(SyncStatus.PENDING_SYNC))
+                .getOrNull() ?: throw Exception("Failed to convert transaction to server model")
 
             // First save transaction locally
             transactionDao.insertTransaction(completeTransaction.toEntity(SyncStatus.PENDING_SYNC))
 
             // Then create transaction on server
-            val serverTransaction = try {
-                apiService.createTransaction(completeTransaction)
+            val createdServerTransaction = try {
+                apiService.createTransaction(serverTransaction)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to create transaction on server", e)
-                // Clean up local transaction on server failure
                 transactionDao.updateTransactionSyncStatus(
                     completeTransaction.transactionId,
                     SyncStatus.SYNC_FAILED
@@ -233,18 +240,18 @@ class PaymentRepository(
             }
 
             // Update local transaction with server response and SYNCED status
-            transactionDao.insertTransaction(serverTransaction.toEntity(SyncStatus.SYNCED))
+            transactionDao.insertTransaction(createdServerTransaction.toEntity(SyncStatus.SYNCED))
 
-            // Small delay to ensure transaction is fully persisted
             delay(100)
 
             // Create the payment using existing function with the confirmed transaction ID
             createPaymentWithSplits(
                 payment = payment.copy(
-                    transactionId = serverTransaction.transactionId,
-                    // Ensure payment has same user ID and currency
+                    transactionId = createdServerTransaction.transactionId,
                     paidByUserId = userId,
-                    currency = serverTransaction.transactionAmount.currency
+                    currency = createdServerTransaction.transactionAmount?.currency
+                        ?: createdServerTransaction.currency
+                        ?: "GBP"
                 ),
                 splits = splits
             )

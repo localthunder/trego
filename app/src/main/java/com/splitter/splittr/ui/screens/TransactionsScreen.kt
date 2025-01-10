@@ -83,17 +83,17 @@ private fun navigateToPaymentDetails(navController: NavController, transaction: 
         ?: transaction.remittanceInformationUnstructured
 
     Log.d("TransactionsScreen", "Navigating to paymentDetails with transactionId=${transaction.transactionId}, " +
-            "amount=${transaction.transactionAmount.amount}, description=$description, " +
-            "creditorName=${transaction.creditorName}, currency=${transaction.transactionAmount.currency}, " +
+            "amount=${transaction.getEffectiveAmount()}, description=$description, " +
+            "creditorName=${transaction.creditorName}, currency=${transaction.getEffectiveCurrency()}, " +
             "bookingDateTime=${transaction.bookingDateTime}, " +
             "remittanceInfo=${transaction.remittanceInformationUnstructured}")
 
     navController.navigate(
         "paymentDetails/1/0?transactionId=${transaction.transactionId}" +
-                "&amount=${transaction.transactionAmount.amount}" +
+                "&amount=${transaction.getEffectiveAmount()}" +
                 "&description=${description}" +
                 "&creditorName=${transaction.creditorName}" +
-                "&currency=${transaction.transactionAmount.currency}" +
+                "&currency=${transaction.getEffectiveCurrency()}" +
                 "&bookingDateTime=${transaction.bookingDateTime}" +
                 "&remittanceInfo=${transaction.remittanceInformationUnstructured}"
     )

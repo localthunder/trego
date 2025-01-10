@@ -52,7 +52,7 @@ fun TransactionItem(
             ?: transaction.debtorName
             ?: transaction.remittanceInformationUnstructured
             ?: "N/A",
-        amount = transaction.transactionAmount.amount,
+        amount = transaction.getEffectiveAmount(),
         bookingDateTime = transaction.bookingDateTime,
         institutionName = transaction.institutionName ?: "N/A",
         borderSize = 2.dp,

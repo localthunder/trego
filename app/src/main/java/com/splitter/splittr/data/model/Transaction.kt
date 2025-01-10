@@ -14,7 +14,7 @@ data class Transaction(
     @SerializedName("bookingDate") val bookingDate: String?,
     @SerializedName("valueDate") val valueDate: String?,
     @SerializedName("bookingDateTime") val bookingDateTime: String?,
-    @SerializedName("transactionAmount") val transactionAmount: TransactionAmount,
+    @SerializedName("transactionAmount") val transactionAmount: TransactionAmount? = null,
     @SerializedName("creditorName") val creditorName: String?,
     @SerializedName("creditorAccount") val creditorAccount: CreditorAccount?,
     @SerializedName("debtorName") val debtorName: String?,
@@ -23,7 +23,17 @@ data class Transaction(
     @SerializedName("internalTransactionId") val internalTransactionId: String?,
     @SerializedName("institutionName") val institutionName: String?,
     @SerializedName("institutionId") val institutionId: String?
-)
+) {
+    // Helper function to safely get amount
+    fun getEffectiveAmount(): Double {
+        return amount ?: transactionAmount?.amount ?: 0.0
+    }
+
+    // Helper function to safely get currency
+    fun getEffectiveCurrency(): String {
+        return currency ?: transactionAmount?.currency ?: "GBP"
+    }
+}
 
 data class TransactionAmount(
     @SerializedName("amount") val amount: Double,
