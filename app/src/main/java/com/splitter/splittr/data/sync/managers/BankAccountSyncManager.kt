@@ -45,24 +45,29 @@ class BankAccountSyncManager(
         // Mark as pending sync before server operation
         bankAccountDao.updateBankAccountSyncStatus(accountId, SyncStatus.PENDING_SYNC)
 
+        // Get server result
         val serverResult = if (existingAccount == null) {
             Log.d(TAG, "Creating new bank account on server: $accountId")
             apiService.addAccount(entity)
         } else {
             Log.d(TAG, "Updating existing bank account on server: $accountId")
-            apiService.updateAccount(accountId, entity)
+            apiService.updateAccount(accountId, entity).data  // Add .data here since we modified the API response
         }
 
-        // Convert server response back to local entity
-        myApplication.entityServerConverter.convertBankAccountFromServer(
-            serverResult,
-            existingAccount
-        ).onSuccess { localAccount ->
-            bankAccountDao.insertBankAccount(localAccount)
-            bankAccountDao.updateBankAccountSyncStatus(accountId, SyncStatus.SYNCED)
-        }
-
-        Result.success(serverResult)
+        // Convert and save the result
+        myApplication.entityServerConverter
+            .convertBankAccountFromServer(serverResult, existingAccount)
+            .fold(
+                onSuccess = { localAccount ->
+                    bankAccountDao.insertBankAccount(localAccount)
+                    bankAccountDao.updateBankAccountSyncStatus(accountId, SyncStatus.SYNCED)
+                    Result.success(serverResult)
+                },
+                onFailure = { error ->
+                    bankAccountDao.updateBankAccountSyncStatus(accountId, SyncStatus.SYNC_FAILED)
+                    Result.failure(error)
+                }
+            )
     } catch (e: Exception) {
         Log.e(TAG, "Error syncing bank account to server: ${entity.accountId}", e)
         bankAccountDao.updateBankAccountSyncStatus(entity.accountId, SyncStatus.SYNC_FAILED)
@@ -85,39 +90,63 @@ class BankAccountSyncManager(
     }
 
     override suspend fun applyServerChange(serverEntity: BankAccount) {
-        Log.d(TAG, "Processing server account with ID: ${serverEntity.accountId}")
+        try {
+            Log.d(TAG, "Processing server account: ${serverEntity}")
 
-        // Convert server account to local entity
-        val localEntity = bankAccountDao.getAccountById(serverEntity.accountId)
-        val convertedAccount = myApplication.entityServerConverter.convertBankAccountFromServer(
-            serverEntity,
-            localEntity
-        ).getOrNull() ?: throw Exception("Failed to convert server account")
-
-        if (localEntity == null) {
-            Log.d(TAG, "Inserting new bank account from server: ${serverEntity.accountId}")
-            bankAccountDao.insertBankAccount(convertedAccount)
-        } else {
-            when {
-                DateUtils.isUpdateNeeded(
-                    serverEntity.updatedAt,
-                    localEntity.updatedAt,
-                    "BankAccount-${serverEntity.accountId}"
-                ) -> {
-                    Log.d(TAG, "Updating existing bank account from server: ${serverEntity.accountId}")
-
-                    // Preserve local reauth status if it's set to true
-                    val needsReauth = localEntity.needsReauthentication ||
-                            convertedAccount.needsReauthentication
-
-                    bankAccountDao.insertBankAccount(
-                        convertedAccount.copy(needsReauthentication = needsReauth)
-                    )
-                }
-                else -> {
-                    Log.d(TAG, "Local bank account is up to date: ${localEntity.accountId}")
-                }
+            // Validate required fields
+            if (serverEntity.accountId == null) {
+                Log.e(TAG, "Server account has null accountId, skipping")
+                return
             }
+
+            // Add logging for important fields
+            Log.d(TAG, """
+            Account details:
+            ID: ${serverEntity.accountId}
+            User ID: ${serverEntity.userId}
+            Institution ID: ${serverEntity.institutionId}
+            Updated At: ${serverEntity.updatedAt}
+            Currency: ${serverEntity.currency}
+        """.trimIndent())
+
+            // Get local entity
+            val localEntity = bankAccountDao.getAccountById(serverEntity.accountId)
+
+            // Convert server account to local entity
+            try {
+                val convertedAccount = myApplication.entityServerConverter
+                    .convertBankAccountFromServer(serverEntity, localEntity)
+                    .getOrThrow() // Use getOrThrow to see the actual conversion error if it fails
+
+                if (localEntity == null) {
+                    Log.d(TAG, "Inserting new bank account from server: ${serverEntity.accountId}")
+                    bankAccountDao.insertBankAccount(convertedAccount)
+                } else {
+                    when {
+                        DateUtils.isUpdateNeeded(
+                            serverEntity.updatedAt,
+                            localEntity.updatedAt,
+                            "BankAccount-${serverEntity.accountId}"
+                        ) -> {
+                            Log.d(TAG, "Updating existing bank account: ${serverEntity.accountId}")
+                            val needsReauth = localEntity.needsReauthentication ||
+                                    convertedAccount.needsReauthentication
+                            bankAccountDao.insertBankAccount(
+                                convertedAccount.copy(needsReauthentication = needsReauth)
+                            )
+                        }
+                        else -> {
+                            Log.d(TAG, "Local bank account is up to date: ${localEntity.accountId}")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error converting bank account", e)
+                throw e
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in applyServerChange", e)
+            throw e
         }
     }
 

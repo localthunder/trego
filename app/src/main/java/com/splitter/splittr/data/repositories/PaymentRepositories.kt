@@ -13,6 +13,7 @@ import com.splitter.splittr.data.local.dao.PaymentSplitDao
 import com.splitter.splittr.data.local.dao.SyncMetadataDao
 import com.splitter.splittr.data.local.dao.TransactionDao
 import com.splitter.splittr.data.local.entities.PaymentEntity
+import com.splitter.splittr.data.local.entities.PaymentSplitEntity
 import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.data.sync.SyncStatus
 import com.splitter.splittr.data.model.Payment
@@ -71,44 +72,58 @@ class PaymentRepository(
 
     fun getPaymentsByGroup(groupId: Int): Flow<List<PaymentEntity>> = flow {
         Log.d(TAG, "Getting payments for group $groupId")
+
         // Emit local data first
         val localPayments = paymentDao.getPaymentsByGroup(groupId).first()
         emit(localPayments)
 
-        // Then try to fetch from API and update local database
+        // Create a map of local payments by server ID for quick lookup
+        val localPaymentMap = localPayments.associateBy { it.serverId }
+
         if (isOnline()) {
             try {
                 val serverGroupId = getServerId(groupId, "groups", context) ?: return@flow
                 Log.d(TAG, "Fetching payments from server for group ID: $serverGroupId")
 
-                // Fetch payments
                 val apiPayments = apiService.getPaymentsByGroup(serverGroupId)
+                var hasChanges = false
 
-                // Process in a transaction to maintain consistency
                 paymentDao.runInTransaction {
                     apiPayments.forEach { serverPayment ->
-                        // Convert and save payment
-                        val paymentEntity = myApplication.entityServerConverter
-                            .convertPaymentFromServer(serverPayment)
-                            .getOrNull() ?: return@forEach
+                        val localPayment = localPaymentMap[serverPayment.id]
 
-                        paymentDao.insertOrUpdatePayment(paymentEntity)
-
-                        // Fetch and save splits for this payment
-                        val serverSplits = apiService.getPaymentSplitsByPayment(serverPayment.id)
-                        serverSplits.forEach { serverSplit ->
-                            val splitEntity = myApplication.entityServerConverter
-                                .convertPaymentSplitFromServer(serverSplit)
+                        // Check if we need to update this payment
+                        if (shouldUpdatePayment(localPayment, serverPayment)) {
+                            val paymentEntity = myApplication.entityServerConverter
+                                .convertPaymentFromServer(serverPayment)
                                 .getOrNull() ?: return@forEach
 
-                            paymentSplitDao.insertOrUpdatePaymentSplit(splitEntity)
+                            paymentDao.insertOrUpdatePayment(paymentEntity)
+                            hasChanges = true
+
+                            // Only fetch and update splits if the payment was updated
+                            val serverSplits = apiService.getPaymentSplitsByPayment(serverPayment.id)
+                            val localSplits = paymentSplitDao.getPaymentSplitsByPayment(paymentEntity.id).first()
+                            val localSplitsMap = localSplits.associateBy { it.serverId }
+
+                            serverSplits.forEach { serverSplit ->
+                                val localSplit = localSplitsMap[serverSplit.id]
+                                if (shouldUpdateSplit(localSplit, serverSplit)) {
+                                    val splitEntity = myApplication.entityServerConverter
+                                        .convertPaymentSplitFromServer(serverSplit)
+                                        .getOrNull() ?: return@forEach
+
+                                    paymentSplitDao.insertOrUpdatePaymentSplit(splitEntity)
+                                    hasChanges = true
+                                }
+                            }
                         }
                     }
                 }
 
-                // Emit updated data if changed
-                val updatedPayments = paymentDao.getPaymentsByGroup(groupId).first()
-                if (updatedPayments != localPayments) {
+                // Only emit if there were actual changes
+                if (hasChanges) {
+                    val updatedPayments = paymentDao.getPaymentsByGroup(groupId).first()
                     emit(updatedPayments)
                 }
             } catch (e: Exception) {
@@ -116,6 +131,26 @@ class PaymentRepository(
             }
         }
     }.flowOn(dispatchers.io)
+
+    private fun shouldUpdatePayment(localPayment: PaymentEntity?, serverPayment: Payment): Boolean {
+        if (localPayment == null) return true  // New payment
+
+        return DateUtils.isUpdateNeeded(
+            serverTimestamp = serverPayment.updatedAt,
+            localTimestamp = localPayment.updatedAt,
+            entityId = "Payment-${serverPayment.id}"
+        )
+    }
+
+    private fun shouldUpdateSplit(localSplit: PaymentSplitEntity?, serverSplit: PaymentSplit): Boolean {
+        if (localSplit == null) return true  // New split
+
+        return DateUtils.isUpdateNeeded(
+            serverTimestamp = serverSplit.updatedAt,
+            localTimestamp = localSplit.updatedAt,
+            entityId = "PaymentSplit-${serverSplit.id}"
+        )
+    }
 
     suspend fun createPayment(payment: Payment): Result<Payment> = withContext(dispatchers.io) {
         try {

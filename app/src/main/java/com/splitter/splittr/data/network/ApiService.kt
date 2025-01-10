@@ -2,6 +2,7 @@ package com.splitter.splittr.data.network
 
 import android.net.Uri
 import com.google.gson.annotations.SerializedName
+import com.splitter.splittr.data.local.dataClasses.ApiResponse
 import com.splitter.splittr.data.local.dataClasses.AuthResponse
 import com.splitter.splittr.data.local.dataClasses.GroupMemberResponse
 import com.splitter.splittr.data.local.dataClasses.GroupMemberWithGroupResponse
@@ -72,8 +73,8 @@ interface ApiService {
     @POST("/api/gocardless/addAccount")
     suspend fun addAccount(@Body account: BankAccount): BankAccount
 
-    @PUT("accounts/{accountId}")
-    suspend fun updateAccount(@Path("accountId") accountId: String, @Body account: BankAccount): BankAccount
+    @PUT("/api/gocardless/accounts/{accountId}")
+    suspend fun updateAccount(@Path("accountId") accountId: String, @Body account: BankAccount): ApiResponse<BankAccount>
 
     @GET("/api/gocardless/requisition/{reference}")
     suspend fun getRequisitionByReference(@Path("reference") reference: String): Requisition
