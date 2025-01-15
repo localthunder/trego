@@ -1,5 +1,6 @@
 package com.splitter.splittr.data.repositories
 
+import android.content.ContentValues.TAG
 import android.content.Context
 import android.net.Uri
 import android.util.Log
@@ -221,7 +222,8 @@ class GroupRepository(
                 createdAt = currentTime,
                 updatedAt = currentTime,
                 inviteLink = group.inviteLink,
-                syncStatus = SyncStatus.PENDING_SYNC
+                syncStatus = SyncStatus.PENDING_SYNC,
+                archivedAt = null
             )
 
             val (createdGroup, createdMember) = groupDao.runInTransaction {
@@ -747,6 +749,109 @@ class GroupRepository(
         }
     }
 
+    suspend fun archiveGroup(groupId: Int): Result<Group> = withContext(dispatchers.io) {
+        try {
+            val timestamp = DateUtils.getCurrentTimestamp()
+
+            // First update local database
+            groupDao.archiveGroup(groupId, timestamp)
+            Log.d(TAG, "Group $groupId archived locally at $timestamp")
+
+            // If we're online, try to sync with server
+            if (NetworkUtils.isOnline()) {
+                try {
+                    // Get the server ID for this group
+                    val group = groupDao.getGroupByIdSync(groupId)
+                    if (group?.serverId == null) {
+                        Log.w(TAG, "No server ID found for group $groupId")
+                        return@withContext Result.success(group!!.toModel())
+                    }
+
+                    // Call API to archive group on server
+                    val serverGroup = apiService.archiveGroup(group.serverId)
+
+                    // Update local entity with server response and SYNCED status
+                    groupDao.runInTransaction {
+                        groupDao.updateGroupDirect(serverGroup.toEntity(SyncStatus.SYNCED))
+                        groupDao.updateGroupSyncStatus(groupId, SyncStatus.SYNCED)
+                    }
+
+                    Log.d(TAG, "Group $groupId archived on server successfully")
+                    Result.success(serverGroup)
+                } catch (e: Exception) {
+                    // If server sync fails, keep local changes but mark as SYNC_FAILED
+                    Log.e(TAG, "Failed to sync archived group $groupId with server", e)
+                    groupDao.updateGroupSyncStatus(groupId, SyncStatus.SYNC_FAILED)
+
+                    // Return success with local data since the local archive was successful
+                    val localGroup = groupDao.getGroupByIdSync(groupId)?.toModel()
+                        ?: return@withContext Result.failure(Exception("Group not found after archiving"))
+                    Result.success(localGroup)
+                }
+            } else {
+                // If offline, return success with local data
+                Log.d(TAG, "Device offline, group $groupId archived locally only")
+                val localGroup = groupDao.getGroupByIdSync(groupId)?.toModel()
+                    ?: return@withContext Result.failure(Exception("Group not found after archiving"))
+                Result.success(localGroup)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error archiving group $groupId", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun restoreGroup(groupId: Int): Result<Group> = withContext(dispatchers.io) {
+        try {
+            val timestamp = DateUtils.getCurrentTimestamp()
+
+            // First update local database
+            groupDao.restoreGroup(groupId)
+            Log.d(TAG, "Group $groupId restored locally")
+
+            // If we're online, try to sync with server
+            if (NetworkUtils.isOnline()) {
+                try {
+                    // Get the server ID for this group
+                    val group = groupDao.getGroupByIdSync(groupId)
+                    if (group?.serverId == null) {
+                        Log.w(TAG, "No server ID found for group $groupId")
+                        return@withContext Result.success(group!!.toModel())
+                    }
+
+                    // Call API to restore group on server
+                    val serverGroup = apiService.restoreGroup(group.serverId)
+
+                    // Update local entity with server response and SYNCED status
+                    groupDao.runInTransaction {
+                        groupDao.updateGroupDirect(serverGroup.toEntity(SyncStatus.SYNCED))
+                        groupDao.updateGroupSyncStatus(groupId, SyncStatus.SYNCED)
+                    }
+
+                    Log.d(TAG, "Group $groupId restored on server successfully")
+                    Result.success(serverGroup)
+                } catch (e: Exception) {
+                    // If server sync fails, keep local changes but mark as SYNC_FAILED
+                    Log.e(TAG, "Failed to sync restored group $groupId with server", e)
+                    groupDao.updateGroupSyncStatus(groupId, SyncStatus.SYNC_FAILED)
+
+                    val localGroup = groupDao.getGroupByIdSync(groupId)?.toModel()
+                        ?: return@withContext Result.failure(Exception("Group not found after restoring"))
+                    Result.success(localGroup)
+                }
+            } else {
+                // If offline, return success with local data
+                Log.d(TAG, "Device offline, group $groupId restored locally only")
+                val localGroup = groupDao.getGroupByIdSync(groupId)?.toModel()
+                    ?: return@withContext Result.failure(Exception("Group not found after restoring"))
+                Result.success(localGroup)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error restoring group $groupId", e)
+            Result.failure(e)
+        }
+    }
+
     override suspend fun sync() {
         groupSyncManager.performSync()
         groupMemberSyncManager.performSync()
@@ -766,4 +871,9 @@ class GroupRepository(
         }
         return null
     }
+
+    companion object {
+        private const val TAG = "GroupRepository"
+    }
 }
+

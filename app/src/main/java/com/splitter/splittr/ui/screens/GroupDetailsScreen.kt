@@ -15,7 +15,9 @@ import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddAPhoto
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
@@ -51,9 +53,9 @@ fun GroupDetailsScreen(
     val myApplication = context.applicationContext as MyApplication
     val groupViewModel: GroupViewModel = viewModel(factory = myApplication.viewModelFactory)
     val userViewModel: UserViewModel = viewModel(factory = myApplication.viewModelFactory)
-
+    var showArchiveConfirmDialog by remember { mutableStateOf(false) }
+    val archiveState by groupViewModel.archiveGroupState.collectAsState()
     val groupDetailsState by groupViewModel.groupDetailsState.collectAsState()
-
     var showAddMembersBottomSheet by remember { mutableStateOf(false) }
 
     val launcher = rememberLauncherForActivityResult(
@@ -75,7 +77,43 @@ fun GroupDetailsScreen(
     GlobalTheme {
         Scaffold(
             topBar = {
-                GlobalTopAppBar(title = { Text(groupDetailsState.group?.name ?: "Group Details") })
+                GlobalTopAppBar(
+                    title = { Text(groupDetailsState.group?.name ?: "Group Details") },
+                    actions = {
+                        var showMenu by remember { mutableStateOf(false) }
+
+                        // Add menu icon
+                        IconButton(onClick = { showMenu = true }) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "More options"
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Archive Group") },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Archive,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                },
+                                colors = MenuDefaults.itemColors(
+                                    textColor = MaterialTheme.colorScheme.error
+                                ),
+                                onClick = {
+                                    showMenu = false
+                                    showArchiveConfirmDialog = true
+                                }
+                            )
+                        }
+                    }
+                )
             },
             floatingActionButton = {
                 GlobalFAB(
@@ -203,6 +241,49 @@ fun GroupDetailsScreen(
                     groupViewModel.loadGroupDetails(groupId) // Reload group details when sheet is dismissed
                 }
             )
+        }
+        if (showArchiveConfirmDialog) {
+            AlertDialog(
+                onDismissRequest = { showArchiveConfirmDialog = false },
+                title = { Text("Archive Group?") },
+                text = {
+                    Text(
+                        "Are you sure you want to archive this group? " +
+                                "You will still be able to access archived groups and can restore the group in the future."
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            groupViewModel.archiveGroup(groupId)
+                            showArchiveConfirmDialog = false
+                        },
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Text("Archive")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { showArchiveConfirmDialog = false }
+                    ) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+        LaunchedEffect(archiveState) {
+            when (archiveState) {
+                is GroupViewModel.ArchiveGroupState.Success -> {
+                    navController.popBackStack()
+                }
+                is GroupViewModel.ArchiveGroupState.Error -> {
+                    // Handle error state
+                }
+                else -> { /* Handle other states */ }
+            }
         }
     }
 }

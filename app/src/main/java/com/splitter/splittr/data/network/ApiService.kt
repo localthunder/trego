@@ -118,6 +118,12 @@ interface ApiService {
     @PUT("/api/groups/{id}")
     suspend fun updateGroup(@Path("id") id: Int, @Body group: Group): Group
 
+    @PUT("/api/groups/archive/{id}")
+    suspend fun archiveGroup(@Path("id") id: Int): Group
+
+    @PUT("/api/groups/restore/{id}")
+    suspend fun restoreGroup(@Path("id") id: Int): Group
+
     @POST("api/groups/{groupId}/members")
     suspend fun addMemberToGroup(
         @Path("groupId") groupId: Int,

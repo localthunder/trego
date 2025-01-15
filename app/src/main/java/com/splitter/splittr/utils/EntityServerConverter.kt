@@ -4,7 +4,6 @@ import android.content.ContentValues.TAG
 import android.content.Context
 import android.util.Log
 import com.splitter.splittr.data.extensions.toEntity
-import com.splitter.splittr.data.local.AppDatabase
 import com.splitter.splittr.data.local.entities.BankAccountEntity
 import com.splitter.splittr.data.local.entities.GroupEntity
 import com.splitter.splittr.data.local.entities.GroupMemberEntity
@@ -138,7 +137,8 @@ class EntityServerConverter(private val context: Context) {
                 groupImg = group.groupImg,
                 createdAt = group.createdAt,
                 updatedAt = group.updatedAt,
-                inviteLink = group.inviteLink
+                inviteLink = group.inviteLink,
+                archivedAt = group.archivedAt
             ))
         } catch (e: Exception) {
             Log.e("EntityServerConverter", "Error converting group member to server model", e)
@@ -162,7 +162,8 @@ class EntityServerConverter(private val context: Context) {
                 createdAt = serverGroup.createdAt,
                 updatedAt = serverGroup.updatedAt,
                 inviteLink = serverGroup.inviteLink,
-                syncStatus = SyncStatus.SYNCED
+                syncStatus = SyncStatus.SYNCED,
+                archivedAt = serverGroup.archivedAt
             ))
         } catch (e: Exception) {
             Log.e(TAG, "Error converting server group to local entity", e)

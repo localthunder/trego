@@ -9,5 +9,6 @@ data class Group(
     @SerializedName("group_img") val groupImg: String?,
     @SerializedName("created_at") val createdAt: String,
     @SerializedName("updated_at") val updatedAt: String,
-    @SerializedName("invite_link") val inviteLink: String?
+    @SerializedName("invite_link") val inviteLink: String?,
+    @SerializedName("archived_at") val archivedAt: String?
 )

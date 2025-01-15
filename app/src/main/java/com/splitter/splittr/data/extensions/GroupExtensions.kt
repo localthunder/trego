@@ -19,6 +19,7 @@ fun Group.toEntity(syncStatus: SyncStatus = SyncStatus.PENDING_SYNC): GroupEntit
         updatedAt = this.updatedAt,
         inviteLink = this.inviteLink,
         syncStatus = syncStatus,
+        archivedAt = this.archivedAt
     )
 }
 
@@ -30,7 +31,8 @@ fun GroupEntity.toModel(): Group {
         groupImg = this.groupImg,
         createdAt = this.createdAt,
         updatedAt = this.updatedAt,
-        inviteLink = this.inviteLink
+        inviteLink = this.inviteLink,
+        archivedAt = this.archivedAt
     )
 }
 

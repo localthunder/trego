@@ -1,5 +1,6 @@
 package com.splitter.splittr.ui.viewmodels
 
+import android.content.ContentValues.TAG
 import android.content.Context
 import android.net.Uri
 import android.util.Log
@@ -67,6 +68,19 @@ class GroupViewModel(
         data class Error(val message: String) : ImageLoadingState()
     }
 
+    sealed class ArchiveGroupState {
+        object Idle : ArchiveGroupState()
+        object Loading : ArchiveGroupState()
+        data class Success(val group: Group) : ArchiveGroupState()
+        data class Error(val message: String) : ArchiveGroupState()
+    }
+    sealed class RestoreGroupState {
+        object Idle : RestoreGroupState()
+        object Loading : RestoreGroupState()
+        data class Success(val group: Group) : RestoreGroupState()
+        data class Error(val message: String) : RestoreGroupState()
+    }
+
     private val _groupDetailsState = MutableStateFlow(GroupDetailsState())
     val groupDetailsState: StateFlow<GroupDetailsState> = _groupDetailsState.asStateFlow()
 
@@ -116,6 +130,12 @@ class GroupViewModel(
 
     private val _userGroupItems = MutableStateFlow<List<UserGroupListItem>>(emptyList())
     val userGroupItems: StateFlow<List<UserGroupListItem>> = _userGroupItems.asStateFlow()
+
+    private val _restoreGroupState = MutableStateFlow<RestoreGroupState>(RestoreGroupState.Idle)
+    val restoreGroupState: StateFlow<RestoreGroupState> = _restoreGroupState.asStateFlow()
+
+    private val _archiveGroupState = MutableStateFlow<ArchiveGroupState>(ArchiveGroupState.Idle)
+    val archiveGroupState: StateFlow<ArchiveGroupState> = _archiveGroupState.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -539,5 +559,123 @@ class GroupViewModel(
     override fun onCleared() {
         super.onCleared()
         currentLoadJob?.cancel()
+    }
+
+
+    fun archiveGroup(groupId: Int) {
+        viewModelScope.launch {
+            try {
+                _archiveGroupState.value = ArchiveGroupState.Loading
+                Log.d(TAG, "Starting group archive process for group $groupId")
+
+                val result = groupRepository.archiveGroup(groupId)
+
+                result.fold(
+                    onSuccess = { group ->
+                        Log.d(TAG, "Successfully archived group ${group.id}")
+                        _archiveGroupState.value = ArchiveGroupState.Success(group)
+
+                        // Update the group details state to reflect archived status
+                        _groupDetailsState.update { currentState ->
+                            currentState.copy(
+                                group = group,
+                                error = null,
+                                isLoading = false
+                            )
+                        }
+
+                        // Refresh user groups list if being displayed
+                        getUserIdFromPreferences(context)?.let { userId ->
+                            loadUserGroupsList(userId, true)
+                        }
+                    },
+                    onFailure = { error ->
+                        Log.e(TAG, "Failed to archive group $groupId", error)
+                        _archiveGroupState.value = ArchiveGroupState.Error(
+                            error.message ?: "Unknown error occurred while archiving group"
+                        )
+
+                        _groupDetailsState.update { currentState ->
+                            currentState.copy(
+                                error = error.message,
+                                isLoading = false
+                            )
+                        }
+                    }
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Exception while archiving group $groupId", e)
+                _archiveGroupState.value = ArchiveGroupState.Error(
+                    e.message ?: "An unexpected error occurred"
+                )
+
+                _groupDetailsState.update { currentState ->
+                    currentState.copy(
+                        error = e.message,
+                        isLoading = false
+                    )
+                }
+            }
+        }
+    }
+    fun restoreGroup(groupId: Int) {
+        viewModelScope.launch {
+            try {
+                _restoreGroupState.value = RestoreGroupState.Loading
+                Log.d(TAG, "Starting group restore process for group $groupId")
+
+                val result = groupRepository.restoreGroup(groupId)
+
+                result.fold(
+                    onSuccess = { group ->
+                        Log.d(TAG, "Successfully restored group ${group.id}")
+                        _restoreGroupState.value = RestoreGroupState.Success(group)
+
+                        // Update the group details state to reflect restored status
+                        _groupDetailsState.update { currentState ->
+                            currentState.copy(
+                                group = group,
+                                error = null,
+                                isLoading = false
+                            )
+                        }
+
+                        // Refresh user groups list if being displayed
+                        getUserIdFromPreferences(context)?.let { userId ->
+                            loadUserGroupsList(userId, true)
+                        }
+                    },
+                    onFailure = { error ->
+                        Log.e(TAG, "Failed to restore group $groupId", error)
+                        _restoreGroupState.value = RestoreGroupState.Error(
+                            error.message ?: "Unknown error occurred while restoring group"
+                        )
+
+                        _groupDetailsState.update { currentState ->
+                            currentState.copy(
+                                error = error.message,
+                                isLoading = false
+                            )
+                        }
+                    }
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Exception while restoring group $groupId", e)
+                _restoreGroupState.value = RestoreGroupState.Error(
+                    e.message ?: "An unexpected error occurred"
+                )
+
+                _groupDetailsState.update { currentState ->
+                    currentState.copy(
+                        error = e.message,
+                        isLoading = false
+                    )
+                }
+            }
+        }
+    }
+
+    fun resetRestoreGroupState() {
+        _restoreGroupState.value = RestoreGroupState.Idle
     }
 }
