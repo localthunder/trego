@@ -107,39 +107,32 @@ interface GroupDao {
     @Query("SELECT * FROM groups WHERE group_img IS NOT NULL AND (local_image_path IS NULL OR image_last_modified != :lastModified)")
     suspend fun getGroupsNeedingImageDownload(lastModified: String): List<GroupEntity>
 
-    @Query("UPDATE groups SET archived_at = :timestamp, sync_status = :syncStatus, updated_at = :timestamp WHERE id = :groupId")
-    suspend fun archiveGroup(
-        groupId: Int,
-        timestamp: String = DateUtils.getCurrentTimestamp(),
-        syncStatus: SyncStatus = SyncStatus.PENDING_SYNC
-    )
-
-    @Query("UPDATE groups SET archived_at = null, sync_status = :syncStatus, updated_at = :timestamp WHERE id = :groupId")
-    suspend fun restoreGroup(
-        groupId: Int,
-        timestamp: String = DateUtils.getCurrentTimestamp(),
-        syncStatus: SyncStatus = SyncStatus.PENDING_SYNC
-    )
-
     @Query("""
         SELECT DISTINCT g.* 
         FROM groups g
         INNER JOIN group_members gm ON g.id = gm.group_id
         WHERE gm.user_id = :userId 
         AND gm.removed_at IS NULL
-        AND g.archived_at IS NULL
+        AND NOT EXISTS (
+            SELECT 1 
+            FROM user_group_archives uga
+            WHERE uga.group_id = g.id AND uga.user_id = :userId
+        )
         ORDER BY g.updated_at DESC
     """)
     fun getNonArchivedGroupsByUserId(userId: Int): Flow<List<GroupEntity>>
 
+
+
     @Query("""
         SELECT DISTINCT g.* 
         FROM groups g
         INNER JOIN group_members gm ON g.id = gm.group_id
+        INNER JOIN user_group_archives uga ON g.id = uga.group_id AND uga.user_id = :userId
         WHERE gm.user_id = :userId 
         AND gm.removed_at IS NULL
-        AND g.archived_at IS NOT NULL
         ORDER BY g.updated_at DESC
     """)
     fun getArchivedGroupsByUserId(userId: Int): Flow<List<GroupEntity>>
+
 }

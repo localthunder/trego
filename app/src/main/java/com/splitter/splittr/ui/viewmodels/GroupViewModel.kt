@@ -67,17 +67,17 @@ class GroupViewModel(
         object Success : ImageLoadingState()
         data class Error(val message: String) : ImageLoadingState()
     }
-
     sealed class ArchiveGroupState {
         object Idle : ArchiveGroupState()
         object Loading : ArchiveGroupState()
-        data class Success(val group: Group) : ArchiveGroupState()
+        object Success : ArchiveGroupState()
         data class Error(val message: String) : ArchiveGroupState()
     }
+
     sealed class RestoreGroupState {
         object Idle : RestoreGroupState()
         object Loading : RestoreGroupState()
-        data class Success(val group: Group) : RestoreGroupState()
+        object Success : RestoreGroupState()
         data class Error(val message: String) : RestoreGroupState()
     }
 
@@ -562,6 +562,7 @@ class GroupViewModel(
     }
 
 
+
     fun archiveGroup(groupId: Int) {
         viewModelScope.launch {
             try {
@@ -571,18 +572,9 @@ class GroupViewModel(
                 val result = groupRepository.archiveGroup(groupId)
 
                 result.fold(
-                    onSuccess = { group ->
-                        Log.d(TAG, "Successfully archived group ${group.id}")
-                        _archiveGroupState.value = ArchiveGroupState.Success(group)
-
-                        // Update the group details state to reflect archived status
-                        _groupDetailsState.update { currentState ->
-                            currentState.copy(
-                                group = group,
-                                error = null,
-                                isLoading = false
-                            )
-                        }
+                    onSuccess = {
+                        Log.d(TAG, "Successfully archived group $groupId")
+                        _archiveGroupState.value = ArchiveGroupState.Success
 
                         // Refresh user groups list if being displayed
                         getUserIdFromPreferences(context)?.let { userId ->
@@ -618,6 +610,7 @@ class GroupViewModel(
             }
         }
     }
+
     fun restoreGroup(groupId: Int) {
         viewModelScope.launch {
             try {
@@ -627,18 +620,9 @@ class GroupViewModel(
                 val result = groupRepository.restoreGroup(groupId)
 
                 result.fold(
-                    onSuccess = { group ->
-                        Log.d(TAG, "Successfully restored group ${group.id}")
-                        _restoreGroupState.value = RestoreGroupState.Success(group)
-
-                        // Update the group details state to reflect restored status
-                        _groupDetailsState.update { currentState ->
-                            currentState.copy(
-                                group = group,
-                                error = null,
-                                isLoading = false
-                            )
-                        }
+                    onSuccess = {
+                        Log.d(TAG, "Successfully restored group $groupId")
+                        _restoreGroupState.value = RestoreGroupState.Success
 
                         // Refresh user groups list if being displayed
                         getUserIdFromPreferences(context)?.let { userId ->
@@ -673,6 +657,10 @@ class GroupViewModel(
                 }
             }
         }
+    }
+
+    fun resetArchiveGroupState() {
+        _archiveGroupState.value = ArchiveGroupState.Idle
     }
 
     fun resetRestoreGroupState() {

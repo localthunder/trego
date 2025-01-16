@@ -15,8 +15,10 @@ import com.splitter.splittr.data.local.dao.PaymentDao
 import com.splitter.splittr.data.local.dao.PaymentSplitDao
 import com.splitter.splittr.data.local.dao.SyncMetadataDao
 import com.splitter.splittr.data.local.dao.UserDao
+import com.splitter.splittr.data.local.dao.UserGroupArchiveDao
 import com.splitter.splittr.data.local.entities.GroupEntity
 import com.splitter.splittr.data.local.entities.GroupMemberEntity
+import com.splitter.splittr.data.local.entities.UserGroupArchiveEntity
 import com.splitter.splittr.data.model.Group
 import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.data.sync.SyncStatus
@@ -30,10 +32,12 @@ import com.splitter.splittr.utils.DateUtils
 import com.splitter.splittr.utils.ImageUtils
 import com.splitter.splittr.utils.NetworkUtils
 import com.splitter.splittr.utils.SyncUtils
+import com.splitter.splittr.utils.getUserIdFromPreferences
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -50,6 +54,7 @@ class GroupRepository(
     private val paymentDao: PaymentDao,
     private val paymentSplitDao: PaymentSplitDao,
     private val syncMetadataDao: SyncMetadataDao,
+    private val userGroupArchiveDao: UserGroupArchiveDao,
     private val apiService: ApiService,
     private val context: Context,
     private val dispatchers: CoroutineDispatchers,
@@ -222,8 +227,7 @@ class GroupRepository(
                 createdAt = currentTime,
                 updatedAt = currentTime,
                 inviteLink = group.inviteLink,
-                syncStatus = SyncStatus.PENDING_SYNC,
-                archivedAt = null
+                syncStatus = SyncStatus.PENDING_SYNC
             )
 
             val (createdGroup, createdMember) = groupDao.runInTransaction {
@@ -749,103 +753,104 @@ class GroupRepository(
         }
     }
 
-    suspend fun archiveGroup(groupId: Int): Result<Group> = withContext(dispatchers.io) {
+    suspend fun archiveGroup(groupId: Int): Result<Unit> = withContext(dispatchers.io) {
         try {
+            val userId = getUserIdFromPreferences(context) ?:
+            return@withContext Result.failure(Exception("User ID not found"))
             val timestamp = DateUtils.getCurrentTimestamp()
 
-            // First update local database
-            groupDao.archiveGroup(groupId, timestamp)
-            Log.d(TAG, "Group $groupId archived locally at $timestamp")
+            // Create and save local archive entry
+            val archiveEntry = UserGroupArchiveEntity(
+                userId = userId,
+                groupId = groupId,
+                archivedAt = timestamp,
+                syncStatus = SyncStatus.PENDING_SYNC
+            )
+            userGroupArchiveDao.insertArchive(archiveEntry)
+            Log.d(TAG, "Group $groupId archived locally for user $userId at $timestamp")
 
-            // If we're online, try to sync with server
+            // If online, attempt server sync
             if (NetworkUtils.isOnline()) {
                 try {
-                    // Get the server ID for this group
-                    val group = groupDao.getGroupByIdSync(groupId)
-                    if (group?.serverId == null) {
-                        Log.w(TAG, "No server ID found for group $groupId")
-                        return@withContext Result.success(group!!.toModel())
-                    }
+                    // Convert local IDs to server IDs
+                    val serverIds = myApplication.entityServerConverter.convertUserGroupArchiveToServer(archiveEntry)
+                        .getOrElse {
+                            Log.e(TAG, "Failed to convert IDs for server sync", it)
+                            return@withContext Result.success(Unit) // Still succeed as local archive worked
+                        }
 
-                    // Call API to archive group on server
-                    val serverGroup = apiService.archiveGroup(group.serverId)
+                    // Attempt server sync
+                    apiService.archiveGroup(
+                        groupId = serverIds["group_id"] as Int,
+                        userId = serverIds["user_id"] as Int
+                    )
 
-                    // Update local entity with server response and SYNCED status
-                    groupDao.runInTransaction {
-                        groupDao.updateGroupDirect(serverGroup.toEntity(SyncStatus.SYNCED))
-                        groupDao.updateGroupSyncStatus(groupId, SyncStatus.SYNCED)
-                    }
-
-                    Log.d(TAG, "Group $groupId archived on server successfully")
-                    Result.success(serverGroup)
+                    // Update sync status on success
+                    userGroupArchiveDao.updateSyncStatus(userId, groupId, SyncStatus.SYNCED)
+                    Log.d(TAG, "Group $groupId archived on server successfully for user $userId")
                 } catch (e: Exception) {
-                    // If server sync fails, keep local changes but mark as SYNC_FAILED
-                    Log.e(TAG, "Failed to sync archived group $groupId with server", e)
-                    groupDao.updateGroupSyncStatus(groupId, SyncStatus.SYNC_FAILED)
-
-                    // Return success with local data since the local archive was successful
-                    val localGroup = groupDao.getGroupByIdSync(groupId)?.toModel()
-                        ?: return@withContext Result.failure(Exception("Group not found after archiving"))
-                    Result.success(localGroup)
+                    // Handle server sync failure
+                    Log.e(TAG, "Failed to sync archived group $groupId with server for user $userId", e)
+                    userGroupArchiveDao.updateSyncStatus(userId, groupId, SyncStatus.SYNC_FAILED)
+                    // Don't return failure as local archive was successful
                 }
             } else {
-                // If offline, return success with local data
-                Log.d(TAG, "Device offline, group $groupId archived locally only")
-                val localGroup = groupDao.getGroupByIdSync(groupId)?.toModel()
-                    ?: return@withContext Result.failure(Exception("Group not found after archiving"))
-                Result.success(localGroup)
+                Log.d(TAG, "Device offline, group $groupId archived locally only for user $userId")
             }
+
+            Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Error archiving group $groupId", e)
             Result.failure(e)
         }
     }
 
-    suspend fun restoreGroup(groupId: Int): Result<Group> = withContext(dispatchers.io) {
+    suspend fun restoreGroup(groupId: Int): Result<Unit> = withContext(dispatchers.io) {
         try {
-            val timestamp = DateUtils.getCurrentTimestamp()
+            val userId = getUserIdFromPreferences(context) ?:
+            return@withContext Result.failure(Exception("User ID not found"))
 
-            // First update local database
-            groupDao.restoreGroup(groupId)
-            Log.d(TAG, "Group $groupId restored locally")
+            // Get the existing archive entry before deleting it (for server ID conversion)
+            val existingArchive = userGroupArchiveDao.getArchive(userId, groupId).firstOrNull()
+                ?: return@withContext Result.failure(Exception("Archive entry not found"))
 
-            // If we're online, try to sync with server
+            // Delete archive entry from local database
+            userGroupArchiveDao.deleteArchive(userId, groupId)
+            Log.d(TAG, "Group $groupId restored locally for user $userId")
+
+            // If online, attempt server sync
             if (NetworkUtils.isOnline()) {
                 try {
-                    // Get the server ID for this group
-                    val group = groupDao.getGroupByIdSync(groupId)
-                    if (group?.serverId == null) {
-                        Log.w(TAG, "No server ID found for group $groupId")
-                        return@withContext Result.success(group!!.toModel())
-                    }
+                    // Convert local IDs to server IDs using the existing archive entry
+                    val serverIds = myApplication.entityServerConverter.convertUserGroupArchiveToServer(existingArchive)
+                        .getOrElse {
+                            Log.e(TAG, "Failed to convert IDs for server sync", it)
+                            return@withContext Result.success(Unit) // Still succeed as local restore worked
+                        }
 
-                    // Call API to restore group on server
-                    val serverGroup = apiService.restoreGroup(group.serverId)
+                    // Attempt server sync
+                    apiService.restoreGroup(
+                        groupId = serverIds["group_id"] as Int,
+                        userId = serverIds["user_id"] as Int
+                    )
 
-                    // Update local entity with server response and SYNCED status
-                    groupDao.runInTransaction {
-                        groupDao.updateGroupDirect(serverGroup.toEntity(SyncStatus.SYNCED))
-                        groupDao.updateGroupSyncStatus(groupId, SyncStatus.SYNCED)
-                    }
-
-                    Log.d(TAG, "Group $groupId restored on server successfully")
-                    Result.success(serverGroup)
+                    Log.d(TAG, "Group $groupId restored on server successfully for user $userId")
                 } catch (e: Exception) {
-                    // If server sync fails, keep local changes but mark as SYNC_FAILED
-                    Log.e(TAG, "Failed to sync restored group $groupId with server", e)
-                    groupDao.updateGroupSyncStatus(groupId, SyncStatus.SYNC_FAILED)
-
-                    val localGroup = groupDao.getGroupByIdSync(groupId)?.toModel()
-                        ?: return@withContext Result.failure(Exception("Group not found after restoring"))
-                    Result.success(localGroup)
+                    // If server sync fails, re-insert the archive entry with SYNC_FAILED status
+                    Log.e(TAG, "Failed to sync restored group $groupId with server for user $userId", e)
+                    userGroupArchiveDao.insertArchive(
+                        existingArchive.copy(
+                            archivedAt = DateUtils.getCurrentTimestamp(),
+                            syncStatus = SyncStatus.SYNC_FAILED
+                        )
+                    )
+                    return@withContext Result.failure(e)
                 }
             } else {
-                // If offline, return success with local data
-                Log.d(TAG, "Device offline, group $groupId restored locally only")
-                val localGroup = groupDao.getGroupByIdSync(groupId)?.toModel()
-                    ?: return@withContext Result.failure(Exception("Group not found after restoring"))
-                Result.success(localGroup)
+                Log.d(TAG, "Device offline, group $groupId restored locally only for user $userId")
             }
+
+            Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Error restoring group $groupId", e)
             Result.failure(e)

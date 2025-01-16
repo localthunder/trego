@@ -12,6 +12,7 @@ import com.splitter.splittr.data.local.entities.PaymentSplitEntity
 import com.splitter.splittr.data.local.entities.RequisitionEntity
 import com.splitter.splittr.data.local.entities.TransactionEntity
 import com.splitter.splittr.data.local.entities.UserEntity
+import com.splitter.splittr.data.local.entities.UserGroupArchiveEntity
 import com.splitter.splittr.data.model.BankAccount
 import com.splitter.splittr.data.model.CreditorAccount
 import com.splitter.splittr.data.model.Group
@@ -137,8 +138,7 @@ class EntityServerConverter(private val context: Context) {
                 groupImg = group.groupImg,
                 createdAt = group.createdAt,
                 updatedAt = group.updatedAt,
-                inviteLink = group.inviteLink,
-                archivedAt = group.archivedAt
+                inviteLink = group.inviteLink
             ))
         } catch (e: Exception) {
             Log.e("EntityServerConverter", "Error converting group member to server model", e)
@@ -163,7 +163,6 @@ class EntityServerConverter(private val context: Context) {
                 updatedAt = serverGroup.updatedAt,
                 inviteLink = serverGroup.inviteLink,
                 syncStatus = SyncStatus.SYNCED,
-                archivedAt = serverGroup.archivedAt
             ))
         } catch (e: Exception) {
             Log.e(TAG, "Error converting server group to local entity", e)
@@ -545,6 +544,59 @@ class EntityServerConverter(private val context: Context) {
             ))
         } catch (e: Exception) {
             Log.e(TAG, "Error converting server transaction to local entity", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun convertUserGroupArchiveToServer(archive: UserGroupArchiveEntity): Result<Map<String, Any>> {
+        return try {
+            val serverUserId = ServerIdUtil.getServerId(archive.userId, "users", context)
+                ?: return Result.failure(Exception("No server ID found for user ${archive.userId}"))
+
+            val serverGroupId = ServerIdUtil.getServerId(archive.groupId, "groups", context)
+                ?: return Result.failure(Exception("No server ID found for group ${archive.groupId}"))
+
+            // Return as Map since there's no specific server model class, just the DB table
+            Result.success(mapOf(
+                "user_id" to serverUserId,
+                "group_id" to serverGroupId,
+                "archived_at" to archive.archivedAt
+            ))
+        } catch (e: Exception) {
+            Log.e("EntityServerConverter", "Error converting user group archive to server model", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun convertUserGroupArchiveFromServer(
+        serverArchive: Map<String, Any>,
+        existingArchive: UserGroupArchiveEntity? = null
+    ): Result<UserGroupArchiveEntity> {
+        return try {
+            val serverUserId = serverArchive["user_id"] as? Int
+                ?: return Result.failure(Exception("Server archive missing user_id"))
+
+            val serverGroupId = serverArchive["group_id"] as? Int
+                ?: return Result.failure(Exception("Server archive missing group_id"))
+
+            val localUserId = ServerIdUtil.getLocalId(serverUserId, "users", context)
+                ?: existingArchive?.userId
+                ?: return Result.failure(Exception("Could not resolve local user ID for $serverUserId"))
+
+            val localGroupId = ServerIdUtil.getLocalId(serverGroupId, "groups", context)
+                ?: existingArchive?.groupId
+                ?: return Result.failure(Exception("Could not resolve local group ID for $serverGroupId"))
+
+            Result.success(
+                UserGroupArchiveEntity(
+                userId = localUserId,
+                groupId = localGroupId,
+                archivedAt = serverArchive["archived_at"] as String,
+                syncStatus = SyncStatus.SYNCED
+            )
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error converting server user group archive to local entity", e)
             Result.failure(e)
         }
     }

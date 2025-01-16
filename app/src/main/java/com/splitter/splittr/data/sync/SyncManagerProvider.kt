@@ -127,6 +127,7 @@ class SyncManagerProvider(
         paymentDao = database.paymentDao(),
         paymentSplitDao = database.paymentSplitDao(),
         syncMetadataDao = syncMetadataDao,
+        userGroupArchiveDao = database.userGroupArchivesDao(),
         apiService = apiService,
         context = context,
         dispatchers = dispatchers,

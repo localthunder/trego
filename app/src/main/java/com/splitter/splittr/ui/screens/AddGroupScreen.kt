@@ -109,7 +109,6 @@ fun AddGroupScreen(navController: NavController, context: Context) {
                                 createdAt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.getDefault()).format(Date()),
                                 updatedAt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.getDefault()).format(Date()),
                                 inviteLink = null,
-                                archivedAt = null
                             )
                             Log.d("AddGroupScreen", "Calling createGroup with userId: $userId")
                             groupViewModel.createGroup(newGroup, userId)
