@@ -56,7 +56,8 @@ class GroupViewModel(
         val error: String? = null,
         val imageLoadingState: ImageLoadingState = ImageLoadingState.Idle,
         val localImagePath: String? = null,
-        val isDownloadingImage: Boolean = false
+        val isDownloadingImage: Boolean = false,
+        val isArchived: Boolean = false
     )
 
 
@@ -137,6 +138,9 @@ class GroupViewModel(
     private val _archiveGroupState = MutableStateFlow<ArchiveGroupState>(ArchiveGroupState.Idle)
     val archiveGroupState: StateFlow<ArchiveGroupState> = _archiveGroupState.asStateFlow()
 
+    private val _archivedGroupItems = MutableStateFlow<List<UserGroupListItem>>(emptyList())
+    val archivedGroupItems: StateFlow<List<UserGroupListItem>> = _archivedGroupItems.asStateFlow()
+
     init {
         viewModelScope.launch {
             groupRepository.ensureGroupImagesDownloaded()
@@ -210,11 +214,22 @@ class GroupViewModel(
 
     private suspend fun loadGroup(groupId: Int) {
         try {
-            groupRepository.getGroupById(groupId).collect { group ->
+            val userId = getUserIdFromPreferences(context) ?: return
+
+            // Create a flow that combines group data with archive status
+            combine(
+                groupRepository.getGroupById(groupId),
+                groupRepository.isGroupArchived(groupId, userId)
+            ) { group, isArchived ->
+                // Return a pair of the group and archive status
+                group to isArchived
+            }.collect { (group, isArchived) ->
+                // Update state with the combined data
                 _groupDetailsState.update { currentState ->
                     currentState.copy(
                         group = group ?: currentState.group,
                         groupImage = group?.groupImg,
+                        isArchived = isArchived,
                         error = if (group == null && currentState.group == null)
                             "Unable to load group" else null,
                         imageLoadingState = when {
@@ -268,19 +283,18 @@ class GroupViewModel(
                 _loading.value = true
                 _error.value = null
                 try {
-                    Log.d("GroupViewModel", "About to collect group list items")
-                    groupRepository.getGroupListItems(userId)
-                        .catch { e ->
-                            Log.e("GroupViewModel", "Error collecting groups", e)
-                            _error.value = e.message
-                            _loading.value = false
-                        }
-                        .collect { groups ->
-                            Log.d("GroupViewModel", "Collected ${groups.size} groups")
-                            _userGroupItems.value = groups
-                            _loading.value = false
-                            hasLoadedGroups = true
-                        }
+                    // Use combine to collect both streams together
+                    combine(
+                        groupRepository.getNonArchivedGroupsByUserId(userId),
+                        groupRepository.getArchivedGroupsByUserId(userId)
+                    ) { nonArchived, archived ->
+                        _userGroupItems.value = nonArchived
+                        _archivedGroupItems.value = archived
+                        Log.d("GroupViewModel", "Collected ${nonArchived.size} non-archived and ${archived.size} archived groups")
+                    }.collect {
+                        _loading.value = false
+                        hasLoadedGroups = true
+                    }
                 } catch (e: Exception) {
                     Log.e("GroupViewModel", "Error loading groups", e)
                     _error.value = e.message

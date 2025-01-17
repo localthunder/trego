@@ -877,6 +877,40 @@ class GroupRepository(
         return null
     }
 
+    fun getNonArchivedGroupsByUserId(userId: Int): Flow<List<UserGroupListItem>> =
+        groupDao.getNonArchivedGroupsByUserId(userId)
+            .catch { e ->
+                Log.e("GroupRepository", "Error fetching non-archived groups", e)
+                throw e
+            }
+            .map { groupEntities ->
+                Log.d("GroupRepository", "Found ${groupEntities.size} non-archived groups for user $userId")
+                groupEntities.map { it.toListItem() }
+            }
+            .flowOn(dispatchers.io)
+
+    fun getArchivedGroupsByUserId(userId: Int): Flow<List<UserGroupListItem>> =
+        groupDao.getArchivedGroupsByUserId(userId)
+            .catch { e ->
+                Log.e("GroupRepository", "Error fetching archived groups", e)
+                throw e
+            }
+            .map { groupEntities ->
+                Log.d("GroupRepository", "Found ${groupEntities.size} archived groups for user $userId")
+                groupEntities.map { it.toListItem() }
+            }
+            .flowOn(dispatchers.io)
+
+    fun isGroupArchived(groupId: Int, userId: Int): Flow<Boolean> = flow {
+        try {
+            val archiveEntity = userGroupArchiveDao.getArchive(userId, groupId).first()
+            emit(archiveEntity != null)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error checking group archive status", e)
+            emit(false)
+        }
+    }
+
     companion object {
         private const val TAG = "GroupRepository"
     }

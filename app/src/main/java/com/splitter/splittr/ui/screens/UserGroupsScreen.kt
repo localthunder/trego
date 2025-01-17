@@ -7,10 +7,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -32,8 +36,12 @@ fun UserGroupsScreen(navController: NavController) {
     val myApplication = context.applicationContext as MyApplication
     val groupViewModel: GroupViewModel = viewModel(factory = myApplication.viewModelFactory)
 
+    // Add state for archived groups expansion
+    var showArchivedGroups by remember { mutableStateOf(false) }
+
     val userId = getUserIdFromPreferences(context) ?: 0
     val groupItems by groupViewModel.userGroupItems.collectAsStateWithLifecycle()
+    val archivedGroupItems by groupViewModel.archivedGroupItems.collectAsStateWithLifecycle()
     val loading by groupViewModel.loading.collectAsStateWithLifecycle()
     val error by groupViewModel.error.collectAsStateWithLifecycle()
 
@@ -50,7 +58,12 @@ fun UserGroupsScreen(navController: NavController) {
     GlobalTheme {
         Scaffold(
             topBar = {
-                GlobalTopAppBar(title = { Text("Your Groups", style = MaterialTheme.typography.headlineSmall) })
+                GlobalTopAppBar(title = {
+                    Text(
+                        "Your Groups",
+                        style = MaterialTheme.typography.headlineSmall
+                    )
+                })
             },
             floatingActionButton = {
                 GlobalFAB(
@@ -60,23 +73,66 @@ fun UserGroupsScreen(navController: NavController) {
                 )
             }
         ) { padding ->
-            Column(
+            LazyColumn(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                when {
-                    loading -> CircularProgressIndicator()
-                    error != null -> Text("Error: $error", color = MaterialTheme.colorScheme.error)
-                    groupItems.isEmpty() -> Text("You are not part of any groups.")
-                    else -> {
-                        LazyColumn {
-                            items(groupItems) { groupItem ->
-                                GroupListItem(groupItem, navController)
-                            }
+                .fillMaxSize()
+                .padding(padding)
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+            ){
+                // Active Groups section
+                item {
+                    Text(
+                        "Active Groups",
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
+                }
+                items(groupItems) { groupItem ->
+                    GroupListItem(groupItem, navController)
+                }
+
+                // Archived Groups section
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showArchivedGroups = !showArchivedGroups }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (showArchivedGroups)
+                                Icons.Default.KeyboardArrowDown else
+                                Icons.Default.KeyboardArrowRight,
+                            contentDescription = "Toggle archived groups"
+                        )
+                        Text(
+                            "Archived Groups (${archivedGroupItems.size})",
+                            style = MaterialTheme.typography.titleLarge,
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
+                }
+
+                // Show archived groups if expanded
+                if (showArchivedGroups) {
+                    if (archivedGroupItems.isEmpty()) {
+                        item {
+                            Text(
+                                "No archived groups",
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.padding(start = 32.dp)
+                            )
+                        }
+                    } else {
+                        items(archivedGroupItems) { groupItem ->
+                            GroupListItem(
+                                groupItem = groupItem,
+                                navController = navController,
+                                isArchived = true
+                            )
                         }
                     }
                 }
@@ -86,12 +142,17 @@ fun UserGroupsScreen(navController: NavController) {
 }
 
 @Composable
-fun GroupListItem(groupItem: UserGroupListItem, navController: NavController) {
+fun GroupListItem(
+    groupItem: UserGroupListItem,
+    navController: NavController,
+    isArchived: Boolean = false
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp)
             .clickable { navController.navigate("groupDetails/${groupItem.id}") }
+            .alpha(if (isArchived) 0.7f else 1f)
     ) {
         Row(
             modifier = Modifier
@@ -109,7 +170,7 @@ fun GroupListItem(groupItem: UserGroupListItem, navController: NavController) {
                     .size(40.dp)
                     .padding(end = 8.dp)
             )
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     groupItem.name,
                     style = MaterialTheme.typography.titleMedium,
@@ -122,6 +183,14 @@ fun GroupListItem(groupItem: UserGroupListItem, navController: NavController) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+            }
+            if (isArchived) {
+                Text(
+                    "Archived",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 8.dp)
+                )
             }
         }
     }
