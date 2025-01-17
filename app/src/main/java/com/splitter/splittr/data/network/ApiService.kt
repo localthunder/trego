@@ -130,6 +130,12 @@ interface ApiService {
         @Query("userId") userId: Int
     ): Unit
 
+    @GET("api/groups/{groupId}/is-archived")
+    suspend fun isGroupArchived(
+        @Path("groupId") groupId: Int,
+        @Query("userId") userId: Int
+    ): Boolean
+
     @POST("api/groups/{groupId}/members")
     suspend fun addMemberToGroup(
         @Path("groupId") groupId: Int,

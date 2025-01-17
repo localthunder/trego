@@ -26,6 +26,7 @@ import com.splitter.splittr.data.model.GroupMember
 import com.splitter.splittr.data.sync.GroupSyncManager
 import com.splitter.splittr.data.sync.SyncableRepository
 import com.splitter.splittr.data.sync.managers.GroupMemberSyncManager
+import com.splitter.splittr.data.sync.managers.UserGroupArchiveSyncManager
 import com.splitter.splittr.ui.screens.UserBalanceWithCurrency
 import com.splitter.splittr.utils.CoroutineDispatchers
 import com.splitter.splittr.utils.DateUtils
@@ -59,8 +60,9 @@ class GroupRepository(
     private val context: Context,
     private val dispatchers: CoroutineDispatchers,
     private val groupSyncManager: GroupSyncManager,
-    private val groupMemberSyncManager: GroupMemberSyncManager
-    ) : SyncableRepository {
+    private val groupMemberSyncManager: GroupMemberSyncManager,
+    private val userGroupArchiveSyncManager: UserGroupArchiveSyncManager
+) : SyncableRepository {
 
     override val entityType = "groups"
     override val syncPriority = 1 // High priority as other entities depend on groups
@@ -860,6 +862,7 @@ class GroupRepository(
     override suspend fun sync() {
         groupSyncManager.performSync()
         groupMemberSyncManager.performSync()
+        userGroupArchiveSyncManager.performSync()
     }
     private suspend fun <T> withRetry(
         maxAttempts: Int = 3,

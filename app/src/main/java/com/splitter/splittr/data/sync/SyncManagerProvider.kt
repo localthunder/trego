@@ -16,6 +16,7 @@ import com.splitter.splittr.data.sync.managers.GroupMemberSyncManager
 import com.splitter.splittr.data.sync.managers.PaymentSyncManager
 import com.splitter.splittr.data.sync.managers.RequisitionSyncManager
 import com.splitter.splittr.data.sync.managers.TransactionSyncManager
+import com.splitter.splittr.data.sync.managers.UserGroupArchiveSyncManager
 import com.splitter.splittr.data.sync.managers.UserSyncManager
 import com.splitter.splittr.utils.AppCoroutineDispatchers
 import com.splitter.splittr.utils.CoroutineDispatchers
@@ -108,6 +109,18 @@ class SyncManagerProvider(
         )
     }
 
+    val userGroupArchiveSyncManager by lazy {
+        UserGroupArchiveSyncManager(
+            userGroupArchiveDao = database.userGroupArchivesDao(),
+            userDao = database.userDao(),
+            groupDao = database.groupDao(),
+            apiService = apiService,
+            syncMetadataDao = syncMetadataDao,
+            dispatchers = dispatchers,
+            context = context
+        )
+    }
+
     // Repository Providers
     fun provideBankAccountRepository() = BankAccountRepository(
         bankAccountDao = database.bankAccountDao(),
@@ -132,7 +145,8 @@ class SyncManagerProvider(
         context = context,
         dispatchers = dispatchers,
         groupSyncManager = groupSyncManager,
-        groupMemberSyncManager = groupMemberSyncManager
+        groupMemberSyncManager = groupMemberSyncManager,
+        userGroupArchiveSyncManager = userGroupArchiveSyncManager
     )
 
     fun provideInstitutionRepository() = InstitutionRepository(

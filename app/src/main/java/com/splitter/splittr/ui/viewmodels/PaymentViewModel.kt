@@ -75,8 +75,9 @@ class PaymentsViewModel(
         val expandedPaidByUserList: Boolean = false,
         val expandedPaidToUserList: Boolean = false,
         val expandedPaymentTypeList: Boolean = false,
-        val showDeleteDialog: Boolean = false
-    )
+        val showDeleteDialog: Boolean = false,
+        val selectedMembers: Set<GroupMember> = emptySet(),
+        )
 
     sealed class PaymentImage {
         data class Logo(val logoInfo: InstitutionLogoManager.LogoInfo) : PaymentImage()
@@ -110,6 +111,8 @@ class PaymentsViewModel(
         data class UpdatePaidByUser(val userId: Int) : PaymentAction()
         data class UpdatePaidToUser(val userId: Int) : PaymentAction()
         data class UpdateSplit(val userId: Int, val amount: Double) : PaymentAction()
+        data class UpdateSelectedMembers(val members: Set<GroupMember>) : PaymentAction()
+
         object ToggleExpandedPaidByUserList : PaymentAction()
         object ToggleExpandedPaidToUserList : PaymentAction()
         object ToggleExpandedPaymentTypeList : PaymentAction()
@@ -148,12 +151,18 @@ class PaymentsViewModel(
                 .first()
         } ?: emptyList()
 
+        // Initialize selected members from existing splits
+        val selectedMembers = groupMembers.filter { member ->
+            splits.any { it.userId == member.userId }
+        }.toSet()
+
         _paymentScreenState.value = _paymentScreenState.value.copy(
             payment = payment,
             editablePayment = payment?.copy(),
             splits = splits,
             editableSplits = splits.map { it.copy() },
             groupMembers = groupMembers,
+            selectedMembers = selectedMembers,  // Set the selected members
             isTransaction = payment?.transactionId != null
         )
     }
@@ -257,7 +266,12 @@ class PaymentsViewModel(
                 _paymentScreenState.value = _paymentScreenState.value.copy(paidToUser = action.userId)
             }
             is PaymentAction.UpdateSplit -> updateSplit(action.userId, action.amount)
-            is PaymentAction.ToggleExpandedPaidByUserList -> {
+            is PaymentAction.UpdateSelectedMembers -> {
+                _paymentScreenState.value = _paymentScreenState.value.copy(
+                    selectedMembers = action.members
+                )
+                recalculateSplits(currentUserId)
+            }            is PaymentAction.ToggleExpandedPaidByUserList -> {
                 _paymentScreenState.value = _paymentScreenState.value.copy(
                     expandedPaidByUserList = !_paymentScreenState.value.expandedPaidByUserList
                 )
@@ -300,7 +314,7 @@ class PaymentsViewModel(
         )
     }
 
-    private fun recalculateSplits(userId: Int) {
+    fun recalculateSplits(userId: Int) {
         val editablePayment = _paymentScreenState.value.editablePayment ?: return
         val groupMembers = _paymentScreenState.value.groupMembers
 
@@ -316,11 +330,12 @@ class PaymentsViewModel(
     }
 
     private fun calculateEqualSplits(amount: Double, members: List<GroupMember>, userId: Int): List<PaymentSplit> {
-        if (members.isEmpty()) return emptyList()
+        val selectedMembers = _paymentScreenState.value.selectedMembers
+        if (selectedMembers.isEmpty()) return emptyList()
 
-        val perPerson = if (amount != 0.0) amount / members.size else 0.0
+        val perPerson = if (amount != 0.0) amount / selectedMembers.size else 0.0
 
-        return members.map { member ->
+        return selectedMembers.map { member ->
             PaymentSplit(
                 id = 0,
                 paymentId = _paymentScreenState.value.editablePayment?.id ?: 0,

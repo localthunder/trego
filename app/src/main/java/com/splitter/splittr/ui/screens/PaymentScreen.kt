@@ -92,7 +92,7 @@ fun PaymentScreen(
     // Handle result from currency selection screen
     val savedStateHandle = navController.currentBackStackEntry?.savedStateHandle
     savedStateHandle?.getLiveData<String>("currency")?.observe(navController.currentBackStackEntry!!) { selectedCurrency ->
-        paymentsViewModel.processAction(PaymentsViewModel.PaymentAction.UpdateCurrency(selectedCurrency))
+        paymentsViewModel.processAction(PaymentAction.UpdateCurrency(selectedCurrency))
     }
 
     fun getCurrencySymbol(currencyCode: String): String {
@@ -111,7 +111,7 @@ fun PaymentScreen(
                                 Icon(Icons.Filled.Close, contentDescription = "Discard Payment", tint = MaterialTheme.colorScheme.onPrimary)
                             }
                         } else {
-                            IconButton(onClick = { paymentsViewModel.processAction(PaymentsViewModel.PaymentAction.ShowDeleteDialog) }) {
+                            IconButton(onClick = { paymentsViewModel.processAction(PaymentAction.ShowDeleteDialog) }) {
                                 Icon(
                                     imageVector = Icons.Filled.Delete,
                                     contentDescription = "Archive Payment",
@@ -146,7 +146,8 @@ fun PaymentScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = if (editablePayment?.paidByUserId == userId) "I" else users.find { it.userId == editablePayment?.paidByUserId }?.username ?: "",
+                                text = if (editablePayment?.paidByUserId == userId) "I" else users.find { it.userId == editablePayment?.paidByUserId }?.username
+                                    ?: "",
                                 style = MaterialTheme.typography.bodyLarge,
                                 modifier = Modifier
                                     .clickable { paymentsViewModel.processAction(PaymentsViewModel.PaymentAction.ToggleExpandedPaidByUserList) }
@@ -155,7 +156,11 @@ fun PaymentScreen(
 
                             DropdownMenu(
                                 expanded = screenState.expandedPaidByUserList,
-                                onDismissRequest = { paymentsViewModel.processAction(PaymentsViewModel.PaymentAction.ToggleExpandedPaidByUserList) }
+                                onDismissRequest = {
+                                    paymentsViewModel.processAction(
+                                        PaymentAction.ToggleExpandedPaidByUserList
+                                    )
+                                }
                             ) {
                                 groupMembers.forEach { member ->
                                     val user = users.find { it.userId == member.userId }
@@ -163,7 +168,11 @@ fun PaymentScreen(
                                     DropdownMenuItem(
                                         text = { Text(text = if (member.userId == userId) "I" else username) },
                                         onClick = {
-                                            paymentsViewModel.processAction(PaymentsViewModel.PaymentAction.UpdatePaidByUser(member.userId))
+                                            paymentsViewModel.processAction(
+                                                PaymentsViewModel.PaymentAction.UpdatePaidByUser(
+                                                    member.userId
+                                                )
+                                            )
                                             paymentsViewModel.processAction(PaymentsViewModel.PaymentAction.ToggleExpandedPaidByUserList)
                                         }
                                     )
@@ -174,7 +183,10 @@ fun PaymentScreen(
                                 onClick = { paymentsViewModel.processAction(PaymentsViewModel.PaymentAction.ToggleExpandedPaymentTypeList) },
                                 modifier = Modifier.padding(end = 8.dp)
                             ) {
-                                Text(editablePayment?.paymentType ?: "", color = MaterialTheme.colorScheme.primary)
+                                Text(
+                                    editablePayment?.paymentType ?: "",
+                                    color = MaterialTheme.colorScheme.primary
+                                )
                             }
 
                             PaymentTypeDropdownMenu(viewModel = paymentsViewModel)
@@ -191,11 +203,18 @@ fun PaymentScreen(
                             )
 
                             OutlinedTextField(
-                                value = formatPaymentAmount(editablePayment?.amount?.toString() ?: ""),
+                                value = formatPaymentAmount(
+                                    editablePayment?.amount?.toString() ?: ""
+                                ),
                                 onValueChange = { newValue ->
-                                    val sanitizedInput = newValue.filter { char -> char.isDigit() || char == '.' }
+                                    val sanitizedInput =
+                                        newValue.filter { char -> char.isDigit() || char == '.' }
                                     if (sanitizedInput.count { it == '.' } <= 1 && sanitizedInput.length <= 10) {
-                                        paymentsViewModel.processAction(PaymentsViewModel.PaymentAction.UpdateAmount(sanitizedInput.toDoubleOrNull() ?: 0.0))
+                                        paymentsViewModel.processAction(
+                                            PaymentsViewModel.PaymentAction.UpdateAmount(
+                                                sanitizedInput.toDoubleOrNull() ?: 0.0
+                                            )
+                                        )
                                     }
                                 },
                                 label = { Text("Amount") },
@@ -228,7 +247,11 @@ fun PaymentScreen(
                             )
                             DropdownMenu(
                                 expanded = screenState.expandedPaidToUserList,
-                                onDismissRequest = { paymentsViewModel.processAction(PaymentsViewModel.PaymentAction.ToggleExpandedPaidToUserList) }
+                                onDismissRequest = {
+                                    paymentsViewModel.processAction(
+                                        PaymentsViewModel.PaymentAction.ToggleExpandedPaidToUserList
+                                    )
+                                }
                             ) {
                                 groupMembers.forEach { member ->
                                     val user = users.find { it.userId == member.userId }
@@ -236,7 +259,11 @@ fun PaymentScreen(
                                     DropdownMenuItem(
                                         text = { Text(text = if (member.userId == userId) "I" else username) },
                                         onClick = {
-                                            paymentsViewModel.processAction(PaymentsViewModel.PaymentAction.UpdatePaidToUser(member.userId))
+                                            paymentsViewModel.processAction(
+                                                PaymentsViewModel.PaymentAction.UpdatePaidToUser(
+                                                    member.userId
+                                                )
+                                            )
                                             paymentsViewModel.processAction(PaymentsViewModel.PaymentAction.ToggleExpandedPaidToUserList)
                                         }
                                     )
@@ -246,7 +273,11 @@ fun PaymentScreen(
                             TextField(
                                 value = editablePayment?.description ?: "",
                                 onValueChange = {
-                                    paymentsViewModel.processAction(PaymentsViewModel.PaymentAction.UpdateDescription(it))
+                                    paymentsViewModel.processAction(
+                                        PaymentsViewModel.PaymentAction.UpdateDescription(
+                                            it
+                                        )
+                                    )
                                 },
                                 label = { Text("Description") },
                                 modifier = Modifier
@@ -267,7 +298,11 @@ fun PaymentScreen(
                         TextField(
                             value = editablePayment?.notes ?: "",
                             onValueChange = {
-                                paymentsViewModel.processAction(PaymentsViewModel.PaymentAction.UpdateNotes(it))
+                                paymentsViewModel.processAction(
+                                    PaymentsViewModel.PaymentAction.UpdateNotes(
+                                        it
+                                    )
+                                )
                             },
                             label = { Text("Notes") },
                             modifier = Modifier.fillMaxWidth(),
@@ -283,7 +318,11 @@ fun PaymentScreen(
                         GlobalDatePickerDialog(
                             date = editablePayment?.paymentDate.toString() ?: "",
                             onDateChange = { newDate ->
-                                paymentsViewModel.processAction(PaymentsViewModel.PaymentAction.UpdatePaymentDate(newDate))
+                                paymentsViewModel.processAction(
+                                    PaymentsViewModel.PaymentAction.UpdatePaymentDate(
+                                        newDate
+                                    )
+                                )
                             },
                         )
 
@@ -299,7 +338,10 @@ fun PaymentScreen(
                         var expanded by remember { mutableStateOf(false) }
                         Box(modifier = Modifier.fillMaxWidth()) {
                             TextButton(onClick = { expanded = true }) {
-                                Text(editablePayment?.splitMode ?: "", color = MaterialTheme.colorScheme.primary)
+                                Text(
+                                    editablePayment?.splitMode ?: "",
+                                    color = MaterialTheme.colorScheme.primary
+                                )
                             }
                             DropdownMenu(
                                 expanded = expanded,
@@ -307,14 +349,22 @@ fun PaymentScreen(
                             ) {
                                 DropdownMenuItem(
                                     onClick = {
-                                        paymentsViewModel.processAction(PaymentsViewModel.PaymentAction.UpdateSplitMode("equally"))
+                                        paymentsViewModel.processAction(
+                                            PaymentsViewModel.PaymentAction.UpdateSplitMode(
+                                                "equally"
+                                            )
+                                        )
                                         expanded = false
                                     },
                                     text = { Text("equally") }
                                 )
                                 DropdownMenuItem(
                                     onClick = {
-                                        paymentsViewModel.processAction(PaymentsViewModel.PaymentAction.UpdateSplitMode("unequally"))
+                                        paymentsViewModel.processAction(
+                                            PaymentsViewModel.PaymentAction.UpdateSplitMode(
+                                                "unequally"
+                                            )
+                                        )
                                         expanded = false
                                     },
                                     text = { Text("unequally") }
@@ -322,54 +372,123 @@ fun PaymentScreen(
                             }
                         }
 
-                        // Update the splits display
-                        editableSplits.forEach { split ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = users.find { it.userId == split.userId }?.username
-                                        ?: "User ${split.userId}",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onBackground
-                                )
-                                TextField(
-                                    value = formatPaymentAmount(split.amount.toString()),
-                                    onValueChange = { input ->
-                                        val newAmount = input.filter { char -> char.isDigit() || char == '.' }
-                                            .toDoubleOrNull() ?: 0.0
-                                        paymentsViewModel.processAction(PaymentsViewModel.PaymentAction.UpdateSplit(split.userId, newAmount))
-                                    },
-                                    modifier = Modifier.width(100.dp),
-                                    enabled = editablePayment?.splitMode == "unequally",
-                                    leadingIcon = { Text(getCurrencySymbol(editablePayment?.currency ?: "USD")) },
-                                    keyboardOptions = KeyboardOptions.Default.copy(keyboardType = KeyboardType.Number)
-                                )
+
+                        // NEW SECTION: Member Selection
+                        val selectedMembers = screenState.selectedMembers
+
+                        Text(
+                            "Select Members to Split With:",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+
+                        Column(
+                            modifier = Modifier.padding(bottom = 16.dp)
+                        ) {
+                            groupMembers.forEach { member ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = users.find { it.userId == member.userId }?.username
+                                            ?: "User ${member.userId}",
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    Checkbox(
+                                        checked = selectedMembers.contains(member),
+                                        onCheckedChange = { checked ->
+                                            val newSelection = if (checked) {
+                                                selectedMembers + member
+                                            } else {
+                                                selectedMembers - member
+                                            }
+                                            paymentsViewModel.processAction(
+                                                PaymentsViewModel.PaymentAction.UpdateSelectedMembers(
+                                                    newSelection
+                                                )
+                                            )
+                                        }
+                                    )
+                                }
                             }
+                        }
+
+                        // Modified splits display - only show for selected members
+                        editableSplits
+                            .filter { split -> selectedMembers.any { it.userId == split.userId } }
+                            .forEach { split ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = users.find { it.userId == split.userId }?.username
+                                            ?: "User ${split.userId}",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.onBackground
+                                    )
+                                    TextField(
+                                        value = formatPaymentAmount(split.amount.toString()),
+                                        onValueChange = { input ->
+                                            val newAmount =
+                                                input.filter { char -> char.isDigit() || char == '.' }
+                                                    .toDoubleOrNull() ?: 0.0
+                                            paymentsViewModel.processAction(
+                                                PaymentsViewModel.PaymentAction.UpdateSplit(
+                                                    split.userId,
+                                                    newAmount
+                                                )
+                                            )
+                                        },
+                                        modifier = Modifier.width(100.dp),
+                                        enabled = editablePayment?.splitMode == "unequally",
+                                        leadingIcon = {
+                                            Text(
+                                                getCurrencySymbol(
+                                                    editablePayment?.currency ?: "USD"
+                                                )
+                                            )
+                                        },
+                                        keyboardOptions = KeyboardOptions.Default.copy(keyboardType = KeyboardType.Number)
+                                    )
+                                }
+                            }
+
+                        if (screenState.showDeleteDialog) {
+                            AlertDialog(
+                                onDismissRequest = {
+                                    paymentsViewModel.processAction(
+                                        PaymentsViewModel.PaymentAction.HideDeleteDialog
+                                    )
+                                },
+                                title = { Text("Delete Payment") },
+                                text = { Text("Are you sure you want to delete this payment?") },
+                                confirmButton = {
+                                    TextButton(
+                                        onClick = {
+                                            paymentsViewModel.archivePayment()
+                                        }
+                                    ) {
+                                        Text("Delete")
+                                    }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = {
+                                        paymentsViewModel.processAction(
+                                            PaymentsViewModel.PaymentAction.HideDeleteDialog
+                                        )
+                                    }) {
+                                        Text("Cancel")
+                                    }
+                                }
+                            )
                         }
                     }
-                }
-                if (screenState.showDeleteDialog) {
-                    AlertDialog(
-                        onDismissRequest = { paymentsViewModel.processAction(PaymentsViewModel.PaymentAction.HideDeleteDialog) },
-                        title = { Text("Delete Payment") },
-                        text = { Text("Are you sure you want to delete this payment?") },
-                        confirmButton = {
-                            TextButton(
-                                onClick = {
-                                    paymentsViewModel.archivePayment()
-                                }
-                            ) {
-                                Text("Delete")
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { paymentsViewModel.processAction(PaymentsViewModel.PaymentAction.HideDeleteDialog) }) {
-                                Text("Cancel")
-                            }
-                        }
-                    )
                 }
             }
         )
