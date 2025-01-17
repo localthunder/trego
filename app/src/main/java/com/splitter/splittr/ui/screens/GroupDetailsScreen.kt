@@ -2,6 +2,7 @@ package com.splitter.splittr.ui.screens
 
 import android.annotation.SuppressLint
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
@@ -54,7 +56,9 @@ fun GroupDetailsScreen(
     val groupViewModel: GroupViewModel = viewModel(factory = myApplication.viewModelFactory)
     val userViewModel: UserViewModel = viewModel(factory = myApplication.viewModelFactory)
     var showArchiveConfirmDialog by remember { mutableStateOf(false) }
+    var showRestoreConfirmDialog by remember { mutableStateOf(false) }
     val archiveState by groupViewModel.archiveGroupState.collectAsState()
+    val restoreState by groupViewModel.restoreGroupState.collectAsState()
     val groupDetailsState by groupViewModel.groupDetailsState.collectAsState()
     var showAddMembersBottomSheet by remember { mutableStateOf(false) }
 
@@ -82,7 +86,6 @@ fun GroupDetailsScreen(
                     actions = {
                         var showMenu by remember { mutableStateOf(false) }
 
-                        // Add menu icon
                         IconButton(onClick = { showMenu = true }) {
                             Icon(
                                 imageVector = Icons.Default.MoreVert,
@@ -95,10 +98,17 @@ fun GroupDetailsScreen(
                             onDismissRequest = { showMenu = false }
                         ) {
                             DropdownMenuItem(
-                                text = { Text("Archive Group") },
+                                text = {
+                                    Text(
+                                        if (groupDetailsState.isArchived) "Unarchive Group"
+                                        else "Archive Group"
+                                    )
+                                },
                                 leadingIcon = {
                                     Icon(
-                                        imageVector = Icons.Default.Archive,
+                                        imageVector = if (groupDetailsState.isArchived)
+                                            Icons.Default.Unarchive
+                                        else Icons.Default.Archive,
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.error
                                     )
@@ -108,7 +118,11 @@ fun GroupDetailsScreen(
                                 ),
                                 onClick = {
                                     showMenu = false
-                                    showArchiveConfirmDialog = true
+                                    if (groupDetailsState.isArchived) {
+                                        showRestoreConfirmDialog = true
+                                    } else {
+                                        showArchiveConfirmDialog = true
+                                    }
                                 }
                             )
                         }
@@ -242,6 +256,8 @@ fun GroupDetailsScreen(
                 }
             )
         }
+
+        // Archive confirmation dialog
         if (showArchiveConfirmDialog) {
             AlertDialog(
                 onDismissRequest = { showArchiveConfirmDialog = false },
@@ -266,21 +282,73 @@ fun GroupDetailsScreen(
                     }
                 },
                 dismissButton = {
-                    TextButton(
-                        onClick = { showArchiveConfirmDialog = false }
-                    ) {
+                    TextButton(onClick = { showArchiveConfirmDialog = false }) {
                         Text("Cancel")
                     }
                 }
             )
         }
+
+        // Unarchive confirmation dialog
+        if (showRestoreConfirmDialog) {
+            AlertDialog(
+                onDismissRequest = { showRestoreConfirmDialog = false },
+                title = { Text("Unarchive Group?") },
+                text = {
+                    Text("Are you sure you want to unarchive this group? The group will be moved back to your active groups.")
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            groupViewModel.restoreGroup(groupId)
+                            showRestoreConfirmDialog = false
+                        },
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Text("Unarchive")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showRestoreConfirmDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        // Handle archive state changes
         LaunchedEffect(archiveState) {
             when (archiveState) {
                 is GroupViewModel.ArchiveGroupState.Success -> {
+                    Toast.makeText(context, "Group successfully archived", Toast.LENGTH_SHORT).show()
                     navController.popBackStack()
                 }
                 is GroupViewModel.ArchiveGroupState.Error -> {
-                    // Handle error state
+                    Toast.makeText(
+                        context,
+                        "Failed to archive group: ${(archiveState as GroupViewModel.ArchiveGroupState.Error).message}",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+                else -> { /* Handle other states */ }
+            }
+        }
+
+        // Handle restore state changes
+        LaunchedEffect(restoreState) {
+            when (restoreState) {
+                is GroupViewModel.RestoreGroupState.Success -> {
+                    Toast.makeText(context, "Group successfully unarchived", Toast.LENGTH_SHORT).show()
+                    navController.popBackStack()
+                }
+                is GroupViewModel.RestoreGroupState.Error -> {
+                    Toast.makeText(
+                        context,
+                        "Failed to unarchive group: ${(restoreState as GroupViewModel.RestoreGroupState.Error).message}",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
                 else -> { /* Handle other states */ }
             }
