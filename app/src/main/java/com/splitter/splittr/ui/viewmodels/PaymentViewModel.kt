@@ -151,7 +151,6 @@ class PaymentsViewModel(
                 .first()
         } ?: emptyList()
 
-        // Initialize selected members from existing splits
         val selectedMembers = groupMembers.filter { member ->
             splits.any { it.userId == member.userId }
         }.toSet()
@@ -160,9 +159,9 @@ class PaymentsViewModel(
             payment = payment,
             editablePayment = payment?.copy(),
             splits = splits,
-            editableSplits = splits.map { it.copy() },
+            editableSplits = splits.map { it.copy() },  // Keep original splits
             groupMembers = groupMembers,
-            selectedMembers = selectedMembers,  // Set the selected members
+            selectedMembers = selectedMembers,  // Only include members who were part of original split
             isTransaction = payment?.transactionId != null
         )
     }
@@ -227,7 +226,8 @@ class PaymentsViewModel(
             _paymentScreenState.update { currentState ->
                 currentState.copy(
                     editablePayment = newPayment,
-                    payment = newPayment
+                    payment = newPayment,
+                    selectedMembers = currentState.groupMembers.toSet()  // Select all members by default
                 )
             }
             recalculateSplits(userId)
@@ -241,7 +241,11 @@ class PaymentsViewModel(
                 .first()
 
             _paymentScreenState.update { currentState ->
-                currentState.copy(groupMembers = members)
+                currentState.copy(
+                    groupMembers = members,
+                    selectedMembers = members.toSet()  // Select all members by default
+
+                )
             }
         } catch (e: Exception) {
             Log.e("PaymentsViewModel", "Error loading group members", e)
@@ -267,11 +271,16 @@ class PaymentsViewModel(
             }
             is PaymentAction.UpdateSplit -> updateSplit(action.userId, action.amount)
             is PaymentAction.UpdateSelectedMembers -> {
-                _paymentScreenState.value = _paymentScreenState.value.copy(
-                    selectedMembers = action.members
-                )
-                recalculateSplits(currentUserId)
-            }            is PaymentAction.ToggleExpandedPaidByUserList -> {
+                val currentPayment = _paymentScreenState.value.editablePayment
+                if (currentPayment?.id == 0) {
+                    // Only update and recalculate for new payments
+                    _paymentScreenState.value = _paymentScreenState.value.copy(
+                        selectedMembers = action.members
+                    )
+                    recalculateSplits(currentUserId)
+                }
+            }
+            is PaymentAction.ToggleExpandedPaidByUserList -> {
                 _paymentScreenState.value = _paymentScreenState.value.copy(
                     expandedPaidByUserList = !_paymentScreenState.value.expandedPaidByUserList
                 )
@@ -316,11 +325,16 @@ class PaymentsViewModel(
 
     fun recalculateSplits(userId: Int) {
         val editablePayment = _paymentScreenState.value.editablePayment ?: return
-        val groupMembers = _paymentScreenState.value.groupMembers
 
+        // If this is an existing payment (id != 0), preserve original splits
+        if (editablePayment.id != 0) {
+            return
+        }
+
+        // Only calculate new splits for new payments
         val newSplits = when (editablePayment.splitMode) {
-            "equally" -> calculateEqualSplits(editablePayment.amount, groupMembers, userId)
-            "unequally" -> _paymentScreenState.value.editableSplits // Keep existing unequal splits
+            "equally" -> calculateEqualSplits(editablePayment.amount, _paymentScreenState.value.groupMembers, userId)
+            "unequally" -> _paymentScreenState.value.editableSplits
             else -> emptyList()
         }
 

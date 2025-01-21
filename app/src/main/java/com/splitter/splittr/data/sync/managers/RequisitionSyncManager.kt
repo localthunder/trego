@@ -26,7 +26,7 @@ class RequisitionSyncManager(
     syncMetadataDao: SyncMetadataDao,
     dispatchers: CoroutineDispatchers,
     private val context: Context
-) : OptimizedSyncManager<Requisition>(syncMetadataDao, dispatchers) {
+) : OptimizedSyncManager<Requisition, Requisition>(syncMetadataDao, dispatchers) {
 
     override val entityType = "requisitions"
     override val batchSize = 20

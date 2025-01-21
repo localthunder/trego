@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import androidx.work.WorkManager
 import com.splitter.splittr.MyApplication
 import com.splitter.splittr.data.local.dataClasses.LoginRequest
 import com.splitter.splittr.data.repositories.InstitutionRepository
@@ -51,6 +52,7 @@ fun LoginScreen(navController: NavController) {
                     val token = authResponse.token ?: throw IllegalStateException("No token received")
                     TokenManager.saveAccessToken(context, token)
                     AuthUtils.storeLoginState(context, token)
+                    WorkManager.getInstance(context).pruneWork() // Clean up any lingering work
                 }
 
                 // 2. Get user info and store user ID

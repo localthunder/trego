@@ -24,7 +24,7 @@ class UserGroupArchiveSyncManager(
     syncMetadataDao: SyncMetadataDao,
     dispatchers: CoroutineDispatchers,
     private val context: Context
-) : OptimizedSyncManager<UserGroupArchiveEntity>(syncMetadataDao, dispatchers) {
+) : OptimizedSyncManager<UserGroupArchiveEntity, UserGroupArchiveEntity>(syncMetadataDao, dispatchers) {
 
     override val entityType = "user_group_archives"
     override val batchSize = 50
@@ -74,63 +74,63 @@ class UserGroupArchiveSyncManager(
         val userId = getUserIdFromPreferences(context)
             ?: throw IllegalStateException("User ID not found")
 
-        // Get the server ID from the local user ID
+        Log.d(TAG, "Local user ID: $userId")
+
         val localUser = userDao.getUserByIdDirect(userId)
             ?: throw IllegalStateException("User not found in local database")
+
+        Log.d(TAG, "Found local user: ${localUser.userId}, server ID: ${localUser.serverId}")
 
         val serverUserId = localUser.serverId
             ?: throw IllegalStateException("No server ID found for user $userId")
 
-        // Get all archives for the user
-        val serverArchives = mutableListOf<UserGroupArchiveEntity>()
+        // Get all archived group server IDs for the user
+        val serverArchives = apiService.getArchivedGroups(serverUserId)
+        Log.d(TAG, "Received server archives: $serverArchives")
 
-        // Get all groups and check their archive status
-        val groups = groupDao.getAllGroups().first()
-        for (group in groups) {
-            try {
-                val isArchived = apiService.isGroupArchived(groupId = group.id, userId = serverUserId)
-                if (isArchived) {
-                    serverArchives.add(
-                        UserGroupArchiveEntity(
-                            userId = userId,
-                            groupId = group.id,
-                            archivedAt = DateUtils.getCurrentTimestamp(),
-                            syncStatus = SyncStatus.SYNCED
-                        )
-                    )
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error checking archive status for group ${group.id}", e)
+        return serverArchives.mapNotNull { serverArchive ->
+            Log.d(TAG, "Converting server archive: $serverArchive")
+            val result = myApplication.entityServerConverter
+                .convertUserGroupArchiveFromServer(serverArchive)
+
+            if (result.isSuccess) {
+                Log.d(TAG, "Successfully converted archive: ${result.getOrNull()}")
+            } else {
+                Log.e(TAG, "Failed to convert archive: ${result.exceptionOrNull()}")
             }
-        }
 
-        return serverArchives
+            result.getOrNull()
+        }
     }
 
     override suspend fun applyServerChange(serverEntity: UserGroupArchiveEntity) {
         try {
-            val existingArchive = userGroupArchiveDao.getArchive(
-                serverEntity.userId,
-                serverEntity.groupId
-            ).first()
+            Log.d(TAG, "Starting apply server change")
+            userGroupArchiveDao.runInTransaction {
+                val existingArchive = userGroupArchiveDao.getArchive(
+                    serverEntity.userId,
+                    serverEntity.groupId
+                ).first()
 
-            when {
-                existingArchive == null -> {
-                    Log.d(TAG, "Inserting new archive from server")
-                    userGroupArchiveDao.insertArchive(serverEntity)
-                }
-                DateUtils.isUpdateNeeded(
-                    serverEntity.archivedAt,
-                    existingArchive.archivedAt,
-                    "Archive-${serverEntity.userId}-${serverEntity.groupId}"
-                ) -> {
-                    Log.d(TAG, "Updating existing archive from server")
-                    userGroupArchiveDao.insertArchive(serverEntity)
-                }
-                else -> {
-                    Log.d(TAG, "Local archive is up to date")
+                when {
+                    existingArchive == null -> {
+                        Log.d(TAG, "Inserting new archive from server")
+                        userGroupArchiveDao.insertArchive(serverEntity)
+                    }
+                    DateUtils.isUpdateNeeded(
+                        serverEntity.archivedAt,
+                        existingArchive.archivedAt,
+                        "Archive-${serverEntity.userId}-${serverEntity.groupId}"
+                    ) -> {
+                        Log.d(TAG, "Updating existing archive from server")
+                        userGroupArchiveDao.insertArchive(serverEntity)
+                    }
+                    else -> {
+                        Log.d(TAG, "Local archive is up to date")
+                    }
                 }
             }
+            Log.d(TAG, "Successfully completed apply server change")
         } catch (e: Exception) {
             Log.e(TAG, "Error applying server archive", e)
             throw e

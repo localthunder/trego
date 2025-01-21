@@ -32,8 +32,13 @@ interface PaymentDao {
     @Query("SELECT * FROM payments WHERE group_id = :groupId AND deleted_at IS NULL")
     suspend fun getNonArchivedPaymentsByGroup(groupId: Int): List<PaymentEntity>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    // Change this to ABORT to prevent accidental replacements
+    @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertPayment(payment: PaymentEntity): Long
+
+    // Add a separate upsert method for when we actually want to replace
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertPayment(payment: PaymentEntity): Long
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrUpdatePaymentDirect(payment: PaymentEntity)
@@ -77,6 +82,17 @@ interface PaymentDao {
         updatePaymentDirect(updatedPayment)
     }
 
+    @Transaction
+    suspend fun updatePaymentWithTimestamp(
+        payment: PaymentEntity,
+        syncStatus: SyncStatus
+    ) {
+        val updatedPayment = payment.copy(
+            updatedAt = DateUtils.getCurrentTimestamp()
+        )
+        updatePaymentDirect(updatedPayment.copy(syncStatus = syncStatus))
+    }
+
     @Query("UPDATE payments SET deleted_at = :deletedAt WHERE id = :paymentId")
     suspend fun archivePayment(paymentId: Int, deletedAt: String)
 
@@ -86,6 +102,6 @@ interface PaymentDao {
     @Query("SELECT * FROM payments WHERE sync_status != 'SYNCED'")
     fun getUnsyncedPayments(): Flow<List<PaymentEntity>>
 
-    @Query("UPDATE payments SET sync_status = :status, updated_at = CURRENT_TIMESTAMP WHERE id = :paymentId")
-    suspend fun updatePaymentSyncStatus(paymentId: Int, status: SyncStatus)
+    @Query("UPDATE payments SET sync_status = :status, updated_at = :timestamp WHERE id = :paymentId")
+    suspend fun updatePaymentSyncStatus(paymentId: Int, status: SyncStatus, timestamp: String = DateUtils.getCurrentTimestamp())
 }

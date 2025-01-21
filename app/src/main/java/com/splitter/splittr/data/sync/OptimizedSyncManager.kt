@@ -7,7 +7,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.IOException
 
-abstract class OptimizedSyncManager<T : Any>(
+abstract class OptimizedSyncManager<LocalType : Any, ServerType : Any>(
     val syncMetadataDao: SyncMetadataDao,
     val dispatchers: CoroutineDispatchers
 ) {
@@ -15,10 +15,10 @@ abstract class OptimizedSyncManager<T : Any>(
     protected abstract val batchSize: Int
 
     // Abstract methods that each entity sync manager must implement
-    protected abstract suspend fun getLocalChanges(): List<T>
-    protected abstract suspend fun syncToServer(entity: T): Result<T>
-    protected abstract suspend fun getServerChanges(since: Long): List<T>
-    protected abstract suspend fun applyServerChange(serverEntity: T)
+    protected abstract suspend fun getLocalChanges(): List<LocalType>
+    protected abstract suspend fun syncToServer(entity: LocalType): Result<LocalType>
+    protected abstract suspend fun getServerChanges(since: Long): List<ServerType>
+    protected abstract suspend fun applyServerChange(serverEntity: ServerType)
 
     suspend fun performSync() = withContext(dispatchers.io) {
         try {

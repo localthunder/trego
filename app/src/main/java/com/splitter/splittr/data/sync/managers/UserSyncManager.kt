@@ -28,7 +28,7 @@ class UserSyncManager(
     syncMetadataDao: SyncMetadataDao,
     dispatchers: CoroutineDispatchers,
     private val context: Context
-) : OptimizedSyncManager<User>(syncMetadataDao, dispatchers) {
+) : OptimizedSyncManager<User, User>(syncMetadataDao, dispatchers) {
 
     override val entityType = "users"
     override val batchSize = 50

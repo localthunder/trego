@@ -93,7 +93,10 @@ class EntityServerConverter(private val context: Context) {
         }
     }
 
-    suspend fun convertPaymentFromServer(serverPayment: Payment, existingPayment: PaymentEntity? = null): Result<PaymentEntity> {
+    suspend fun convertPaymentFromServer(
+        serverPayment: Payment,
+        existingPayment: PaymentEntity? = null
+    ): Result<PaymentEntity> {
         return try {
             Log.d(TAG, "Converting server payment: id=${serverPayment.id} to local entity")
 
@@ -114,14 +117,30 @@ class EntityServerConverter(private val context: Context) {
                 ?: existingPayment?.groupId
                 ?: return Result.failure(Exception("Could not resolve local group ID for ${serverPayment.groupId}"))
 
-            Result.success(serverPayment.toEntity(SyncStatus.SYNCED).copy(
+            // Create the entity with all correct IDs from the start
+            val entity = PaymentEntity(
                 id = existingPayment?.id ?: 0,
                 serverId = serverPayment.id,
                 groupId = localGroupId,
                 paidByUserId = localPaidByUserId,
+                transactionId = serverPayment.transactionId,
+                amount = serverPayment.amount,
+                description = serverPayment.description,
+                notes = serverPayment.notes,
+                paymentDate = serverPayment.paymentDate,
                 createdBy = localCreatedByUserId,
-                updatedBy = localUpdatedByUserId
-            ))
+                updatedBy = localUpdatedByUserId,
+                createdAt = serverPayment.createdAt,
+                updatedAt = serverPayment.updatedAt,
+                splitMode = serverPayment.splitMode,
+                institutionId = serverPayment.institutionId,
+                paymentType = serverPayment.paymentType,
+                currency = serverPayment.currency,
+                deletedAt = serverPayment.deletedAt,
+                syncStatus = SyncStatus.SYNCED
+            )
+
+            Result.success(entity)
         } catch (e: Exception) {
             Log.e(TAG, "Error converting server payment to local entity", e)
             Result.failure(e)
@@ -208,16 +227,39 @@ class EntityServerConverter(private val context: Context) {
                 ?: existingMember?.userId
                 ?: return Result.failure(Exception("Could not resolve local user ID for ${serverMember.userId}"))
 
-            Result.success(GroupMemberEntity(
-                id = existingMember?.id ?: 0,
-                serverId = serverMember.id,
-                groupId = localGroupId,
-                userId = localUserId,
-                createdAt = serverMember.createdAt,
-                updatedAt = serverMember.updatedAt,
-                removedAt = serverMember.removedAt,
-                syncStatus = SyncStatus.SYNCED
-            ))
+            if (existingMember == null) {
+                // This is a new entry - create with generated local ID
+                Log.d(TAG, "Creating new local entity for server member ${serverMember.id}")
+                Result.success(
+                    GroupMemberEntity(
+                        id = 0,  // Let Room generate a new local ID
+                        serverId = serverMember.id,
+                        groupId = localGroupId,
+                        userId = localUserId,
+                        createdAt = serverMember.createdAt,
+                        updatedAt = serverMember.updatedAt,
+                        removedAt = serverMember.removedAt,
+                        syncStatus = SyncStatus.SYNCED
+                    )
+                )
+            } else {
+                // This is an update - preserve existing local ID
+                Log.d(
+                    TAG,
+                    "Updating existing local entity ${existingMember.id} with server member ${serverMember.id}"
+                )
+                Result.success(
+                    existingMember.copy(
+                        serverId = serverMember.id,
+                        groupId = localGroupId,
+                        userId = localUserId,
+                        createdAt = serverMember.createdAt,
+                        updatedAt = serverMember.updatedAt,
+                        removedAt = serverMember.removedAt,
+                        syncStatus = SyncStatus.SYNCED
+                    )
+                )
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error converting server group member to local entity", e)
             Result.failure(e)
@@ -573,11 +615,18 @@ class EntityServerConverter(private val context: Context) {
         existingArchive: UserGroupArchiveEntity? = null
     ): Result<UserGroupArchiveEntity> {
         return try {
-            val serverUserId = serverArchive["user_id"] as? Int
-                ?: return Result.failure(Exception("Server archive missing user_id"))
+            // Handle both Int and Double values for IDs
+            val serverUserId = when (val userId = serverArchive["user_id"]) {
+                is Int -> userId
+                is Double -> userId.toInt()
+                else -> return Result.failure(Exception("Server archive missing or invalid user_id"))
+            }
 
-            val serverGroupId = serverArchive["group_id"] as? Int
-                ?: return Result.failure(Exception("Server archive missing group_id"))
+            val serverGroupId = when (val groupId = serverArchive["group_id"]) {
+                is Int -> groupId
+                is Double -> groupId.toInt()
+                else -> return Result.failure(Exception("Server archive missing or invalid group_id"))
+            }
 
             val localUserId = ServerIdUtil.getLocalId(serverUserId, "users", context)
                 ?: existingArchive?.userId
@@ -589,11 +638,11 @@ class EntityServerConverter(private val context: Context) {
 
             Result.success(
                 UserGroupArchiveEntity(
-                userId = localUserId,
-                groupId = localGroupId,
-                archivedAt = serverArchive["archived_at"] as String,
-                syncStatus = SyncStatus.SYNCED
-            )
+                    userId = localUserId,
+                    groupId = localGroupId,
+                    archivedAt = serverArchive["archived_at"] as String,
+                    syncStatus = SyncStatus.SYNCED
+                )
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error converting server user group archive to local entity", e)

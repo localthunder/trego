@@ -6,8 +6,8 @@ import com.splitter.splittr.data.model.PaymentSplit
 
 fun PaymentSplit.toEntity(syncStatus: SyncStatus = SyncStatus.PENDING_SYNC): PaymentSplitEntity {
     return PaymentSplitEntity(
-        id = this.id,
-        serverId = this.id,
+        id = 0,
+        serverId = if (this.id == 0) null else this.id,  // Server ID can be null for new splits
         paymentId = this.paymentId,
         userId = this.userId,
         amount = this.amount,

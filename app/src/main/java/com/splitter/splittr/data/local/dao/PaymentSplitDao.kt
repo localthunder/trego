@@ -76,11 +76,29 @@ interface PaymentSplitDao {
         updatePaymentSplitDirect(updatedPaymentSplit)
     }
 
+    @Transaction
+    suspend fun updatePaymentSplitWithTimestamp(
+        split: PaymentSplitEntity,
+        syncStatus: SyncStatus
+    ) {
+        val updatedSplit = split.copy(
+            updatedAt = DateUtils.getCurrentTimestamp()
+        )
+        updatePaymentSplitDirect(updatedSplit.copy(syncStatus = syncStatus))
+    }
+
     @Query("SELECT * FROM payment_splits WHERE sync_status != 'SYNCED'")
     fun getUnsyncedPaymentSplits(): Flow<List<PaymentSplitEntity>>
 
     @Query("UPDATE payment_splits SET sync_status = :status, updated_at = :timestamp WHERE id = :splitId")
     suspend fun updatePaymentSplitSyncStatus(splitId: Int, status: SyncStatus, timestamp: String = DateUtils.getCurrentTimestamp())
+
+    @Query("UPDATE payment_splits SET sync_status = :status, updated_at = :timestamp WHERE payment_id = :paymentId")
+    suspend fun updatePaymentSplitsSyncStatus(
+        paymentId: Int,
+        status: SyncStatus,
+        timestamp: String = DateUtils.getCurrentTimestamp()
+    )
 
     @Transaction
     suspend fun updatePaymentSplitWithSync(split: PaymentSplitEntity, syncStatus: SyncStatus) {
@@ -115,4 +133,7 @@ interface PaymentSplitDao {
             insertOrUpdatePaymentSplit(split)
         }
     }
+
+    @Query("SELECT * FROM payment_splits WHERE payment_id = :paymentId AND user_id = :userId LIMIT 1")
+    suspend fun getPaymentSplitByPaymentIdAndUserId(paymentId: Int, userId: Int): PaymentSplitEntity?
 }

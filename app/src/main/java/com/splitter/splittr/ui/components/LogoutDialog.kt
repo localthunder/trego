@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import androidx.work.WorkManager
 import com.splitter.splittr.MyApplication
 import com.splitter.splittr.data.extensions.toModel
 import com.splitter.splittr.data.local.AppDatabase
@@ -73,6 +74,8 @@ fun LogoutDialog(
 
         // Clear AuthManager preferences
         context.getSharedPreferences("AuthPrefs", Context.MODE_PRIVATE).edit().clear().apply()
+
+        WorkManager.getInstance(context).cancelAllWork()
     }
 
     if (showDialog) {

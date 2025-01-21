@@ -42,7 +42,8 @@ import java.sql.Timestamp
     indices = [
         Index("payment_id"),
         Index("user_id"),
-        Index(value = ["server_id"], unique = true)
+        Index(value = ["server_id"], unique = true),
+        Index(value = ["payment_id", "user_id"], unique = true)
     ]
 )
 @TypeConverters(Converters::class)

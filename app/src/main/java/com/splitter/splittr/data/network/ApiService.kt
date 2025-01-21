@@ -136,6 +136,9 @@ interface ApiService {
         @Query("userId") userId: Int
     ): Boolean
 
+    @GET("api/groups/archives/{userId}")
+    suspend fun getArchivedGroups(@Path("userId") userId: Int): List<Map<String, Any>>
+
     @POST("api/groups/{groupId}/members")
     suspend fun addMemberToGroup(
         @Path("groupId") groupId: Int,

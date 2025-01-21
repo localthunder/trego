@@ -44,6 +44,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.splitter.splittr.MyApplication
 import com.splitter.splittr.ui.viewmodels.GroupViewModel
 import com.splitter.splittr.ui.viewmodels.UserViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -145,14 +146,12 @@ fun AddMembersBottomSheet(
                     Button(
                         onClick = {
                             scope.launch {
-                                Log.d("AddMembersBottomSheet", "Starting user creation: name=$name, email=$email, inviteLater=$inviteLater")
-                                val result = userViewModel.createProvisionalUser(name, email, inviteLater)
+                                val result = userViewModel.createProvisionalUser(name, email, inviteLater, groupId)
                                 result.onSuccess { userId ->
-                                    Log.d("AddMembersBottomSheet", "User created successfully with ID: $userId")
-                                    groupViewModel.addMemberToGroup(groupId, userId)
+                                    Log.d("AddMembersBottomSheet", "User created and added to group successfully")
                                     onDismissRequest()
                                 }.onFailure { error ->
-                                    Log.e("AddMembersBottomSheet", "Failed to create user", error)
+                                    Log.e("AddMembersBottomSheet", "Failed to create user and add to group", error)
                                 }
                             }
                         },

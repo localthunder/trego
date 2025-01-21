@@ -94,11 +94,11 @@ class UserViewModel(
         }
     }
 
-    suspend fun createProvisionalUser(username: String, email: String?, inviteLater: Boolean): Result<Int> {
+    suspend fun createProvisionalUser(username: String, email: String?, inviteLater: Boolean, groupId: Int): Result<Int> {
         _loading.value = true
         return try {
             // Simply delegate to repository and return the result
-            userRepository.createProvisionalUser(username, email, inviteLater)
+            userRepository.createProvisionalUser(username, email, inviteLater, groupId)
         } catch (e: Exception) {
             Log.e("UserViewModel", "Failed to create provisional user", e)
             _error.value = "Failed to create provisional user: ${e.message}"

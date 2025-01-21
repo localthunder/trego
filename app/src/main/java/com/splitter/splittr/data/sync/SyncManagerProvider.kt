@@ -201,6 +201,7 @@ class SyncManagerProvider(
         apiService = apiService,
         dispatchers = dispatchers,
         syncMetadataDao = syncMetadataDao,
+        groupMemberDao = database.groupMemberDao(),
         userSyncManager = userSyncManager,
         context = context
     )

@@ -34,6 +34,12 @@ interface GroupMemberDao {
     @Query("SELECT * FROM group_members WHERE user_id = :userId")
     fun getGroupMemberByUserId(userId: Int): Flow<GroupMemberEntity?>
 
+    @Query("SELECT * FROM group_members WHERE group_id = :groupId AND user_id IN (:userIds)")
+    fun getGroupMembersByUserIds(groupId: Int, userIds: List<Int>): Flow<List<GroupMemberEntity>>
+
+    @Query("SELECT * FROM group_members WHERE user_id = :userId")
+    fun getGroupMemberByUserIdSync(userId: Int): GroupMemberEntity?
+
     @Query("SELECT * FROM group_members WHERE server_id = :serverId AND (removed_at IS NULL OR removed_at = '')")
     suspend fun getGroupMemberByServerId(serverId: Int): GroupMemberEntity?
 

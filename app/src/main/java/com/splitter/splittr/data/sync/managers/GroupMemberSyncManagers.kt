@@ -29,7 +29,7 @@ class GroupMemberSyncManager(
     syncMetadataDao: SyncMetadataDao,
     dispatchers: CoroutineDispatchers,
     private val context: Context
-) : OptimizedSyncManager<GroupMemberWithGroupResponse>(syncMetadataDao, dispatchers) {
+) : OptimizedSyncManager<GroupMemberWithGroupResponse, GroupMemberWithGroupResponse>(syncMetadataDao, dispatchers) {
 
     override val entityType = "group_members"
     override val batchSize = 50
@@ -121,7 +121,7 @@ class GroupMemberSyncManager(
             // Convert server member to local entity
             val localMember = myApplication.entityServerConverter.convertGroupMemberFromServer(
                 serverEntity.toGroupMember(),
-                groupMemberDao.getGroupMemberByIdSync(serverEntity.id)
+                groupMemberDao.getGroupMemberByServerId(serverEntity.id)  // Look up by server ID instead
             ).getOrNull() ?: throw Exception("Failed to convert server member")
 
             when {

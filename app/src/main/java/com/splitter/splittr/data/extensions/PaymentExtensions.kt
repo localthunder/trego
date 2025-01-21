@@ -9,8 +9,8 @@ import java.time.format.DateTimeFormatter
 
 fun Payment.toEntity(syncStatus: SyncStatus = SyncStatus.PENDING_SYNC): PaymentEntity {
     return PaymentEntity(
-        id = this.id,
-        serverId = this.id,
+        id = 0,
+        serverId = if (this.id == 0) null else this.id,  // Server ID can be null for new splits
         groupId = this.groupId,
         paidByUserId = this.paidByUserId,
         transactionId = this.transactionId,
@@ -33,7 +33,7 @@ fun Payment.toEntity(syncStatus: SyncStatus = SyncStatus.PENDING_SYNC): PaymentE
 
 fun PaymentEntity.toModel(): Payment {
     return Payment(
-        id = this.serverId ?: this.id,
+        id = this.serverId ?: 0,
         groupId = this.groupId,
         paidByUserId = this.paidByUserId,
         transactionId = this.transactionId,

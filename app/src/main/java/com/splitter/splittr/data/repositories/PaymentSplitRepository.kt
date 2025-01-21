@@ -53,47 +53,4 @@ class PaymentSplitRepository(
         }
     }.flowOn(dispatchers.io)
 
-    suspend fun createPaymentSplit(paymentSplit: PaymentSplit): Result<PaymentSplit> = withContext(dispatchers.io) {
-        try {
-            val localId = paymentSplitDao.insertPaymentSplit(paymentSplit.toEntity(SyncStatus.PENDING_SYNC))
-            val serverSplit = apiService.createPaymentSplit(paymentSplit.paymentId, paymentSplit)
-            val updatedSplit = serverSplit.copy(id = localId.toInt())
-            paymentSplitDao.updatePaymentSplit(updatedSplit.toEntity(SyncStatus.SYNCED))
-            Result.success(updatedSplit)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    suspend fun updatePaymentSplit(paymentSplit: PaymentSplit): Result<PaymentSplit> = withContext(dispatchers.io) {
-        try {
-            paymentSplitDao.updatePaymentSplit(paymentSplit.toEntity(SyncStatus.PENDING_SYNC))
-            val serverSplit = apiService.updatePaymentSplit(paymentSplit.paymentId, paymentSplit.id, paymentSplit)
-            paymentSplitDao.updatePaymentSplit(serverSplit.toEntity(SyncStatus.SYNCED))
-            Result.success(serverSplit)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    suspend fun updatePaymentSplits(splits: List<PaymentSplit>): Result<List<PaymentSplit>> = withContext(dispatchers.io) {
-        try {
-            // First, update each split locally with a PENDING_SYNC status
-            splits.forEach { split ->
-                paymentSplitDao.updatePaymentSplit(split.toEntity(SyncStatus.PENDING_SYNC))
-            }
-
-            // Then, sync each split with the server and update them in the local DB with a SYNCED status
-            val syncedSplits = splits.map { split ->
-                val serverSplit = apiService.updatePaymentSplit(split.paymentId, split.id, split)
-                paymentSplitDao.updatePaymentSplit(serverSplit.toEntity(SyncStatus.SYNCED))
-                serverSplit
-            }
-
-            Result.success(syncedSplits)
-        } catch (e: Exception) {
-            // If any exception occurs, return failure
-            Result.failure(e)
-        }
-    }
 }

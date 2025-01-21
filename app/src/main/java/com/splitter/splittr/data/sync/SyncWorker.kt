@@ -58,27 +58,24 @@ class SyncWorker(
         fun requestSync(context: Context) {
             val workManager = WorkManager.getInstance(context)
 
-            val syncWorkInfo = workManager.getWorkInfosForUniqueWork(SYNC_WORK_NAME).get()
+            // Cancel any existing sync work
+            workManager.cancelUniqueWork(SYNC_WORK_NAME)
 
-            if (syncWorkInfo.isEmpty() || syncWorkInfo.all { it.state.isFinished }) {
-                val constraints = Constraints.Builder()
-                    .setRequiredNetworkType(NetworkType.CONNECTED)
-                    .build()
+            val constraints = Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build()
 
-                val syncRequest = OneTimeWorkRequestBuilder<SyncWorker>()
-                    .setConstraints(constraints)
-                    .setBackoffCriteria(BackoffPolicy.LINEAR, 10, TimeUnit.MINUTES)
-                    .build()
+            val syncRequest = OneTimeWorkRequestBuilder<SyncWorker>()
+                .setConstraints(constraints)
+                .setBackoffCriteria(BackoffPolicy.LINEAR, 10, TimeUnit.MINUTES)
+                .build()
 
-                workManager.enqueueUniqueWork(
-                    SYNC_WORK_NAME,
-                    ExistingWorkPolicy.REPLACE,
-                    syncRequest
-                )
-                Log.d(TAG, "Sync requested")
-            } else {
-                Log.d(TAG, "Sync already in progress. Skipping new request.")
-            }
+            workManager.enqueueUniqueWork(
+                SYNC_WORK_NAME,
+                ExistingWorkPolicy.REPLACE, // This will replace any existing work
+                syncRequest
+            )
+            Log.d(TAG, "New sync requested")
         }
     }
 }

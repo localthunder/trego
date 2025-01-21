@@ -25,7 +25,7 @@ class GroupSyncManager(
     dispatchers: CoroutineDispatchers,
     private val context: Context,
     private val groupMemberSyncManager: GroupMemberSyncManager
-) : OptimizedSyncManager<Group>(syncMetadataDao, dispatchers) {
+) : OptimizedSyncManager<Group, Group>(syncMetadataDao, dispatchers) {
 
     override val entityType = "groups"
     override val batchSize = 20

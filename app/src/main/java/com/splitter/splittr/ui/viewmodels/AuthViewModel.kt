@@ -9,6 +9,8 @@ import com.splitter.splittr.data.repositories.InstitutionRepository
 import com.splitter.splittr.data.repositories.UserRepository
 import com.splitter.splittr.ui.screens.RegisterRequest
 import com.splitter.splittr.utils.CoroutineDispatchers
+import com.splitter.splittr.utils.TokenManager
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -42,7 +44,20 @@ class AuthViewModel(
         viewModelScope.launch(dispatchers.io) {
             _loading.value = true
             try {
+                // Get login result
                 val result = userRepository.loginUser(context, loginRequest)
+
+                // If login successful, ensure token is stored before continuing
+                result.onSuccess { authResponse ->
+                    // Store token first
+                    authResponse.token?.let { token ->
+                        TokenManager.saveAccessToken(context, token)
+                        // Add small delay to ensure token is stored
+                        delay(100)
+                    }
+                }
+
+                // Now set the result which will trigger the LaunchedEffect
                 _authResult.value = result
             } catch (e: Exception) {
                 _authResult.value = Result.failure(e)

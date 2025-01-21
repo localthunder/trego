@@ -29,7 +29,7 @@ class TransactionSyncManager(
     syncMetadataDao: SyncMetadataDao,
     dispatchers: CoroutineDispatchers,
     private val context: Context
-) : OptimizedSyncManager<Transaction>(syncMetadataDao, dispatchers) {
+) : OptimizedSyncManager<Transaction, Transaction>(syncMetadataDao, dispatchers) {
 
     override val entityType = "transactions"
     override val batchSize = 50

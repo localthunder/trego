@@ -2,15 +2,19 @@ package com.splitter.splittr.data.repositories
 
 import android.content.Context
 import android.util.Log
+import androidx.room.withTransaction
 import com.splitter.splittr.MyApplication
 import com.splitter.splittr.data.extensions.toEntity
 import com.splitter.splittr.data.extensions.toModel
+import com.splitter.splittr.data.local.dao.GroupMemberDao
 import com.splitter.splittr.data.local.dao.SyncMetadataDao
 import com.splitter.splittr.data.local.dao.UserDao
 import com.splitter.splittr.data.local.entities.UserEntity
 import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.data.local.dataClasses.AuthResponse
 import com.splitter.splittr.data.local.dataClasses.LoginRequest
+import com.splitter.splittr.data.local.entities.GroupMemberEntity
+import com.splitter.splittr.data.model.GroupMember
 import com.splitter.splittr.data.model.User
 import com.splitter.splittr.data.sync.SyncStatus
 import com.splitter.splittr.data.sync.SyncableRepository
@@ -32,6 +36,7 @@ class UserRepository(
     private val apiService: ApiService,
     private val dispatchers: CoroutineDispatchers,
     private val syncMetadataDao: SyncMetadataDao,
+    private val groupMemberDao: GroupMemberDao,
     private val userSyncManager: UserSyncManager,
     private val context: Context
 ) : SyncableRepository {
@@ -40,6 +45,7 @@ class UserRepository(
     override val syncPriority = 1
 
     val myApplication = context.applicationContext as MyApplication
+    val database = myApplication.database
 
     fun getUserById(userId: Int) = userDao.getUserById(userId)
 
@@ -156,94 +162,104 @@ class UserRepository(
     suspend fun createProvisionalUser(
         username: String,
         email: String?,
-        inviteLater: Boolean
+        inviteLater: Boolean,
+        groupId: Int
     ): Result<Int> = withContext(dispatchers.io) {
         Log.d("UserRepository", "Starting provisional user creation")
         try {
             val timestamp = DateUtils.getCurrentTimestamp()
             val invitedBy = getUserIdFromPreferences(context)
 
-            val localUser = UserEntity(
-                serverId = null,
-                username = username,
-                email = "$username.$timestamp.provisional@splittr.temp",
-                passwordHash = null,
-                googleId = null,
-                appleId = null,
-                createdAt = timestamp,
-                updatedAt = timestamp,
-                defaultCurrency = "GBP",
-                lastLoginDate = null,
-                syncStatus = SyncStatus.PENDING_SYNC,
-                isProvisional = true,
-                invitedBy = invitedBy,
-                invitationEmail = if (!inviteLater) email else null,
-                mergedIntoUserId = null
-            )
+            val generatedUserId = database.withTransaction {
+                val localUser = UserEntity(
+                    serverId = null,
+                    username = username,
+                    email = "$username.$timestamp.provisional@splittr.temp",
+                    passwordHash = null,
+                    googleId = null,
+                    appleId = null,
+                    createdAt = timestamp,
+                    updatedAt = timestamp,
+                    defaultCurrency = "GBP",
+                    lastLoginDate = null,
+                    syncStatus = SyncStatus.PENDING_SYNC,
+                    isProvisional = true,
+                    invitedBy = invitedBy,
+                    invitationEmail = if (!inviteLater) email else null,
+                    mergedIntoUserId = null
+                )
 
-            try {
                 Log.d("UserRepository", "Attempting to insert user into local database")
-                val generatedUserId = userDao.insertUser(localUser).toInt()
+                val userId = userDao.insertUser(localUser).toInt()
 
-                if (generatedUserId == -1) {
-                    Log.e("UserRepository", "Insert failed")
-                    Result.failure(Exception("Failed to insert user"))
-                } else {
-                    Log.d("UserRepository", "Local insertion successful, ID: $generatedUserId")
-
-                    // Try server sync if online
-                    if (NetworkUtils.isOnline()) {
-                        try {
-
-                            val userEntity = localUser.copy(userId = generatedUserId)
-
-                            val temporaryEmail = "$username.$timestamp.provisional@splittr.temp"
-
-                            val serverModel = myApplication.entityServerConverter
-                                .convertUserToServer(
-                                    user = userEntity,
-                                    emailOverride = temporaryEmail
-                                )
-                                .getOrThrow()
-
-                            // Create a server model without including the local ID
-//                            val serverModel = User(
-//                                userId = 0, // Let server generate ID
-//                                username = username,
-//                                email = "$username.$timestamp.provisional@splittr.temp",
-//                                passwordHash = null,
-//                                googleId = null,
-//                                appleId = null,
-//                                createdAt = timestamp,
-//                                updatedAt = timestamp,
-//                                defaultCurrency = "GBP",
-//                                lastLoginDate = null,
-//                                isProvisional = true,
-//                                invitedBy = invitedBy,
-//                                invitationEmail = if (!inviteLater) email else null,
-//                                mergedIntoUserId = null
-//                            )
-
-                            val serverUser = apiService.createUser(serverModel)
-
-                            val updatedUser = userEntity.copy(
-                                serverId = serverUser.userId,
-                                syncStatus = SyncStatus.SYNCED
-                            )
-                            userDao.updateUser(updatedUser)
-                            Log.d("UserRepository", "Server sync successful")
-                        } catch (e: Exception) {
-                            Log.e("UserRepository", "Server sync failed", e)
-                            // Continue with local ID even if sync fails
-                        }
-                    }
-
-                    Result.success(localUser.userId)
+                if (userId == -1) {
+                    throw Exception("Failed to insert user")
                 }
-            } catch (e: Exception) {
-                Log.e("UserRepository", "Database insertion failed", e)
-                Result.failure(e)
+
+                val groupMemberEntity = GroupMemberEntity(
+                    id = 0,  // Let Room generate local ID
+                    serverId = null,  // No server ID yet
+                    groupId = groupId,  // This is already the local group ID
+                    userId = userId,  // This is already the local user ID
+                    createdAt = timestamp,
+                    updatedAt = timestamp,
+                    removedAt = null,
+                    syncStatus = SyncStatus.PENDING_SYNC
+                )
+
+                groupMemberDao.insertGroupMember(groupMemberEntity)
+
+                userId
             }
+
+            // Move server sync outside transaction since it's a network call
+            if (NetworkUtils.isOnline()) {
+                try {
+                    val userEntity = userDao.getUserByIdDirect(generatedUserId)!!
+                    val temporaryEmail = "$username.$timestamp.provisional@splittr.temp"
+                    val serverUserModel = myApplication.entityServerConverter
+                        .convertUserToServer(
+                            user = userEntity,
+                            emailOverride = temporaryEmail
+                        ).getOrThrow()
+
+                    val serverUser = apiService.createUser(serverUserModel)
+                    val updatedUser = userEntity.copy(
+                        serverId = serverUser.userId,
+                        syncStatus = SyncStatus.SYNCED
+                    )
+                    userDao.updateUser(updatedUser)
+
+                    // Sync group member
+                    val groupMember = groupMemberDao.getGroupMemberByUserIdSync(generatedUserId)!!
+                    val serverGroupMemberModel = myApplication.entityServerConverter
+                        .convertGroupMemberToServer(groupMember)
+                        .getOrThrow()
+
+                    // Update the member model with the new server user ID
+                    val serverGroupMember = apiService.addMemberToGroup(
+                        groupId = serverGroupMemberModel.groupId,
+                        groupMember = serverGroupMemberModel.copy(userId = serverUser.userId)
+                    )
+
+                    // Convert server response back to local entity
+                    val updatedLocalGroupMember = myApplication.entityServerConverter
+                        .convertGroupMemberFromServer(serverGroupMember, groupMember)
+                        .getOrThrow()
+
+                    // Update the local group member with the server information
+                    groupMemberDao.updateGroupMember(updatedLocalGroupMember.copy(
+                        syncStatus = SyncStatus.SYNCED
+                    ))
+
+                    Log.d("UserRepository", "Server sync successful")
+                } catch (e: Exception) {
+                    Log.e("UserRepository", "Server sync failed", e)
+                    // Continue with local ID even if sync fails
+                }
+            }
+
+            Result.success(generatedUserId)
         } catch (e: Exception) {
             Log.e("UserRepository", "Failed to create provisional user:", e)
             Result.failure(e)
