@@ -99,7 +99,7 @@ interface PaymentDao {
     @Query("UPDATE payments SET deleted_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = :paymentId")
     suspend fun restorePayment(paymentId: Int)
 
-    @Query("SELECT * FROM payments WHERE sync_status != 'SYNCED'")
+    @Query("SELECT * FROM payments WHERE sync_status IN ('PENDING_SYNC', 'SYNC_FAILED')")
     fun getUnsyncedPayments(): Flow<List<PaymentEntity>>
 
     @Query("UPDATE payments SET sync_status = :status, updated_at = :timestamp WHERE id = :paymentId")

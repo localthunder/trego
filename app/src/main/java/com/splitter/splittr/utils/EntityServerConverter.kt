@@ -426,24 +426,39 @@ class EntityServerConverter(private val context: Context) {
         existingSplit: PaymentSplitEntity? = null
     ): Result<PaymentSplitEntity> {
         return try {
-            Log.d(TAG, "Converting server payment split: id=${serverSplit.id} to local entity")
+            Log.d(TAG, "Converting server payment split: id=${serverSplit.id} to local entity with user ID ${serverSplit.userId}")
 
-            // Get local IDs, using existing split's IDs as fallback
-            val localPaymentId = ServerIdUtil.getLocalId(serverSplit.paymentId, "payments", context)
-                ?: existingSplit?.paymentId
-                ?: return Result.failure(Exception("Could not resolve local payment ID for ${serverSplit.paymentId}"))
-
+            // Modified ID lookups - specifically looking up by server IDs
             val localUserId = ServerIdUtil.getLocalId(serverSplit.userId, "users", context)
                 ?: existingSplit?.userId
-                ?: return Result.failure(Exception("Could not resolve local user ID for ${serverSplit.userId}"))
+                ?: run {
+                    Log.e(TAG, "Failed to resolve local user ID for server ID ${serverSplit.userId}")
+                    return Result.failure(Exception("Could not resolve local user ID for ${serverSplit.userId}"))
+                }
 
+            val localPaymentId = ServerIdUtil.getLocalId(serverSplit.paymentId, "payments", context)
+                ?: existingSplit?.paymentId
+                ?: run {
+                    Log.e(TAG, "Failed to resolve local payment ID for server ID ${serverSplit.paymentId}")
+                    return Result.failure(Exception("Could not resolve local payment ID for ${serverSplit.paymentId}"))
+                }
+
+            // Similarly for created/updated by IDs
             val localCreatedByUserId = ServerIdUtil.getLocalId(serverSplit.createdBy, "users", context)
                 ?: existingSplit?.createdBy
-                ?: return Result.failure(Exception("Could not resolve local user ID for ${serverSplit.createdBy}"))
+                ?: run {
+                    Log.e(TAG, "Failed to resolve local created by ID for server ID ${serverSplit.createdBy}")
+                    return Result.failure(Exception("Could not resolve local user ID for ${serverSplit.createdBy}"))
+                }
 
             val localUpdatedByUserId = ServerIdUtil.getLocalId(serverSplit.updatedBy, "users", context)
                 ?: existingSplit?.updatedBy
-                ?: return Result.failure(Exception("Could not resolve local user ID for ${serverSplit.updatedBy}"))
+                ?: run {
+                    Log.e(TAG, "Failed to resolve local updated by ID for server ID ${serverSplit.updatedBy}")
+                    return Result.failure(Exception("Could not resolve local user ID for ${serverSplit.updatedBy}"))
+                }
+
+            Log.d(TAG, "Successfully converted IDs: server user ${serverSplit.userId} -> local $localUserId")
 
             Result.success(PaymentSplitEntity(
                 id = existingSplit?.id ?: 0,

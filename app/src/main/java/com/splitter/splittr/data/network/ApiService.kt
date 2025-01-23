@@ -244,6 +244,15 @@ interface ApiService {
     @GET("api/payments/{paymentId}/splits")
     suspend fun getPaymentSplitsByPayment(@Path("paymentId") paymentId: Int): List<PaymentSplit>
 
+    @DELETE("api/payments/{paymentId}/splits")
+    suspend fun deleteAllSplitsForPayment(@Path("paymentId") paymentId: Int): Response<Unit>
+
+    @DELETE("api/payments/{paymentId}/splits/{splitId}")
+    suspend fun deletePaymentSplit(
+        @Path("paymentId") paymentId: Int,
+        @Path("splitId") splitId: Int
+    ): Response<Unit>
+
     @POST("api/payments/{paymentId}/archive")
     suspend fun archivePayment(@Path("paymentId") paymentId: Int)
 

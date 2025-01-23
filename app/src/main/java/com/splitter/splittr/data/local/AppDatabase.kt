@@ -36,7 +36,7 @@ import com.splitter.splittr.data.sync.SyncMetadata
         SyncMetadata:: class,
         UserGroupArchiveEntity::class],
 
-    version = 52,
+    version = 53,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

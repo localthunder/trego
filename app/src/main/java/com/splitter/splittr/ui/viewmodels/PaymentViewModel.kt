@@ -5,6 +5,9 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.splitter.splittr.data.extensions.toModel
+import com.splitter.splittr.data.local.entities.GroupMemberEntity
+import com.splitter.splittr.data.local.entities.PaymentEntity
+import com.splitter.splittr.data.local.entities.PaymentSplitEntity
 import com.splitter.splittr.data.repositories.GroupRepository
 import com.splitter.splittr.data.repositories.PaymentRepository
 import com.splitter.splittr.data.repositories.PaymentSplitRepository
@@ -62,11 +65,11 @@ class PaymentsViewModel(
     }
 
     data class PaymentScreenState(
-        val payment: Payment? = null,
-        val editablePayment: Payment? = null,
-        val splits: List<PaymentSplit> = emptyList(),
-        val editableSplits: List<PaymentSplit> = emptyList(),
-        val groupMembers: List<GroupMember> = emptyList(),
+        val payment: PaymentEntity? = null,
+        val editablePayment: PaymentEntity? = null,
+        val splits: List<PaymentSplitEntity> = emptyList(),
+        val editableSplits: List<PaymentSplitEntity> = emptyList(),
+        val groupMembers: List<GroupMemberEntity> = emptyList(),
         val paymentOperationStatus: PaymentOperationStatus = PaymentOperationStatus.Idle,
         val paidByUser: Int? = null,
         val paidToUser: Int? = null,
@@ -76,8 +79,8 @@ class PaymentsViewModel(
         val expandedPaidToUserList: Boolean = false,
         val expandedPaymentTypeList: Boolean = false,
         val showDeleteDialog: Boolean = false,
-        val selectedMembers: Set<GroupMember> = emptySet(),
-        )
+        val selectedMembers: Set<GroupMemberEntity> = emptySet(),
+    )
 
     sealed class PaymentImage {
         data class Logo(val logoInfo: InstitutionLogoManager.LogoInfo) : PaymentImage()
@@ -111,13 +114,62 @@ class PaymentsViewModel(
         data class UpdatePaidByUser(val userId: Int) : PaymentAction()
         data class UpdatePaidToUser(val userId: Int) : PaymentAction()
         data class UpdateSplit(val userId: Int, val amount: Double) : PaymentAction()
-        data class UpdateSelectedMembers(val members: Set<GroupMember>) : PaymentAction()
+        data class UpdateSelectedMembers(val members: Set<GroupMemberEntity>) : PaymentAction()
 
         object ToggleExpandedPaidByUserList : PaymentAction()
         object ToggleExpandedPaidToUserList : PaymentAction()
         object ToggleExpandedPaymentTypeList : PaymentAction()
         object ShowDeleteDialog : PaymentAction()
         object HideDeleteDialog : PaymentAction()
+    }
+
+    fun processAction(action: PaymentAction) {
+        val currentUserId = userId ?: return
+        when (action) {
+            is PaymentAction.UpdateAmount -> updateEditablePayment { it.copy(amount = action.amount) }
+            is PaymentAction.UpdateDescription -> updateEditablePayment { it.copy(description = action.description) }
+            is PaymentAction.UpdateNotes -> updateEditablePayment { it.copy(notes = action.notes) }
+            is PaymentAction.UpdatePaymentType -> updateEditablePayment { it.copy(paymentType = action.paymentType) }
+            is PaymentAction.UpdatePaymentDate -> updateEditablePayment { it.copy(paymentDate = action.paymentDate) }
+            is PaymentAction.UpdateCurrency -> updateEditablePayment { it.copy(currency = action.currency) }
+            is PaymentAction.UpdateSplitMode -> {
+                updateEditablePayment { it.copy(splitMode = action.splitMode) }
+                recalculateSplits(currentUserId)
+            }
+            is PaymentAction.UpdatePaidByUser -> updateEditablePayment { it.copy(paidByUserId = action.userId) }
+            is PaymentAction.UpdatePaidToUser -> {
+                _paymentScreenState.value = _paymentScreenState.value.copy(paidToUser = action.userId)
+            }
+            is PaymentAction.UpdateSplit -> updateSplit(action.userId, action.amount)
+            is PaymentAction.UpdateSelectedMembers -> {
+                _paymentScreenState.update { currentState ->
+                    currentState.copy(selectedMembers = action.members)
+                }
+                // Recalculate splits based on new selection
+                recalculateSplits(currentUserId)
+            }
+            is PaymentAction.ToggleExpandedPaidByUserList -> {
+                _paymentScreenState.value = _paymentScreenState.value.copy(
+                    expandedPaidByUserList = !_paymentScreenState.value.expandedPaidByUserList
+                )
+            }
+            is PaymentAction.ToggleExpandedPaidToUserList -> {
+                _paymentScreenState.value = _paymentScreenState.value.copy(
+                    expandedPaidToUserList = !_paymentScreenState.value.expandedPaidToUserList
+                )
+            }
+            is PaymentAction.ToggleExpandedPaymentTypeList -> {
+                _paymentScreenState.value = _paymentScreenState.value.copy(
+                    expandedPaymentTypeList = !_paymentScreenState.value.expandedPaymentTypeList
+                )
+            }
+            is PaymentAction.ShowDeleteDialog -> {
+                _paymentScreenState.value = _paymentScreenState.value.copy(showDeleteDialog = true)
+            }
+            is PaymentAction.HideDeleteDialog -> {
+                _paymentScreenState.value = _paymentScreenState.value.copy(showDeleteDialog = false)
+            }
+        }
     }
 
     data class TransactionDetails(
@@ -134,41 +186,80 @@ class PaymentsViewModel(
         val currentUserId = userId ?: return
         viewModelScope.launch {
             when {
-                paymentId != 0 -> loadExistingPayment(paymentId)
-                transactionDetails?.transactionId != null -> initializeFromTransaction(transactionDetails, groupId)
-                else -> initializeNewPayment(groupId, currentUserId)
+                paymentId != 0 -> {
+                    // Load existing payment
+                    loadExistingPayment(paymentId)
+                    _paymentScreenState.update { currentState ->
+                        val membersWithSplits = currentState.groupMembers.filter { member ->
+                            currentState.editableSplits.any { split -> split.userId == member.userId }
+                        }
+                        currentState.copy(selectedMembers = membersWithSplits.toSet())
+                    }
+                }
+                transactionDetails?.transactionId != null -> {
+                    initializeFromTransaction(transactionDetails, groupId)
+                    recalculateSplits(currentUserId)  // Only for new payments
+                }
+                else -> {
+                    initializeNewPayment(groupId, currentUserId)
+                    recalculateSplits(currentUserId)  // Only for new payments
+                }
             }
-            recalculateSplits(currentUserId)
         }
     }
 
     private suspend fun loadExistingPayment(paymentId: Int) {
-        val payment = paymentRepository.getPaymentById(paymentId).firstOrNull()
-        val splits = paymentSplitRepository.getPaymentSplitsByPayment(paymentId).firstOrNull() ?: emptyList()
-        val groupMembers = payment?.let {
-            groupRepository.getGroupMembers(it.groupId)
-                .map { entities -> entities.map { it.toModel() } }
-                .first()
-        } ?: emptyList()
+        try {
+            Log.d("PaymentsViewModel", "Loading existing payment: $paymentId")
 
-        val selectedMembers = groupMembers.filter { member ->
-            splits.any { it.userId == member.userId }
-        }.toSet()
+            // Get payment entity and wait for actual data
+            val paymentEntity = paymentRepository.getPaymentById(paymentId).first()
+                ?: throw Exception("Payment not found")
+            Log.d("PaymentsViewModel", "Found payment: $paymentEntity")
 
-        _paymentScreenState.value = _paymentScreenState.value.copy(
-            payment = payment,
-            editablePayment = payment?.copy(),
-            splits = splits,
-            editableSplits = splits.map { it.copy() },  // Keep original splits
-            groupMembers = groupMembers,
-            selectedMembers = selectedMembers,  // Only include members who were part of original split
-            isTransaction = payment?.transactionId != null
-        )
+            // Use local ID for splits query
+            val splits = paymentSplitRepository.getPaymentSplitsByPayment(paymentEntity.id).first()
+            Log.d("PaymentsViewModel", "Found splits: ${splits.size} - $splits")
+
+            // Get group members as entities
+            val groupMembers = groupRepository.getGroupMembers(paymentEntity.groupId).first()
+            Log.d("PaymentsViewModel", "Found group members: ${groupMembers.size} - $groupMembers")
+
+            // Find members who have splits
+            val selectedMembers = groupMembers.filter { member ->
+                splits.any { split -> split.userId == member.userId }
+            }.toSet()
+            Log.d("PaymentsViewModel", "Selected members based on splits: ${selectedMembers.size} - $selectedMembers")
+
+            _paymentScreenState.update { currentState ->
+                currentState.copy(
+                    payment = paymentEntity,
+                    editablePayment = paymentEntity.copy(),
+                    splits = splits,
+                    editableSplits = splits.map { it.copy() },
+                    groupMembers = groupMembers,
+                    selectedMembers = if (splits.isEmpty()) groupMembers.toSet() else selectedMembers,
+                    isTransaction = paymentEntity.transactionId != null
+                ).also {
+                    Log.d("PaymentsViewModel", "Updated state - editableSplits: ${it.editableSplits}")
+                    Log.d("PaymentsViewModel", "Updated state - selectedMembers: ${it.selectedMembers}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("PaymentsViewModel", "Error loading payment", e)
+            _paymentScreenState.update { currentState ->
+                currentState.copy(
+                    paymentOperationStatus = PaymentOperationStatus.Error(
+                        e.message ?: "Error loading payment"
+                    )
+                )
+            }
+        }
     }
 
     private fun initializeFromTransaction(transactionDetails: TransactionDetails, groupId: Int) {
         val currentUserId = userId ?: return
-        val newPayment = Payment(
+        val newPayment = PaymentEntity(
             id = 0,
             groupId = groupId,
             paidByUserId = currentUserId,
@@ -202,7 +293,7 @@ class PaymentsViewModel(
 
     //Sort default currency here
     private fun initializeNewPayment(groupId: Int, userId: Int) {
-        val newPayment = Payment(
+        val newPayment = PaymentEntity(
             id = 0,
             groupId = groupId,
             paidByUserId = _paymentScreenState.value.paidByUser ?: userId,
@@ -237,7 +328,6 @@ class PaymentsViewModel(
     private suspend fun loadGroupMembers(groupId: Int) {
         try {
             val members = groupRepository.getGroupMembers(groupId)
-                .map { entities -> entities.map { it.toModel() } }
                 .first()
 
             _paymentScreenState.update { currentState ->
@@ -252,59 +342,7 @@ class PaymentsViewModel(
         }
     }
 
-    fun processAction(action: PaymentAction) {
-        val currentUserId = userId ?: return
-        when (action) {
-            is PaymentAction.UpdateAmount -> updateEditablePayment { it.copy(amount = action.amount) }
-            is PaymentAction.UpdateDescription -> updateEditablePayment { it.copy(description = action.description) }
-            is PaymentAction.UpdateNotes -> updateEditablePayment { it.copy(notes = action.notes) }
-            is PaymentAction.UpdatePaymentType -> updateEditablePayment { it.copy(paymentType = action.paymentType) }
-            is PaymentAction.UpdatePaymentDate -> updateEditablePayment { it.copy(paymentDate = action.paymentDate) }
-            is PaymentAction.UpdateCurrency -> updateEditablePayment { it.copy(currency = action.currency) }
-            is PaymentAction.UpdateSplitMode -> {
-                updateEditablePayment { it.copy(splitMode = action.splitMode) }
-                recalculateSplits(currentUserId)
-            }
-            is PaymentAction.UpdatePaidByUser -> updateEditablePayment { it.copy(paidByUserId = action.userId) }
-            is PaymentAction.UpdatePaidToUser -> {
-                _paymentScreenState.value = _paymentScreenState.value.copy(paidToUser = action.userId)
-            }
-            is PaymentAction.UpdateSplit -> updateSplit(action.userId, action.amount)
-            is PaymentAction.UpdateSelectedMembers -> {
-                val currentPayment = _paymentScreenState.value.editablePayment
-                if (currentPayment?.id == 0) {
-                    // Only update and recalculate for new payments
-                    _paymentScreenState.value = _paymentScreenState.value.copy(
-                        selectedMembers = action.members
-                    )
-                    recalculateSplits(currentUserId)
-                }
-            }
-            is PaymentAction.ToggleExpandedPaidByUserList -> {
-                _paymentScreenState.value = _paymentScreenState.value.copy(
-                    expandedPaidByUserList = !_paymentScreenState.value.expandedPaidByUserList
-                )
-            }
-            is PaymentAction.ToggleExpandedPaidToUserList -> {
-                _paymentScreenState.value = _paymentScreenState.value.copy(
-                    expandedPaidToUserList = !_paymentScreenState.value.expandedPaidToUserList
-                )
-            }
-            is PaymentAction.ToggleExpandedPaymentTypeList -> {
-                _paymentScreenState.value = _paymentScreenState.value.copy(
-                    expandedPaymentTypeList = !_paymentScreenState.value.expandedPaymentTypeList
-                )
-            }
-            is PaymentAction.ShowDeleteDialog -> {
-                _paymentScreenState.value = _paymentScreenState.value.copy(showDeleteDialog = true)
-            }
-            is PaymentAction.HideDeleteDialog -> {
-                _paymentScreenState.value = _paymentScreenState.value.copy(showDeleteDialog = false)
-            }
-        }
-    }
-
-    private fun updateEditablePayment(update: (Payment) -> Payment) {
+    private fun updateEditablePayment(update: (PaymentEntity) -> PaymentEntity) {
         val currentUserId = userId ?: return
         _paymentScreenState.value = _paymentScreenState.value.copy(
             editablePayment = _paymentScreenState.value.editablePayment?.let(update)
@@ -323,18 +361,37 @@ class PaymentsViewModel(
         )
     }
 
-    fun recalculateSplits(userId: Int) {
+    private fun recalculateSplits(userId: Int) {
         val editablePayment = _paymentScreenState.value.editablePayment ?: return
+        val selectedMembers = _paymentScreenState.value.selectedMembers
 
-        // If this is an existing payment (id != 0), preserve original splits
-        if (editablePayment.id != 0) {
-            return
-        }
-
-        // Only calculate new splits for new payments
         val newSplits = when (editablePayment.splitMode) {
-            "equally" -> calculateEqualSplits(editablePayment.amount, _paymentScreenState.value.groupMembers, userId)
-            "unequally" -> _paymentScreenState.value.editableSplits
+            "equally" -> {
+                val splitAmount = if (selectedMembers.isNotEmpty()) {
+                    editablePayment.amount / selectedMembers.size
+                } else 0.0
+
+                selectedMembers.map { member ->
+                    PaymentSplitEntity(
+                        id = 0,
+                        paymentId = editablePayment.id,
+                        userId = member.userId,
+                        amount = splitAmount,
+                        currency = editablePayment.currency ?: "GBP",
+                        createdAt = DateUtils.getCurrentTimestamp(),
+                        updatedAt = DateUtils.getCurrentTimestamp(),
+                        createdBy = userId,
+                        updatedBy = userId,
+                        deletedAt = null
+                    )
+                }
+            }
+            "unequally" -> {
+                // For unequal splits, filter existing splits to only include selected members
+                _paymentScreenState.value.editableSplits.filter { split ->
+                    selectedMembers.any { it.userId == split.userId }
+                }
+            }
             else -> emptyList()
         }
 
@@ -343,14 +400,14 @@ class PaymentsViewModel(
         }
     }
 
-    private fun calculateEqualSplits(amount: Double, members: List<GroupMember>, userId: Int): List<PaymentSplit> {
+    private fun calculateEqualSplits(amount: Double, members: List<GroupMemberEntity>, userId: Int): List<PaymentSplitEntity> {
         val selectedMembers = _paymentScreenState.value.selectedMembers
         if (selectedMembers.isEmpty()) return emptyList()
 
         val perPerson = if (amount != 0.0) amount / selectedMembers.size else 0.0
 
         return selectedMembers.map { member ->
-            PaymentSplit(
+            PaymentSplitEntity(
                 id = 0,
                 paymentId = _paymentScreenState.value.editablePayment?.id ?: 0,
                 userId = member.userId,

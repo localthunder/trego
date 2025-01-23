@@ -13,6 +13,6 @@ data class PaymentSplit(
     @SerializedName("created_at") val createdAt: String,
     @SerializedName("updated_at") val updatedAt: String,
     val currency: String,
-    @SerializedName("deleted_at") val deletedAt: Timestamp?
+    @SerializedName("deleted_at") val deletedAt: String?
 
 )

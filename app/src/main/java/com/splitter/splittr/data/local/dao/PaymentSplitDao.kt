@@ -26,7 +26,7 @@ interface PaymentSplitDao {
     @Query("SELECT * FROM payment_splits WHERE server_id = :serverId")
     fun getPaymentSplitByServerId(serverId: Int): PaymentSplitEntity
 
-    @Query("SELECT * FROM payment_splits WHERE payment_id = :paymentId")
+    @Query("SELECT * FROM payment_splits WHERE payment_id = :paymentId AND deleted_at IS NULL")
     fun getPaymentSplitsByPayment(paymentId: Int): Flow<List<PaymentSplitEntity>>
 
     @Query("SELECT * FROM payment_splits WHERE payment_id = :paymentId AND deleted_at IS NULL")
@@ -136,4 +136,31 @@ interface PaymentSplitDao {
 
     @Query("SELECT * FROM payment_splits WHERE payment_id = :paymentId AND user_id = :userId LIMIT 1")
     suspend fun getPaymentSplitByPaymentIdAndUserId(paymentId: Int, userId: Int): PaymentSplitEntity?
+
+    @Query("""
+    UPDATE payment_splits 
+    SET deleted_at = :timestamp, sync_status = :syncStatus
+    WHERE payment_id = :paymentId
+""")
+    suspend fun markAllSplitsAsDeletedByPayment(
+        paymentId: Int,
+        timestamp: String = DateUtils.getCurrentTimestamp(),
+        syncStatus: SyncStatus = SyncStatus.PENDING_SYNC
+    )
+
+    @Query("""
+    SELECT * FROM payment_splits 
+    WHERE payment_id = :paymentId 
+    AND deleted_at IS NOT NULL 
+    AND server_id IS NOT NULL
+""")
+    fun getDeletedSplitsByPayment(paymentId: Int): Flow<List<PaymentSplitEntity>>
+
+    @Query("""
+    UPDATE payment_splits 
+    SET sync_status = :syncStatus 
+    WHERE payment_id = :paymentId 
+    AND deleted_at IS NOT NULL
+""")
+    suspend fun updateDeletedSplitsSyncStatus(paymentId: Int, syncStatus: SyncStatus)
 }

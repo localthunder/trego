@@ -58,6 +58,6 @@ data class PaymentSplitEntity(
     @ColumnInfo(name = "created_at") val createdAt: String,
     @ColumnInfo(name = "updated_at") val updatedAt: String,
     @ColumnInfo(name = "currency") val currency: String,
-    @ColumnInfo(name = "deleted_at") val deletedAt: Timestamp?,
+    @ColumnInfo(name = "deleted_at") val deletedAt: String?,
     @ColumnInfo(name = "sync_status") var syncStatus: SyncStatus = SyncStatus.PENDING_SYNC
 )
