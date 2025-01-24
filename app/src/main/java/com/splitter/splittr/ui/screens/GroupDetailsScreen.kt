@@ -34,6 +34,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.splitter.splittr.MyApplication
+import com.splitter.splittr.data.local.entities.GroupMemberEntity
 import com.splitter.splittr.ui.components.GlobalFAB
 import com.splitter.splittr.ui.components.GlobalTopAppBar
 import com.splitter.splittr.data.model.GroupMember
@@ -470,7 +471,7 @@ fun GroupImageSection(
 
 @Composable
 fun GroupMembersSection(
-    groupMembers: List<GroupMember>,
+    groupMembers: List<GroupMemberEntity>,
     usernames: Map<Int, String>
 ) {
     Column {

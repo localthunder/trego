@@ -7,12 +7,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.splitter.splittr.MyApplication
+import com.splitter.splittr.data.local.entities.PaymentEntity
 import com.splitter.splittr.data.model.Payment
 import com.splitter.splittr.ui.viewmodels.PaymentsViewModel
 
 @Composable
 fun PaymentItem(
-    payment: Payment,
+    payment: PaymentEntity,
     context: Context,
     onClick: () -> Unit = {}
 ) {

@@ -588,7 +588,7 @@ class PaymentsViewModel(
         }
     }
 
-    fun loadPaymentItemInfo(payment: Payment) {
+    fun loadPaymentItemInfo(payment: PaymentEntity) {
         viewModelScope.launch {
             updatePaymentItemInfo(payment.id) {
                 it?.copy(isLoading = true) ?: PaymentItemInfo(isLoading = true)
@@ -634,7 +634,7 @@ class PaymentsViewModel(
 
     private suspend fun loadPaymentImage(
         transaction: Transaction?,
-        payment: Payment
+        payment: PaymentEntity
     ): PaymentImage {
         val effectiveInstitutionId = transaction?.institutionId ?: payment.institutionId
 

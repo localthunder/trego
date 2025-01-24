@@ -16,6 +16,7 @@ import com.splitter.splittr.data.local.dao.PaymentSplitDao
 import com.splitter.splittr.data.local.dao.SyncMetadataDao
 import com.splitter.splittr.data.local.dao.UserDao
 import com.splitter.splittr.data.local.dao.UserGroupArchiveDao
+import com.splitter.splittr.data.local.dataClasses.GroupImageUploadResult
 import com.splitter.splittr.data.local.entities.GroupEntity
 import com.splitter.splittr.data.local.entities.GroupMemberEntity
 import com.splitter.splittr.data.local.entities.UserGroupArchiveEntity
@@ -69,15 +70,6 @@ class GroupRepository(
 
     val myApplication = context.applicationContext as MyApplication
 
-    // Result data class for image upload
-    data class GroupImageUploadResult(
-        val localFileName: String,
-        val serverPath: String?,
-        val localPath: String?,
-        val message: String?,
-        val needsSync: Boolean = false
-    )
-
     fun getGroupListItems(userId: Int): Flow<List<UserGroupListItem>> =
         groupDao.getGroupsByUserId(userId)
             .catch { e ->
@@ -90,11 +82,11 @@ class GroupRepository(
             }
             .flowOn(dispatchers.io)
 
-    fun getGroupById(groupId: Int): Flow<Group?> = flow {
+    fun getGroupById(groupId: Int): Flow<GroupEntity?> = flow {
         try {
             val localGroup = groupDao.getGroupById(groupId).first()
             if (localGroup != null) {
-                emit(localGroup.toModel().copy(
+                emit(localGroup.copy(
                     groupImg = localGroup.localImagePath ?: localGroup.groupImg
                 ))
             }
@@ -122,7 +114,7 @@ class GroupRepository(
                     )
                     groupDao.insertGroup(updatedGroup)
 
-                    emit(updatedGroup.toModel().copy(
+                    emit(updatedGroup.copy(
                         groupImg = localGroup?.localImagePath ?: remoteGroup.groupImg
                     ))
                 } catch (e: Exception) {
@@ -206,9 +198,9 @@ class GroupRepository(
     }.flowOn(dispatchers.io)
 
     suspend fun createGroupWithMember(
-        group: Group,
+        group: GroupEntity,
         userId: Int
-    ): Result<Pair<Group, GroupMember>> = withContext(dispatchers.io) {
+    ): Result<Pair<GroupEntity, GroupMemberEntity>> = withContext(dispatchers.io) {
         try {
             Log.d("GroupRepository", "Starting createGroupWithMember with userId: $userId")
 
@@ -302,14 +294,14 @@ class GroupRepository(
                         ))
                     }
 
-                    Result.success(Pair(createdGroup.toModel(), createdMember.toModel()))
+                    Result.success(Pair(createdGroup, createdMember))
                 } catch (e: Exception) {
                     Log.e("GroupRepository", "Server sync failed", e)
-                    Result.success(Pair(createdGroup.toModel(), createdMember.toModel()))
+                    Result.success(Pair(createdGroup, createdMember))
                 }
             } else {
                 Log.d("GroupRepository", "Device offline, returning local versions")
-                Result.success(Pair(createdGroup.toModel(), createdMember.toModel()))
+                Result.success(Pair(createdGroup, createdMember))
             }
         } catch (e: Exception) {
             Log.e("GroupRepository", "Error in createGroupWithMember", e)
@@ -318,10 +310,10 @@ class GroupRepository(
         }
     }
 
-    suspend fun updateGroup(group: Group): Result<Group> = withContext(dispatchers.io) {
+    suspend fun updateGroup(group: GroupEntity): Result<GroupEntity> = withContext(dispatchers.io) {
         try {
             // First save locally with pending sync status
-            val localEntity = group.toEntity(SyncStatus.PENDING_SYNC)
+            val localEntity = group.copy(syncStatus = SyncStatus.PENDING_SYNC)
             groupDao.updateGroup(localEntity)
 
             if (NetworkUtils.isOnline()) {
@@ -334,7 +326,7 @@ class GroupRepository(
 
                 // Update local database with server response
                 groupDao.updateGroup(serverGroup.toEntity(SyncStatus.SYNCED))
-                Result.success(serverGroup)
+                Result.success(serverGroup.toEntity())
             } else {
                 Result.success(group)
             }
@@ -347,7 +339,7 @@ class GroupRepository(
     suspend fun addMemberToGroup(
         groupId: Int,
         userId: Int
-    ): Result<GroupMember> = withContext(dispatchers.io) {
+    ): Result<GroupMemberEntity> = withContext(dispatchers.io) {
         val currentTime = DateUtils.getCurrentTimestamp()
 
         try {
@@ -360,7 +352,7 @@ class GroupRepository(
                 ?: return@withContext Result.failure(Exception("User not found"))
 
 
-            val groupMember = GroupMember(
+            val groupMember = GroupMemberEntity(
                 id = 0,
                 groupId = groupId,
                 userId = userId,
@@ -371,7 +363,7 @@ class GroupRepository(
 
             try {
                 val localId = groupMemberDao.insertGroupMember(
-                    groupMember.toEntity(SyncStatus.PENDING_SYNC)
+                    groupMember.copy(syncStatus = SyncStatus.PENDING_SYNC)
                 ).toInt()
 
                 if (NetworkUtils.isOnline()) {
@@ -388,10 +380,9 @@ class GroupRepository(
 
                         val serverGroupMember = apiService.addMemberToGroup(group.serverId ?: 0, serverMemberRequest)
                         val updatedGroupMember = serverGroupMember.copy(id = localId)
-                        groupMemberDao.insertGroupMember(
-                            updatedGroupMember.toEntity(SyncStatus.SYNCED)
-                        )
-                        Result.success(updatedGroupMember)
+                        val updatedLocalGroupMember = updatedGroupMember.toEntity(SyncStatus.SYNCED)
+                        groupMemberDao.insertGroupMember(updatedLocalGroupMember)
+                        Result.success(updatedLocalGroupMember)
                     } catch (e: Exception) {
                         Log.e("GroupRepository", "Server sync failed for group member", e)
                         // Return local version if server sync fails

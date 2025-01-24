@@ -10,7 +10,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.splitter.splittr.data.extensions.toModel
 import com.splitter.splittr.data.local.dataClasses.UserGroupListItem
+import com.splitter.splittr.data.local.entities.GroupEntity
 import com.splitter.splittr.data.local.entities.GroupMemberEntity
+import com.splitter.splittr.data.local.entities.PaymentEntity
 import com.splitter.splittr.data.repositories.GroupRepository
 import com.splitter.splittr.data.repositories.PaymentRepository
 import com.splitter.splittr.data.repositories.UserRepository
@@ -46,10 +48,10 @@ class GroupViewModel(
 ) : ViewModel() {
 
     data class GroupDetailsState(
-        val group: Group? = null,
-        val groupMembers: List<GroupMember> = emptyList(),
+        val group: GroupEntity? = null,
+        val groupMembers: List<GroupMemberEntity> = emptyList(),
         val usernames: Map<Int, String> = emptyMap(),
-        val payments: List<Payment> = emptyList(),
+        val payments: List<PaymentEntity> = emptyList(),
         val groupImage: String? = null,
         val uploadStatus: UploadStatus = UploadStatus.Idle,
         val isLoading: Boolean = false,
@@ -85,14 +87,14 @@ class GroupViewModel(
     private val _groupDetailsState = MutableStateFlow(GroupDetailsState())
     val groupDetailsState: StateFlow<GroupDetailsState> = _groupDetailsState.asStateFlow()
 
-    private val _groupCreationStatus = MutableLiveData<Result<Pair<Group, GroupMember>>>()
-    val groupCreationStatus: LiveData<Result<Pair<Group, GroupMember>>> = _groupCreationStatus
+    private val _groupCreationStatus = MutableLiveData<Result<Pair<GroupEntity, GroupMemberEntity>>>()
+    val groupCreationStatus: LiveData<Result<Pair<GroupEntity, GroupMemberEntity>>> = _groupCreationStatus
 
-    private val _groupUpdateStatus = MutableLiveData<Result<Group>>()
-    val groupUpdateStatus: LiveData<Result<Group>> = _groupUpdateStatus
+    private val _groupUpdateStatus = MutableLiveData<Result<GroupEntity>>()
+    val groupUpdateStatus: LiveData<Result<GroupEntity>> = _groupUpdateStatus
 
-    private val _payments = MutableStateFlow<List<Payment>>(emptyList())
-    val sortedPayments: StateFlow<List<Payment>> = _payments
+    private val _payments = MutableStateFlow<List<PaymentEntity>>(emptyList())
+    val sortedPayments: StateFlow<List<PaymentEntity>> = _payments
         .map { payments -> payments.sortedByDescending { it.paymentDate } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -105,17 +107,17 @@ class GroupViewModel(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
-    private val _addMemberResult = MutableLiveData<Result<GroupMember>?>()
-    val addMemberResult: LiveData<Result<GroupMember>?> = _addMemberResult
+    private val _addMemberResult = MutableLiveData<Result<GroupMemberEntity>?>()
+    val addMemberResult: LiveData<Result<GroupMemberEntity>?> = _addMemberResult
 
-    private val _userGroups = MutableStateFlow<List<Group>>(emptyList())
-    val userGroups: StateFlow<List<Group>> = _userGroups.asStateFlow()
+    private val _userGroups = MutableStateFlow<List<GroupEntity>>(emptyList())
+    val userGroups: StateFlow<List<GroupEntity>> = _userGroups.asStateFlow()
 
-    private val _group = MutableStateFlow<Group?>(null)
-    val group: StateFlow<Group?> = _group
+    private val _group = MutableStateFlow<GroupEntity?>(null)
+    val group: StateFlow<GroupEntity?> = _group
 
-    private val _groupMembers = MutableStateFlow<List<GroupMember>>(emptyList())
-    val groupMembers: StateFlow<List<GroupMember>> = _groupMembers.asStateFlow()
+    private val _groupMembers = MutableStateFlow<List<GroupMemberEntity>>(emptyList())
+    val groupMembers: StateFlow<List<GroupMemberEntity>> = _groupMembers.asStateFlow()
 
     private val _groupImage = MutableStateFlow<String?>(null)
     val groupImage: StateFlow<String?> = _groupImage
@@ -253,7 +255,7 @@ class GroupViewModel(
     private suspend fun loadGroupMembers(groupId: Int) {
         groupRepository.getGroupMembers(groupId).collect { members ->
             _groupDetailsState.update { currentState ->
-                val newMembers = members.map { it.toModel() }
+                val newMembers = members
                 currentState.copy(
                     groupMembers = if (newMembers.isNotEmpty()) newMembers else currentState.groupMembers
                 )
@@ -265,11 +267,10 @@ class GroupViewModel(
     private suspend fun loadPayments(groupId: Int) {
         paymentRepository.getPaymentsByGroup(groupId)
             .collect { paymentEntities ->
-                val newPayments = paymentEntities.map { it.toModel() }
-                if (newPayments != _payments.value) {
-                    _payments.value = newPayments
+                if (paymentEntities != _payments.value) {
+                    _payments.value = paymentEntities
                     _groupDetailsState.update { currentState ->
-                        currentState.copy(payments = newPayments)
+                        currentState.copy(payments = paymentEntities)
                     }
                 }
             }
@@ -324,7 +325,7 @@ class GroupViewModel(
         }
     }
 
-    suspend fun getGroupById(groupId: Int): Flow<Group?> = groupRepository.getGroupById(groupId)
+    suspend fun getGroupById(groupId: Int): Flow<GroupEntity?> = groupRepository.getGroupById(groupId)
 
 
     fun loadUserGroups(userId: Int) {
@@ -334,7 +335,7 @@ class GroupViewModel(
             try {
                 groupRepository.getGroupsByUserId(userId)
                     .collect { groups ->
-                        _userGroups.value = groups.map { it.toModel() }
+                        _userGroups.value = groups
                         _loading.value = false
 
                         // Load members for each group
@@ -358,13 +359,13 @@ class GroupViewModel(
                 }
                 .collect { members ->
                     Log.d("GroupViewModel", "Collected ${members.size} group members")
-                    _groupMembers.value = members.map { it.toModel() }
+                    _groupMembers.value = members
                 }
         }
     }
 
 
-    fun createGroup(group: Group, creatorUserId: Int) {
+    fun createGroup(group: GroupEntity, creatorUserId: Int) {
         Log.d("GroupViewModel", "Creating group: ${group.name} for user: $creatorUserId")
         viewModelScope.launch {
             try {
@@ -379,7 +380,7 @@ class GroupViewModel(
         }
     }
 
-    fun updateGroup(group: Group) {
+    fun updateGroup(group: GroupEntity) {
         viewModelScope.launch {
             val result = groupRepository.updateGroup(group)
             _groupUpdateStatus.value = result

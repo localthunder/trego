@@ -13,6 +13,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.splitter.splittr.MyApplication
+import com.splitter.splittr.data.local.entities.GroupEntity
 import com.splitter.splittr.ui.components.GlobalTopAppBar
 import com.splitter.splittr.data.model.Group
 import com.splitter.splittr.ui.viewmodels.GroupViewModel
@@ -101,14 +102,15 @@ fun AddGroupScreen(navController: NavController, context: Context) {
                                 return@Button
                             }
 
-                            val newGroup = Group(
-                                id = 0,
+                            val newGroup = GroupEntity(
                                 name = name,
                                 description = description,
                                 groupImg = null,
                                 createdAt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.getDefault()).format(Date()),
                                 updatedAt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.getDefault()).format(Date()),
                                 inviteLink = null,
+                                imageLastModified = null,
+                                localImagePath = null
                             )
                             Log.d("AddGroupScreen", "Calling createGroup with userId: $userId")
                             groupViewModel.createGroup(newGroup, userId)

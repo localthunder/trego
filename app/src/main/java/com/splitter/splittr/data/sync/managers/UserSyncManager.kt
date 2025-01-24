@@ -4,21 +4,15 @@ import android.content.Context
 import android.util.Log
 import com.splitter.splittr.MyApplication
 import com.splitter.splittr.data.extensions.toEntity
-import com.splitter.splittr.data.extensions.toModel
 import com.splitter.splittr.data.local.dao.UserDao
 import com.splitter.splittr.data.local.dao.SyncMetadataDao
 import com.splitter.splittr.data.local.entities.UserEntity
-import com.splitter.splittr.data.model.GroupMember
 import com.splitter.splittr.data.model.User
 import com.splitter.splittr.data.network.ApiService
-import com.splitter.splittr.data.sync.GroupSyncManager
 import com.splitter.splittr.data.sync.OptimizedSyncManager
 import com.splitter.splittr.data.sync.SyncStatus
-import com.splitter.splittr.utils.ConflictResolution
-import com.splitter.splittr.utils.ConflictResolver
 import com.splitter.splittr.utils.CoroutineDispatchers
 import com.splitter.splittr.utils.DateUtils
-import com.splitter.splittr.utils.NetworkUtils
 import com.splitter.splittr.utils.getUserIdFromPreferences
 import kotlinx.coroutines.flow.first
 
@@ -28,19 +22,17 @@ class UserSyncManager(
     syncMetadataDao: SyncMetadataDao,
     dispatchers: CoroutineDispatchers,
     private val context: Context
-) : OptimizedSyncManager<User, User>(syncMetadataDao, dispatchers) {
+) : OptimizedSyncManager<UserEntity, User>(syncMetadataDao, dispatchers) {
 
     override val entityType = "users"
     override val batchSize = 50
 
     val myApplication = context.applicationContext as MyApplication
 
-    override suspend fun getLocalChanges(): List<User> =
-        userDao.getUnsyncedUsers().first().mapNotNull { userEntity ->
-            myApplication.entityServerConverter.convertUserToServer(userEntity).getOrNull()
-        }
+    override suspend fun getLocalChanges(): List<UserEntity> =
+        userDao.getUnsyncedUsers().first()
 
-    override suspend fun syncToServer(entity: User): Result<User> {
+    override suspend fun syncToServer(entity: UserEntity): Result<UserEntity> {
         return try {
             Log.d(TAG, "Syncing user to server")
             val currentUserId = getUserIdFromPreferences(context)
@@ -58,12 +50,14 @@ class UserSyncManager(
                 Is current user: $isCurrentUser
             """.trimIndent())
 
+            val serverUserModel = myApplication.entityServerConverter.convertUserToServer(localEntity).getOrThrow()
+
             val serverUser = if (localEntity.serverId == null) {
                 Log.d(TAG, "Creating new user on server")
-                apiService.createUser(entity)
+                apiService.createUser(serverUserModel)
             } else {
                 Log.d(TAG, "Updating existing user on server: ${localEntity.serverId}")
-                apiService.updateUser(localEntity.serverId, entity)
+                apiService.updateUser(localEntity.serverId, serverUserModel)
             }
 
             // Convert server response back to local entity
@@ -78,7 +72,7 @@ class UserSyncManager(
                 }
             }
 
-            Result.success(serverUser)
+            Result.success(serverUser.toEntity())
         } catch (e: Exception) {
             Log.e(TAG, "Error syncing user to server", e)
             userDao.updateUserSyncStatus(entity.userId, SyncStatus.SYNC_FAILED)
