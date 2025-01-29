@@ -75,6 +75,13 @@ fun PaymentScreen(
         }
     }
 
+    LaunchedEffect(groupMembers) {
+        // Load users for all group members
+        if (groupMembers.isNotEmpty()) {
+            userViewModel.loadUsers(groupMembers.map { it.userId })
+        }
+    }
+
     LaunchedEffect(navigationState) {
         when (navigationState) {
             is PaymentsViewModel.NavigationState.NavigateBack -> {
@@ -394,10 +401,14 @@ fun PaymentScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    val username = when(member.userId) {
+                                        userId -> "Me"
+                                        else -> users.find { it.userId == member.userId }?.username ?: "Loading..."
+                                    }
                                     Text(
-                                        text = users.find { it.userId == member.userId }?.username
-                                            ?: "User ${member.userId}",
-                                        style = MaterialTheme.typography.bodyMedium
+                                        text = username,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.onBackground
                                     )
                                     Checkbox(
                                         checked = selectedMembers.contains(member),
@@ -427,8 +438,10 @@ fun PaymentScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     Text(
-                                        text = users.find { it.userId == split.userId }?.username
-                                            ?: "User ${split.userId}",
+                                        text = when(split.userId) {
+                                            userId -> "Me"
+                                            else -> users.find { it.userId == split.userId }?.username ?: "Loading..."
+                                        },
                                         style = MaterialTheme.typography.bodyLarge,
                                         color = MaterialTheme.colorScheme.onBackground
                                     )
