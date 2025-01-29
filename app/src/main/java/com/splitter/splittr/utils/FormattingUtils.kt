@@ -7,6 +7,7 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import java.util.Locale
+import kotlin.math.abs
 
 object FormattingUtils {
     fun formatAmount(amount: String): String {
@@ -19,8 +20,8 @@ object FormattingUtils {
     }
 
     fun formatPaymentAmount(amount: String): String {
-        val value = amount.toDoubleOrNull() ?: return amount
-        return "${DecimalFormat("#,##0.00").format(value)}"
+        val value = abs(amount.toDoubleOrNull() ?: return amount)
+        return "${DecimalFormat("#,###.00").format(value)}"
     }
 
     fun getAmountColor(amount: String): Color {

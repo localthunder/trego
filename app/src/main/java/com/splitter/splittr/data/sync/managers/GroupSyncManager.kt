@@ -15,6 +15,7 @@ import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.data.sync.managers.GroupMemberSyncManager
 import com.splitter.splittr.utils.CoroutineDispatchers
 import com.splitter.splittr.utils.DateUtils
+import com.splitter.splittr.utils.ImageUtils
 import com.splitter.splittr.utils.getUserIdFromPreferences
 import kotlinx.coroutines.flow.first
 
@@ -138,41 +139,76 @@ class GroupSyncManager(
     }
 
     override suspend fun applyServerChange(serverEntity: Group) {
+        // First get the existing local group BEFORE any updates
+        val existingGroup = groupDao.getGroupByServerId(serverEntity.id)
+
         // Convert server group to local entity
         val localGroup = myApplication.entityServerConverter.convertGroupFromServer(
             serverEntity,
-            groupDao.getGroupByIdSync(serverEntity.id)
+            existingGroup
         ).getOrNull() ?: throw Exception("Failed to convert server group")
 
         when {
-            localGroup.id == 0 -> {
+            existingGroup == null -> {
                 Log.d(TAG, "Inserting new group from server: ${serverEntity.id}")
-                groupDao.insertGroup(
-                    localGroup.copy(
-                        updatedAt = DateUtils.standardizeTimestamp(serverEntity.updatedAt),
-                        syncStatus = SyncStatus.SYNCED
-                    )
-                )
+                val insertedGroup = localGroup.copy(syncStatus = SyncStatus.SYNCED)
+                groupDao.insertGroup(insertedGroup)
+
+                // Download image for new group if it exists
+                if (serverEntity.groupImg != null) {
+                    downloadAndSaveGroupImage(insertedGroup)
+                }
+
                 groupMemberSyncManager.performSync()
             }
             DateUtils.isUpdateNeeded(
                 serverEntity.updatedAt,
-                localGroup.updatedAt,
+                existingGroup.updatedAt,  // Use existingGroup instead of localGroup
                 "Group-${serverEntity.id}"
             ) -> {
-                groupDao.updateGroup(
-                    localGroup.copy(
-                        updatedAt = DateUtils.standardizeTimestamp(serverEntity.updatedAt),
-                        syncStatus = SyncStatus.SYNCED
-                    )
+                Log.d(TAG, "Updating existing group from server: ${serverEntity.id}")
+
+                // Check if image has changed
+                val needsImageUpdate = existingGroup.groupImg != serverEntity.groupImg ||
+                        existingGroup.localImagePath == null
+
+                val updatedGroup = localGroup.copy(
+                    id = existingGroup.id,
+                    syncStatus = SyncStatus.SYNCED
                 )
-                // Trigger member sync after updating group
-                Log.d(TAG, "Triggering member sync for updated group: ${serverEntity.id}")
+                groupDao.updateGroup(updatedGroup)
+
+                if (needsImageUpdate && serverEntity.groupImg != null) {
+                    downloadAndSaveGroupImage(updatedGroup)
+                }
+
                 groupMemberSyncManager.performSync()
             }
             else -> {
                 Log.d(TAG, "Local group ${serverEntity.id} is up to date")
+                // Still check if we need to download the image
+                if (serverEntity.groupImg != null && existingGroup.localImagePath == null) {
+                    downloadAndSaveGroupImage(existingGroup)
+                }
             }
+        }
+    }
+
+    private suspend fun downloadAndSaveGroupImage(group: GroupEntity) {
+        try {
+            Log.d(TAG, "Downloading image for group ${group.id}")
+            val imageUrl = ImageUtils.getFullImageUrl(group.groupImg) ?: return
+            val localFileName = ImageUtils.downloadAndSaveImage(context, imageUrl) ?: return
+            val localPath = ImageUtils.getLocalImagePath(context, localFileName)
+
+            groupDao.updateLocalImageInfo(
+                groupId = group.id,
+                localPath = localPath,
+                lastModified = DateUtils.getCurrentTimestamp()
+            )
+            Log.d(TAG, "Successfully downloaded and saved image for group ${group.id}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error downloading group image for group ${group.id}", e)
         }
     }
 

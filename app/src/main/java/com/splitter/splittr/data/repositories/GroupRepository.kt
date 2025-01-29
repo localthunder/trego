@@ -534,11 +534,18 @@ class GroupRepository(
                             body = requestBody
                         )
 
+                        // Get the server ID from the local user ID
+                        val localGroup = groupDao.getGroupByIdSync(groupId)
+                            ?: throw IllegalStateException("User not found in local database")
+
+                        val serverGroupId = localGroup.serverId
+                            ?: throw IllegalStateException("No server ID found for group $groupId")
+
                         // Upload image first
-                        val imageResponse = apiService.uploadGroupImage(groupId, imagePart)
+                        val imageResponse = apiService.uploadGroupImage(serverGroupId, imagePart)
 
                         // Get fresh group data from server
-                        val updatedGroup = apiService.getGroupById(groupId)
+                        val updatedGroup = apiService.getGroupById(serverGroupId)
 
                         // Update local database
                         groupDao.runInTransaction {
@@ -547,10 +554,14 @@ class GroupRepository(
                                 val newGroup = updatedGroup.toEntity(SyncStatus.SYNCED).copy(
                                     id = existingGroup.id,
                                     localImagePath = localPath,
+                                    groupImg = imageResponse.imagePath,
                                     imageLastModified = currentTime,
                                     updatedAt = currentTime
                                 )
-                                groupDao.insertGroup(newGroup)
+                                Log.d("GroupRepository", "Updating group with new timestamps - " +
+                                        "imageLastModified: ${newGroup.imageLastModified}, " +
+                                        "updatedAt: ${newGroup.updatedAt}")
+                                groupDao.updateGroup(newGroup)
                             }
                         }
 

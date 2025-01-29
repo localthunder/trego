@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -21,6 +22,9 @@ object ImageUtils {
     private const val JPEG_QUALITY = 85
     private const val BASE_URL = "http://10.0.2.2:3000"
     private const val METADATA_SUFFIX = ".meta"
+    private const val CACHE_SIZE_BYTES = 50L * 1024 * 1024 // 50MB cache limit
+    private const val MAX_RETRY_ATTEMPTS = 3
+    private const val RETRY_DELAY_MS = 1000L
 
     fun uriToByteArray(context: Context, uri: Uri): ByteArray? {
         return try {
@@ -134,24 +138,56 @@ object ImageUtils {
         return if (file.exists()) file.readText() else null
     }
 
+    // Enhanced getImageWithCaching with better error handling
     suspend fun getImageWithCaching(context: Context, serverPath: String, lastModified: String): String {
-        // If image exists locally and is up to date, return local path
-        val localPath = getLocalImagePath(context, serverPath)
-        val localMetadata = getImageMetadata(context, serverPath)
+        try {
+            // If image exists locally and is up to date, return local path
+            val localPath = getLocalImagePath(context, serverPath)
+            val localMetadata = getImageMetadata(context, serverPath)
 
-        return if (imageExistsLocally(context, serverPath) && localMetadata == lastModified) {
-            localPath
-        } else {
+            if (imageExistsLocally(context, serverPath)) {
+                if (localMetadata == lastModified) {
+                    return localPath
+                } else {
+                    // Delete outdated image and metadata
+                    deleteLocalImage(context, serverPath)
+                }
+            }
+
             // Download and cache the image
             val fullUrl = getFullImageUrl(serverPath) ?: throw IOException("Invalid server path")
-            downloadAndSaveImage(context, fullUrl)?.let { fileName -> // This returns just a filename
-                saveImageMetadata(context, serverPath, lastModified)
-                getLocalImagePath(context, fileName) // We convert to path here, but using the filename not serverPath
-            } ?: throw IOException("Failed to download image")
+            val fileName = downloadAndSaveImage(context, fullUrl)
+                ?: throw IOException("Failed to download image")
+
+            saveImageMetadata(context, serverPath, lastModified)
+            return getLocalImagePath(context, fileName)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in getImageWithCaching: ${e.message}")
+            throw e
         }
     }
 
+    // Enhanced download with retries
     suspend fun downloadAndSaveImage(context: Context, imageUrl: String): String? {
+        repeat(MAX_RETRY_ATTEMPTS) { attempt ->
+            try {
+                val result = downloadAndSaveImageInternal(context, imageUrl)
+                if (result != null) {
+                    // Manage cache size after successful download
+                    manageCacheSize(context)
+                    return result
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Download attempt ${attempt + 1} failed: ${e.message}")
+                if (attempt < MAX_RETRY_ATTEMPTS - 1) {
+                    delay(RETRY_DELAY_MS * (attempt + 1))
+                }
+            }
+        }
+        return null
+    }
+
+    suspend fun downloadAndSaveImageInternal(context: Context, imageUrl: String): String? {
         return withContext(Dispatchers.IO) {
             try {
                 val url = URL(imageUrl)
@@ -204,13 +240,68 @@ object ImageUtils {
         }
     }
 
+    // Add cache size management
+    private suspend fun manageCacheSize(context: Context) = withContext(Dispatchers.IO) {
+        try {
+            val imageDir = getImageDirectory(context)
+            var totalSize = 0L
+            val files = mutableListOf<Pair<File, Long>>()
+
+            // Calculate total size and collect file info
+            imageDir.listFiles()?.forEach { file ->
+                if (!file.name.endsWith(METADATA_SUFFIX)) {
+                    val size = file.length()
+                    totalSize += size
+                    files.add(Pair(file, file.lastModified()))
+                }
+            }
+
+            if (totalSize > CACHE_SIZE_BYTES) {
+                // Sort by last modified (oldest first)
+                files.sortBy { it.second }
+
+                // Remove oldest files until we're under limit
+                for (fileInfo in files) {
+                    if (totalSize <= CACHE_SIZE_BYTES) break
+                    val file = fileInfo.first
+                    totalSize -= file.length()
+
+                    // Delete both image and its metadata
+                    file.delete()
+                    getMetadataFile(context, file.name).delete()
+                }
+                Log.d(TAG, "Cache cleaned. New size: $totalSize bytes")
+            } else {
+                Log.d(TAG, "Cache size ($totalSize bytes) is within limit ($CACHE_SIZE_BYTES bytes)")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error managing cache size", e)
+        }
+    }
+
+    // Enhanced deleteLocalImage with metadata cleanup
     fun deleteLocalImage(context: Context, serverPath: String) {
         try {
             val localPath = getLocalImagePath(context, serverPath)
-            File(localPath).delete()
-            getMetadataFile(context, serverPath).delete()
+            val imageFile = File(localPath)
+            val metadataFile = getMetadataFile(context, serverPath)
+
+            var success = true
+            if (imageFile.exists() && !imageFile.delete()) {
+                success = false
+                Log.e(TAG, "Failed to delete image file: $localPath")
+            }
+            if (metadataFile.exists() && !metadataFile.delete()) {
+                success = false
+                Log.e(TAG, "Failed to delete metadata file: ${metadataFile.path}")
+            }
+
+            if (!success) {
+                throw IOException("Failed to delete some files")
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error deleting local image: ${e.message}")
+            throw e
         }
     }
 }
