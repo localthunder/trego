@@ -2,6 +2,7 @@ package com.splitter.splittr.utils
 
 import android.util.Log
 import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.OffsetDateTime
 import java.time.ZoneId
@@ -15,6 +16,7 @@ object DateUtils {
 
     // Standard format for storing timestamps: "2024-05-20 04:02:40.143-07"
     private val STANDARD_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSX")
+    private val DATE_ONLY_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 
     private val PARSABLE_FORMATS = listOf(
         STANDARD_FORMAT,                                      // "2024-05-20 04:02:40.143-07"
@@ -22,7 +24,12 @@ object DateUtils {
         DateTimeFormatter.ISO_INSTANT,                        // "2024-05-20T04:02:40.143Z"
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),   // "2024-05-20 04:02:40"
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS") // "2024-05-20 04:02:40.143"
+
     )
+
+    fun getCurrentDate(): String {
+        return LocalDate.now().format(DATE_ONLY_FORMAT)
+    }
 
     /**
      * Compares two timestamps to determine if an update is needed.

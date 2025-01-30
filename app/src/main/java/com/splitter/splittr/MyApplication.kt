@@ -5,6 +5,7 @@ import android.app.Application
 import androidx.work.Configuration
 import androidx.work.WorkManager
 import androidx.work.testing.WorkManagerTestInitHelper
+import com.splitter.splittr.data.cache.TransactionCacheManager
 import com.splitter.splittr.data.local.AppDatabase
 import com.splitter.splittr.data.repositories.BankAccountRepository
 import com.splitter.splittr.data.repositories.GroupRepository
@@ -40,6 +41,7 @@ import com.splitter.splittr.utils.NetworkUtils.hasNetworkCapabilities
 import com.splitter.splittr.utils.NetworkUtils.isOnline
 import com.splitter.splittr.utils.SyncUtils
 import com.splitter.splittr.utils.getUserIdFromPreferences
+import com.splitter.splittr.workers.CacheCleanupWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -51,6 +53,13 @@ class MyApplication : Application(), Configuration.Provider {
     val apiService: ApiService by lazy { RetrofitClient.getInstance(this).create(ApiService::class.java) }
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val entityServerConverter by lazy { EntityServerConverter(this) }
+
+    val transactionCacheManager: TransactionCacheManager by lazy {
+        TransactionCacheManager(
+            context = this,
+            cachedTransactionDao = database.cachedTransactionDao()
+        )
+    }
 
     val syncManagerProvider by lazy {
         SyncManagerProvider(
@@ -110,6 +119,8 @@ class MyApplication : Application(), Configuration.Provider {
 
             // Initialize WorkManager manually
             WorkManager.initialize(this, config)
+
+            CacheCleanupWorker.schedule(this)
 
             // Only request sync if userId is valid
             val userId = getUserIdFromPreferences(this)

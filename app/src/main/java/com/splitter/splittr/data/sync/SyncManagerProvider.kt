@@ -1,6 +1,7 @@
 package com.splitter.splittr.data.sync
 
 import android.content.Context
+import com.splitter.splittr.MyApplication
 import com.splitter.splittr.data.local.AppDatabase
 import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.data.repositories.BankAccountRepository
@@ -95,7 +96,7 @@ class SyncManagerProvider(
             apiService = apiService,
             syncMetadataDao = syncMetadataDao,
             dispatchers = dispatchers,
-            context = context
+            context = context,
         )
     }
 
@@ -193,7 +194,9 @@ class SyncManagerProvider(
         dispatchers = dispatchers,
         context = context,
         syncMetadataDao = syncMetadataDao,
-        transactionSyncManager = transactionSyncManager
+        transactionSyncManager = transactionSyncManager,
+        cachedTransactionDao = database.cachedTransactionDao(),
+        cacheManager = (context.applicationContext as MyApplication).transactionCacheManager
     )
 
     fun provideUserRepository() = UserRepository(
@@ -202,6 +205,7 @@ class SyncManagerProvider(
         dispatchers = dispatchers,
         syncMetadataDao = syncMetadataDao,
         groupMemberDao = database.groupMemberDao(),
+        groupDao = database.groupDao(),
         userSyncManager = userSyncManager,
         context = context
     )

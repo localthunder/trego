@@ -4,12 +4,15 @@ import android.accounts.Account
 import android.content.Context
 import android.util.Log
 import com.splitter.splittr.MyApplication
+import com.splitter.splittr.data.cache.TransactionCacheManager
 import com.splitter.splittr.data.local.dao.TransactionDao
 import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.data.model.Transaction
 import com.splitter.splittr.data.extensions.toEntity
 import com.splitter.splittr.data.extensions.toModel
+import com.splitter.splittr.data.extensions.toTransaction
 import com.splitter.splittr.data.local.dao.BankAccountDao
+import com.splitter.splittr.data.local.dao.CachedTransactionDao
 import com.splitter.splittr.data.local.dao.SyncMetadataDao
 import com.splitter.splittr.data.sync.SyncStatus
 import com.splitter.splittr.data.sync.SyncableRepository
@@ -22,6 +25,7 @@ import com.splitter.splittr.utils.ServerIdUtil
 import com.splitter.splittr.utils.getUserIdFromPreferences
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import java.security.PrivateKey
 import java.text.SimpleDateFormat
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -31,11 +35,13 @@ import java.util.Locale
 class TransactionRepository(
     private val transactionDao: TransactionDao,
     private val bankAccountDao: BankAccountDao,
+    private val cachedTransactionDao: CachedTransactionDao,
     private val apiService: ApiService,
     private val dispatchers: CoroutineDispatchers,
     private val context: Context,
     private val syncMetadataDao: SyncMetadataDao,
-    private val transactionSyncManager: TransactionSyncManager
+    private val transactionSyncManager: TransactionSyncManager,
+    private val cacheManager: TransactionCacheManager
 ) : SyncableRepository {
 
     override val entityType = "transactions"
@@ -54,48 +60,103 @@ class TransactionRepository(
     fun getTransactionById(transactionId: String) = transactionDao.getTransactionById(transactionId)
 
     suspend fun fetchTransactions(userId: Int): List<Transaction>? = withContext(dispatchers.io) {
-        Log.d("TransactionRepository", "Fetching transactions for user $userId")
         try {
-            // Return cached transactions immediately if they exist
-            val cachedTransactions = TransactionCache.getTransactions()
+            // Check cache first
+            val cachedTransactions = cachedTransactionDao.getValidCachedTransactions(userId)
+                .first()
+                .map { it.toTransaction() }
 
-            // If cache isn't fresh or empty, fetch new data
-            if (!TransactionCache.isCacheFresh() || cachedTransactions == null) {
-                Log.d("TransactionRepository", "Cache not fresh or empty, fetching from API")
-                try {
-                    // Convert local user ID to server ID
-                    val serverUserId = ServerIdUtil.getServerId(userId, "users", context)
-                        ?: throw Exception("Could not resolve server user ID for $userId")
-
-                    val response = apiService.getTransactionsByUserId(serverUserId)
-
-                    if (response.transactions.isNotEmpty()) {
-                        // Convert the server response transactions to use local user IDs
-                        val localizedTransactions = response.transactions.map { transaction ->
-                            transaction.copy(
-                                userId = userId  // Use the local user ID
-                            )
-                        }
-
-                        TransactionCache.saveTransactions(localizedTransactions)
-                        Log.d("TransactionRepository", "Updated cache with ${localizedTransactions.size} transactions")
-                        return@withContext localizedTransactions
-                    }
-                } catch (e: Exception) {
-                    Log.e("TransactionRepository", "Error refreshing transactions", e)
-                    if (cachedTransactions != null) {
-                        return@withContext cachedTransactions
-                    }
-                    throw e
-                }
+            if (cachedTransactions.isNotEmpty()) {
+                return@withContext cachedTransactions
             }
 
-            cachedTransactions
+            // If cache is empty or stale, check if we can refresh
+            if (cacheManager.shouldRefreshCache(userId)) {
+                val serverTransactions = fetchFromServer(userId)
+                if (serverTransactions != null) {
+                    cacheManager.cacheTransactions(userId, serverTransactions)
+                }
+                return@withContext serverTransactions
+            }
+
+            // If we can't refresh due to rate limits, return cached data even if stale
+            return@withContext cachedTransactions
         } catch (e: Exception) {
-            Log.e("TransactionRepository", "Error in transaction fetch workflow", e)
+            Log.e("TransactionRepository", "Error fetching transactions", e)
             throw e
         }
     }
+
+    private suspend fun fetchFromServer(userId: Int): List<Transaction>? {
+        return try {
+            Log.d(TAG, "Fetching transactions from server for user $userId")
+
+            // Convert local user ID to server ID
+            val serverUserId = ServerIdUtil.getServerId(userId, "users", context)
+                ?: throw Exception("Could not resolve server user ID for $userId")
+
+            val response = apiService.getTransactionsByUserId(serverUserId)
+
+            if (response.transactions.isNotEmpty()) {
+                // Convert the server response transactions to use local user IDs
+                val localizedTransactions = response.transactions.map { transaction ->
+                    transaction.copy(userId = userId)  // Use the local user ID
+                }
+
+                Log.d(TAG, "Successfully fetched ${localizedTransactions.size} transactions from server")
+                localizedTransactions
+            } else {
+                Log.d(TAG, "No transactions found on server")
+                emptyList()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching from server", e)
+            null
+        }
+    }
+//    suspend fun fetchTransactions(userId: Int): List<Transaction>? = withContext(dispatchers.io) {
+//        Log.d("TransactionRepository", "Fetching transactions for user $userId")
+//        try {
+//            // Return cached transactions immediately if they exist
+//            val cachedTransactions = TransactionCache.getTransactions()
+//
+//            // If cache isn't fresh or empty, fetch new data
+//            if (!TransactionCache.isCacheFresh() || cachedTransactions == null) {
+//                Log.d("TransactionRepository", "Cache not fresh or empty, fetching from API")
+//                try {
+//                    // Convert local user ID to server ID
+//                    val serverUserId = ServerIdUtil.getServerId(userId, "users", context)
+//                        ?: throw Exception("Could not resolve server user ID for $userId")
+//
+//                    val response = apiService.getTransactionsByUserId(serverUserId)
+//
+//                    if (response.transactions.isNotEmpty()) {
+//                        // Convert the server response transactions to use local user IDs
+//                        val localizedTransactions = response.transactions.map { transaction ->
+//                            transaction.copy(
+//                                userId = userId  // Use the local user ID
+//                            )
+//                        }
+//
+//                        TransactionCache.saveTransactions(localizedTransactions)
+//                        Log.d("TransactionRepository", "Updated cache with ${localizedTransactions.size} transactions")
+//                        return@withContext localizedTransactions
+//                    }
+//                } catch (e: Exception) {
+//                    Log.e("TransactionRepository", "Error refreshing transactions", e)
+//                    if (cachedTransactions != null) {
+//                        return@withContext cachedTransactions
+//                    }
+//                    throw e
+//                }
+//            }
+//
+//            cachedTransactions
+//        } catch (e: Exception) {
+//            Log.e("TransactionRepository", "Error in transaction fetch workflow", e)
+//            throw e
+//        }
+//    }
 
     suspend fun fetchRecentTransactions(userId: Int): List<Transaction>? =
         withContext(dispatchers.io) {

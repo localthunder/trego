@@ -14,6 +14,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class AuthViewModel(
     private val userRepository: UserRepository,
@@ -47,18 +48,21 @@ class AuthViewModel(
                 // Get login result
                 val result = userRepository.loginUser(context, loginRequest)
 
-                // If login successful, ensure token is stored before continuing
+                // If login successful, store token and wait for completion
                 result.onSuccess { authResponse ->
-                    // Store token first
                     authResponse.token?.let { token ->
-                        TokenManager.saveAccessToken(context, token)
-                        // Add small delay to ensure token is stored
-                        delay(100)
+                        // Store token and wait for completion
+                        withContext(dispatchers.io) {
+                            TokenManager.saveAccessToken(context, token)
+                            // Add delay to ensure token is propagated
+                            delay(100)
+                        }
                     }
                 }
 
-                // Now set the result which will trigger the LaunchedEffect
+                // Only set result after token is stored
                 _authResult.value = result
+
             } catch (e: Exception) {
                 _authResult.value = Result.failure(e)
             } finally {

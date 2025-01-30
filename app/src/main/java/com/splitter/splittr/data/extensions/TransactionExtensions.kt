@@ -1,5 +1,7 @@
 package com.splitter.splittr.data.extensions
 
+import com.google.gson.Gson
+import com.splitter.splittr.data.local.entities.CachedTransactionEntity
 import com.splitter.splittr.data.local.entities.TransactionEntity
 import com.splitter.splittr.data.sync.SyncStatus
 import com.splitter.splittr.data.model.Transaction
@@ -130,4 +132,19 @@ fun Map<String, Any?>.toTransaction(): Transaction {
         institutionName = this["institutionName"] as? String,
         institutionId = this["institutionId"] as? String
     )
+}
+
+private val gson = Gson()
+
+fun Transaction.toJson(): String {
+    return gson.toJson(this)
+}
+
+fun String.fromJson(): Transaction {
+    return gson.fromJson(this, Transaction::class.java)
+}
+
+// Optional extension to make it easier to convert back from cached entities
+fun CachedTransactionEntity.toTransaction(): Transaction {
+    return this.transactionData.fromJson()
 }
