@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
@@ -233,7 +234,7 @@ fun PaymentScreen(
                                 ),
                                 keyboardActions = KeyboardActions(
                                     onNext = {
-                                        focusRequesterDescription.requestFocus()
+                                        focusManager.moveFocus(FocusDirection.Down)
                                     }
                                 ),
                             )
@@ -324,6 +325,7 @@ fun PaymentScreen(
                         )
                         GlobalDatePickerDialog(
                             date = editablePayment?.paymentDate.toString() ?: "",
+                            enabled = !screenState.isTransaction,
                             onDateChange = { newDate ->
                                 paymentsViewModel.processAction(
                                     PaymentsViewModel.PaymentAction.UpdatePaymentDate(
@@ -335,142 +337,149 @@ fun PaymentScreen(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // Split Mode Dropdown
-                        Text(
-                            "Split Mode:",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onBackground,
-                            modifier = Modifier.padding(vertical = 8.dp)
-                        )
-                        var expanded by remember { mutableStateOf(false) }
-                        Box(modifier = Modifier.fillMaxWidth()) {
-                            TextButton(onClick = { expanded = true }) {
-                                Text(
-                                    editablePayment?.splitMode ?: "",
-                                    color = MaterialTheme.colorScheme.primary
-                                )
+                        if (screenState.shouldShowSplitUI) {
+
+                            // Split Mode Dropdown
+                            Text(
+                                "Split Mode:",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onBackground,
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            )
+                            var expanded by remember { mutableStateOf(false) }
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                TextButton(onClick = { expanded = true }) {
+                                    Text(
+                                        editablePayment?.splitMode ?: "",
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = expanded,
+                                    onDismissRequest = { expanded = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        onClick = {
+                                            paymentsViewModel.processAction(
+                                                PaymentsViewModel.PaymentAction.UpdateSplitMode(
+                                                    "equally"
+                                                )
+                                            )
+                                            expanded = false
+                                        },
+                                        text = { Text("equally") }
+                                    )
+                                    DropdownMenuItem(
+                                        onClick = {
+                                            paymentsViewModel.processAction(
+                                                PaymentsViewModel.PaymentAction.UpdateSplitMode(
+                                                    "unequally"
+                                                )
+                                            )
+                                            expanded = false
+                                        },
+                                        text = { Text("unequally") }
+                                    )
+                                }
                             }
-                            DropdownMenu(
-                                expanded = expanded,
-                                onDismissRequest = { expanded = false }
+
+
+                            // NEW SECTION: Member Selection
+                            val selectedMembers = screenState.selectedMembers
+
+                            Text(
+                                "Select Members to Split With:",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onBackground,
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            )
+
+                            Column(
+                                modifier = Modifier.padding(bottom = 16.dp)
                             ) {
-                                DropdownMenuItem(
-                                    onClick = {
-                                        paymentsViewModel.processAction(
-                                            PaymentsViewModel.PaymentAction.UpdateSplitMode(
-                                                "equally"
-                                            )
-                                        )
-                                        expanded = false
-                                    },
-                                    text = { Text("equally") }
-                                )
-                                DropdownMenuItem(
-                                    onClick = {
-                                        paymentsViewModel.processAction(
-                                            PaymentsViewModel.PaymentAction.UpdateSplitMode(
-                                                "unequally"
-                                            )
-                                        )
-                                        expanded = false
-                                    },
-                                    text = { Text("unequally") }
-                                )
-                            }
-                        }
-
-
-                        // NEW SECTION: Member Selection
-                        val selectedMembers = screenState.selectedMembers
-
-                        Text(
-                            "Select Members to Split With:",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onBackground,
-                            modifier = Modifier.padding(vertical = 8.dp)
-                        )
-
-                        Column(
-                            modifier = Modifier.padding(bottom = 16.dp)
-                        ) {
-                            groupMembers.forEach { member ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    val username = when(member.userId) {
-                                        userId -> "Me"
-                                        else -> users.find { it.userId == member.userId }?.username ?: "Loading..."
-                                    }
-                                    Text(
-                                        text = username,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = MaterialTheme.colorScheme.onBackground
-                                    )
-                                    Checkbox(
-                                        checked = selectedMembers.contains(member),
-                                        onCheckedChange = { checked ->
-                                            val newSelection = if (checked) {
-                                                selectedMembers + member
-                                            } else {
-                                                selectedMembers - member
-                                            }
-                                            paymentsViewModel.processAction(
-                                                PaymentsViewModel.PaymentAction.UpdateSelectedMembers(
-                                                    newSelection
-                                                )
-                                            )
-                                        }
-                                    )
-                                }
-                            }
-                        }
-
-                        // Modified splits display - only show for selected members
-                        editableSplits
-                            .filter { split -> selectedMembers.any { it.userId == split.userId } }
-                            .forEach { split ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = when(split.userId) {
+                                groupMembers.forEach { member ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        val username = when (member.userId) {
                                             userId -> "Me"
-                                            else -> users.find { it.userId == split.userId }?.username ?: "Loading..."
-                                        },
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = MaterialTheme.colorScheme.onBackground
-                                    )
-                                    TextField(
-                                        value = formatPaymentAmount(split.amount.toString()),
-                                        onValueChange = { input ->
-                                            val newAmount =
-                                                input.filter { char -> char.isDigit() || char == '.' }
-                                                    .toDoubleOrNull() ?: 0.0
-                                            paymentsViewModel.processAction(
-                                                PaymentsViewModel.PaymentAction.UpdateSplit(
-                                                    split.userId,
-                                                    newAmount
+                                            else -> users.find { it.userId == member.userId }?.username
+                                                ?: "Loading..."
+                                        }
+                                        Text(
+                                            text = username,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = MaterialTheme.colorScheme.onBackground
+                                        )
+                                        Checkbox(
+                                            checked = selectedMembers.contains(member),
+                                            onCheckedChange = { checked ->
+                                                val newSelection = if (checked) {
+                                                    selectedMembers + member
+                                                } else {
+                                                    selectedMembers - member
+                                                }
+                                                paymentsViewModel.processAction(
+                                                    PaymentsViewModel.PaymentAction.UpdateSelectedMembers(
+                                                        newSelection
+                                                    )
                                                 )
-                                            )
-                                        },
-                                        modifier = Modifier.width(100.dp),
-                                        enabled = editablePayment?.splitMode == "unequally",
-                                        leadingIcon = {
-                                            Text(
-                                                getCurrencySymbol(
-                                                    editablePayment?.currency ?: "USD"
-                                                )
-                                            )
-                                        },
-                                        keyboardOptions = KeyboardOptions.Default.copy(keyboardType = KeyboardType.Number)
-                                    )
+                                            }
+                                        )
+                                    }
                                 }
                             }
+
+                            // Modified splits display - only show for selected members
+                            editableSplits
+                                .filter { split -> selectedMembers.any { it.userId == split.userId } }
+                                .forEach { split ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = when (split.userId) {
+                                                userId -> "Me"
+                                                else -> users.find { it.userId == split.userId }?.username
+                                                    ?: "Loading..."
+                                            },
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = MaterialTheme.colorScheme.onBackground
+                                        )
+                                        TextField(
+                                            value = formatPaymentAmount(split.amount.toString()),
+                                            onValueChange = { input ->
+                                                val newAmount =
+                                                    input.filter { char -> char.isDigit() || char == '.' }
+                                                        .toDoubleOrNull() ?: 0.0
+                                                paymentsViewModel.processAction(
+                                                    PaymentsViewModel.PaymentAction.UpdateSplit(
+                                                        split.userId,
+                                                        newAmount
+                                                    )
+                                                )
+                                            },
+                                            modifier = Modifier.width(100.dp),
+                                            enabled = editablePayment?.splitMode == "unequally",
+                                            leadingIcon = {
+                                                Text(
+                                                    getCurrencySymbol(
+                                                        editablePayment?.currency ?: "USD"
+                                                    )
+                                                )
+                                            },
+                                            keyboardOptions = KeyboardOptions.Default.copy(
+                                                keyboardType = KeyboardType.Number
+                                            )
+                                        )
+                                    }
+                                }
+                        }
 
                         if (screenState.showDeleteDialog) {
                             AlertDialog(
@@ -523,14 +532,31 @@ fun PaymentTypeDropdownMenu(viewModel: PaymentsViewModel) {
                     when (type) {
                         "spent" -> {
                             viewModel.processAction(PaymentAction.UpdatePaymentType("spent"))
-                            viewModel.processAction(PaymentAction.UpdateAmount(screenState.payment?.amount?.let { kotlin.math.abs(it) } ?: 0.0))
+                            viewModel.processAction(PaymentAction.UpdateAmount(
+                                screenState.payment?.amount?.let { kotlin.math.abs(it) } ?: 0.0
+                            ))
                         }
                         "received" -> {
                             viewModel.processAction(PaymentAction.UpdatePaymentType("received"))
-                            viewModel.processAction(PaymentAction.UpdateAmount(screenState.payment?.amount?.let { kotlin.math.abs(it) * -1 } ?: 0.0))
+                            viewModel.processAction(PaymentAction.UpdateAmount(
+                                screenState.payment?.amount?.let { kotlin.math.abs(it) * -1 } ?: 0.0
+                            ))
                         }
                         "transferred" -> {
+                            // Find first available user who isn't the payer to be the recipient
+                            val currentPayer = screenState.editablePayment?.paidByUserId
+                            val defaultRecipient = screenState.groupMembers
+                                .firstOrNull { it.userId != currentPayer }
+                                ?.userId
+
+                            // Set the recipient first
+                            if (defaultRecipient != null) {
+                                viewModel.processAction(PaymentAction.UpdatePaidToUser(defaultRecipient))
+                            }
+
+                            // Then update the payment type
                             viewModel.processAction(PaymentAction.UpdatePaymentType("transferred"))
+
                         }
                     }
                     viewModel.processAction(PaymentAction.ToggleExpandedPaymentTypeList)

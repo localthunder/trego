@@ -2,6 +2,7 @@ package com.splitter.splittr.data.sync
 
 import android.content.Context
 import com.splitter.splittr.MyApplication
+import com.splitter.splittr.data.cache.TransactionCacheManager
 import com.splitter.splittr.data.local.AppDatabase
 import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.data.repositories.BankAccountRepository
@@ -28,6 +29,8 @@ class SyncManagerProvider(
     private val dispatchers: CoroutineDispatchers = AppCoroutineDispatchers()
 ) {
     private val syncMetadataDao = database.syncMetadataDao()
+    val transactionCacheManager = TransactionCacheManager(context, database.cachedTransactionDao())
+
 
     // Sync Managers
     val bankAccountSyncManager by lazy {
@@ -93,6 +96,7 @@ class SyncManagerProvider(
             transactionDao = database.transactionDao(),
             bankAccountDao = database.bankAccountDao(),
             userDao = database.userDao(),
+            transactionCacheManager = transactionCacheManager,
             apiService = apiService,
             syncMetadataDao = syncMetadataDao,
             dispatchers = dispatchers,

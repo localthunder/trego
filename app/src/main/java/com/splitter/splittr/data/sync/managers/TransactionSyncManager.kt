@@ -3,6 +3,7 @@ package com.splitter.splittr.data.sync.managers
 import android.content.Context
 import android.util.Log
 import com.splitter.splittr.MyApplication
+import com.splitter.splittr.data.cache.TransactionCacheManager
 import com.splitter.splittr.data.extensions.toEntity
 import com.splitter.splittr.data.extensions.toModel
 import com.splitter.splittr.data.local.dao.BankAccountDao
@@ -26,6 +27,7 @@ class TransactionSyncManager(
     private val userDao: UserDao,
     private val apiService: ApiService,
     private val bankAccountDao: BankAccountDao,
+    private val transactionCacheManager: TransactionCacheManager,
     syncMetadataDao: SyncMetadataDao,
     dispatchers: CoroutineDispatchers,
     private val context: Context
@@ -186,7 +188,13 @@ class TransactionSyncManager(
         }
     }
 
-    suspend fun fetchAndCacheTransactions(userId: Int): TransactionSyncResult {
+    suspend fun fetchAndCacheTransactions(userId: Int, forceRefresh: Boolean = false): TransactionSyncResult {
+        // Check cooldown period first
+        if (!forceRefresh && transactionCacheManager.getCooldownTimeRemaining() > 0) {
+            Log.d(TAG, "Skipping fetch due to cooldown period")
+            return TransactionSyncResult.Error("In cooldown period")
+        }
+
         return try {
             Log.d(TAG, "Fetching fresh transactions from GoCardless")
 
@@ -201,9 +209,10 @@ class TransactionSyncManager(
             val transactions = response.transactions
             val accountsNeedingReauth = response.accountsNeedingReauthentication
 
-            // Only update the in-memory cache
-            TransactionCache.saveTransactions(transactions)
-            Log.d(TAG, "Cached ${transactions.size} transactions in memory")
+
+            // Use the new cache manager instead of the singleton
+            transactionCacheManager.cacheTransactions(userId, transactions)
+            Log.d(TAG, "Cached ${transactions.size} transactions")
 
             // Handle reauth accounts
             handleReauthAccounts(accountsNeedingReauth)

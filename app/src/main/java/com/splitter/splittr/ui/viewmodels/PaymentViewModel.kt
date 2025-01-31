@@ -8,6 +8,7 @@ import com.splitter.splittr.data.extensions.toModel
 import com.splitter.splittr.data.local.entities.GroupMemberEntity
 import com.splitter.splittr.data.local.entities.PaymentEntity
 import com.splitter.splittr.data.local.entities.PaymentSplitEntity
+import com.splitter.splittr.data.local.entities.UserEntity
 import com.splitter.splittr.data.repositories.GroupRepository
 import com.splitter.splittr.data.repositories.PaymentRepository
 import com.splitter.splittr.data.repositories.PaymentSplitRepository
@@ -15,6 +16,7 @@ import com.splitter.splittr.data.model.GroupMember
 import com.splitter.splittr.data.model.Payment
 import com.splitter.splittr.data.model.PaymentSplit
 import com.splitter.splittr.data.model.Transaction
+import com.splitter.splittr.data.model.User
 import com.splitter.splittr.data.repositories.InstitutionRepository
 import com.splitter.splittr.data.repositories.TransactionRepository
 import com.splitter.splittr.data.repositories.UserRepository
@@ -51,11 +53,27 @@ class PaymentsViewModel(
     private val _navigationState = MutableStateFlow<NavigationState>(NavigationState.Idle)
     val navigationState: StateFlow<NavigationState> = _navigationState.asStateFlow()
 
+    private val _users = MutableStateFlow<List<UserEntity>>(emptyList())
+    val users: StateFlow<List<UserEntity>> = _users.asStateFlow()
+
     private var userId: Int? = null
 
     init {
         viewModelScope.launch {
             userId = getUserIdFromPreferences(context)
+            loadUsers()
+        }
+    }
+
+    private suspend fun loadUsers() {
+        _paymentScreenState.value.groupMembers.map { it.userId }.let { userIds ->
+            try {
+                val loadedUsers = userRepository.getUsersByIds(userIds).first() // Add .first() here
+                _users.value = loadedUsers
+                Log.d("PaymentsVM", "Loaded users: $loadedUsers")
+            } catch (e: Exception) {
+                Log.e("PaymentsVM", "Failed to load users", e)
+            }
         }
     }
 
@@ -80,7 +98,32 @@ class PaymentsViewModel(
         val expandedPaymentTypeList: Boolean = false,
         val showDeleteDialog: Boolean = false,
         val selectedMembers: Set<GroupMemberEntity> = emptySet(),
-    )
+    ) {
+        val shouldShowSplitUI: Boolean
+            get() = editablePayment?.paymentType != "transferred"
+
+        val effectiveSplits: List<PaymentSplitEntity>
+            get() = when {
+                editablePayment?.paymentType == "transferred" && paidToUser != null -> {
+                    // For transfers, always use a single split for the paidToUser
+                    listOf(
+                        PaymentSplitEntity(
+                            id = editableSplits.firstOrNull()?.id ?: 0,
+                            paymentId = editablePayment.id,
+                            userId = paidToUser,
+                            amount = editablePayment.amount,
+                            currency = editablePayment.currency ?: "GBP",
+                            createdAt = editableSplits.firstOrNull()?.createdAt ?: DateUtils.getCurrentTimestamp(),
+                            updatedAt = DateUtils.getCurrentTimestamp(),
+                            createdBy = editableSplits.firstOrNull()?.createdBy ?: 0,
+                            updatedBy = editableSplits.firstOrNull()?.updatedBy ?: 0,
+                            deletedAt = null
+                        )
+                    )
+                }
+                else -> editableSplits
+            }
+    }
 
     sealed class PaymentImage {
         data class Logo(val logoInfo: InstitutionLogoManager.LogoInfo) : PaymentImage()
@@ -129,7 +172,50 @@ class PaymentsViewModel(
             is PaymentAction.UpdateAmount -> updateEditablePayment { it.copy(amount = action.amount) }
             is PaymentAction.UpdateDescription -> updateEditablePayment { it.copy(description = action.description) }
             is PaymentAction.UpdateNotes -> updateEditablePayment { it.copy(notes = action.notes) }
-            is PaymentAction.UpdatePaymentType -> updateEditablePayment { it.copy(paymentType = action.paymentType) }
+            is PaymentAction.UpdatePaymentType -> {
+                Log.d("PaymentsVM", "Updating payment type to: ${action.paymentType}")
+                updateEditablePayment { it.copy(paymentType = action.paymentType) }
+
+                if (action.paymentType == "transferred") {
+                    // Set paidToUser if needed
+                    val currentPaidToUser = _paymentScreenState.value.paidToUser
+                    val currentPaidBy = _paymentScreenState.value.editablePayment?.paidByUserId
+
+                    val newPaidToUser = if (currentPaidToUser == null || currentPaidToUser == currentPaidBy) {
+                        _paymentScreenState.value.groupMembers
+                            .firstOrNull { it.userId != currentPaidBy }?.userId
+                    } else currentPaidToUser
+
+                    if (newPaidToUser != null) {
+                        _paymentScreenState.update { currentState ->
+                            // Get usernames for description
+                            val paidByUsername = if (currentPaidBy == currentUserId) "I" else
+                                currentState.groupMembers.find { it.userId == currentPaidBy }?.let { member ->
+                                    users.value.find { it.userId == member.userId }?.username
+                                } ?: "Unknown"
+
+                            val paidToUsername = if (newPaidToUser == currentUserId) "me" else
+                                currentState.groupMembers.find { it.userId == newPaidToUser }?.let { member ->
+                                    users.value.find { it.userId == member.userId }?.username
+                                } ?: "Unknown"
+
+                            // Update description along with other state
+                            currentState.copy(
+                                paidToUser = newPaidToUser,
+                                selectedMembers = currentState.groupMembers
+                                    .filter { it.userId == newPaidToUser }
+                                    .toSet(),
+                                editableSplits = emptyList(),
+                                editablePayment = currentState.editablePayment?.copy(
+                                    description = "$paidByUsername transferred to $paidToUsername"
+                                )
+                            )
+                        }
+                    }
+                }
+
+                recalculateSplits(currentUserId)
+            }
             is PaymentAction.UpdatePaymentDate -> updateEditablePayment { it.copy(paymentDate = action.paymentDate) }
             is PaymentAction.UpdateCurrency -> updateEditablePayment { it.copy(currency = action.currency) }
             is PaymentAction.UpdateSplitMode -> {
@@ -195,6 +281,7 @@ class PaymentsViewModel(
                         }
                         currentState.copy(selectedMembers = membersWithSplits.toSet())
                     }
+                    loadUsers()
                 }
                 transactionDetails?.transactionId != null -> {
                     initializeFromTransaction(transactionDetails, groupId)
@@ -364,36 +451,57 @@ class PaymentsViewModel(
     private fun recalculateSplits(userId: Int) {
         val editablePayment = _paymentScreenState.value.editablePayment ?: return
         val selectedMembers = _paymentScreenState.value.selectedMembers
+        val paidToUser = _paymentScreenState.value.paidToUser
 
-        val newSplits = when (editablePayment.splitMode) {
-            "equally" -> {
-                val splitAmount = if (selectedMembers.isNotEmpty()) {
-                    editablePayment.amount / selectedMembers.size
-                } else 0.0
+        Log.d("PaymentsVM", "Recalculating splits")
+        Log.d("PaymentsVM", "Payment type: ${editablePayment.paymentType}")
+        Log.d("PaymentsVM", "Selected members: $selectedMembers")
+        Log.d("PaymentsVM", "PaidToUser: $paidToUser")
 
-                selectedMembers.map { member ->
-                    PaymentSplitEntity(
-                        id = 0,
-                        paymentId = editablePayment.id,
-                        userId = member.userId,
-                        amount = splitAmount,
-                        currency = editablePayment.currency ?: "GBP",
-                        createdAt = DateUtils.getCurrentTimestamp(),
-                        updatedAt = DateUtils.getCurrentTimestamp(),
-                        createdBy = userId,
-                        updatedBy = userId,
-                        deletedAt = null
-                    )
+        val newSplits = when {
+            editablePayment.paymentType == "transferred" && paidToUser != null -> {
+                Log.d("PaymentsVM", "Creating single split for transfer payment")
+                listOf(PaymentSplitEntity(
+                    id = 0,
+                    paymentId = editablePayment.id,
+                    userId = paidToUser,
+                    amount = editablePayment.amount,
+                    currency = editablePayment.currency ?: "GBP",
+                    createdAt = DateUtils.getCurrentTimestamp(),
+                    updatedAt = DateUtils.getCurrentTimestamp(),
+                    createdBy = userId,
+                    updatedBy = userId,
+                    deletedAt = null
+                ))
+            }
+            editablePayment.splitMode == "equally" -> {
+                if (selectedMembers.isEmpty()) emptyList()
+                else {
+                    val splitAmount = editablePayment.amount / selectedMembers.size
+                    selectedMembers.map { member ->
+                        PaymentSplitEntity(
+                            id = 0,
+                            paymentId = editablePayment.id,
+                            userId = member.userId,
+                            amount = splitAmount,
+                            currency = editablePayment.currency ?: "GBP",
+                            createdAt = DateUtils.getCurrentTimestamp(),
+                            updatedAt = DateUtils.getCurrentTimestamp(),
+                            createdBy = userId,
+                            updatedBy = userId,
+                            deletedAt = null
+                        )
+                    }
                 }
             }
-            "unequally" -> {
-                // For unequal splits, filter existing splits to only include selected members
+            editablePayment.splitMode == "unequally" -> {
                 _paymentScreenState.value.editableSplits.filter { split ->
                     selectedMembers.any { it.userId == split.userId }
                 }
             }
             else -> emptyList()
         }
+        Log.d("PaymentsVM", "New splits created: $newSplits")
 
         _paymentScreenState.update { currentState ->
             currentState.copy(editableSplits = newSplits)
@@ -469,19 +577,49 @@ class PaymentsViewModel(
 
     fun savePayment() {
         viewModelScope.launch {
+            Log.d("PaymentsVM", "Starting save payment")
             val editablePayment = _paymentScreenState.value.editablePayment ?: return@launch
-            val editableSplits = _paymentScreenState.value.editableSplits
+            val paidToUser = _paymentScreenState.value.paidToUser
+
+            Log.d("PaymentsVM", "Payment type: ${editablePayment.paymentType}")
+            Log.d("PaymentsVM", "Paid to user: $paidToUser")
+            Log.d("PaymentsVM", "Current state: ${_paymentScreenState.value}")
+
+            // Use effectiveSplits instead of editableSplits directly
+            val splitsToSave = if (editablePayment.paymentType == "transferred") {
+                if (paidToUser != null) {
+                    Log.d("PaymentsVM", "Creating single transfer split for user $paidToUser")
+                    listOf(PaymentSplitEntity(
+                        id = 0,  // New split for transfer
+                        paymentId = editablePayment.id,
+                        userId = paidToUser,
+                        amount = editablePayment.amount,
+                        currency = editablePayment.currency ?: "GBP",
+                        createdAt = DateUtils.getCurrentTimestamp(),
+                        updatedAt = DateUtils.getCurrentTimestamp(),
+                        createdBy = userId ?: 0,
+                        updatedBy = userId ?: 0,
+                        deletedAt = null
+                    ))
+                } else {
+                    Log.e("PaymentsVM", "No paidToUser set for transfer payment")
+                    emptyList()
+                }
+            } else {
+                _paymentScreenState.value.editableSplits
+            }
+
+            Log.d("PaymentsVM", "Payment type: ${editablePayment.paymentType}")
+            Log.d("PaymentsVM", "Splits to save: $splitsToSave")
 
             _paymentScreenState.value = _paymentScreenState.value.copy(
                 paymentOperationStatus = PaymentOperationStatus.Loading
             )
 
-            // Format the payment date
             val formattedDate = formatPaymentDate(editablePayment.paymentDate)
             val paymentToSave = editablePayment.copy(paymentDate = formattedDate)
 
             val result = when {
-                // Handle new payment from transaction
                 paymentToSave.id == 0 && _paymentScreenState.value.isTransaction -> {
                     val transaction = paymentToSave.transactionId?.let { transactionId ->
                         transactionRepository.getTransactionById(transactionId).firstOrNull()?.toModel()
@@ -490,35 +628,36 @@ class PaymentsViewModel(
                         paymentRepository.createPaymentFromTransaction(
                             transaction = transaction,
                             payment = paymentToSave,
-                            splits = editableSplits
+                            splits = splitsToSave  // Use splitsToSave here
                         )
                     } else {
                         Result.failure(Exception("Transaction not found"))
                     }
                 }
-                // Handle new regular payment
                 paymentToSave.id == 0 -> {
-                    paymentRepository.createPaymentWithSplits(paymentToSave, editableSplits)
+                    paymentRepository.createPaymentWithSplits(paymentToSave, splitsToSave)  // Use splitsToSave here
                 }
-                // Handle payment update
                 else -> {
-                    paymentRepository.updatePaymentWithSplits(paymentToSave, editableSplits)
+                    paymentRepository.updatePaymentWithSplits(paymentToSave, splitsToSave)  // Use splitsToSave here
                 }
             }
 
             result.fold(
                 onSuccess = { savedPayment ->
+                    Log.d("PaymentsVM", "Payment saved successfully")
+                    Log.d("PaymentsVM", "Saved payment: $savedPayment")
+                    Log.d("PaymentsVM", "Saved splits: $splitsToSave")
                     _paymentScreenState.value = _paymentScreenState.value.copy(
                         payment = savedPayment,
                         editablePayment = savedPayment,
-                        splits = editableSplits,
-                        editableSplits = editableSplits,
+                        splits = splitsToSave,  // Use splitsToSave here
+                        editableSplits = splitsToSave,  // Use splitsToSave here
                         paymentOperationStatus = PaymentOperationStatus.Success
                     )
-                    // Emit navigation state
                     _navigationState.value = NavigationState.NavigateBack
                 },
                 onFailure = { error ->
+                    Log.e("PaymentsVM", "Failed to save payment", error)
                     _paymentScreenState.value = _paymentScreenState.value.copy(
                         paymentOperationStatus = PaymentOperationStatus.Error(error.message ?: "Unknown error")
                     )

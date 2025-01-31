@@ -21,6 +21,8 @@ class TransactionCacheManager(
         private const val CACHE_DURATION_HOURS = 23L // Slightly less than 24h to be safe
         private const val MAX_API_CALLS_PER_DAY = 4
         private const val RATE_LIMIT_KEY = "transaction_api_calls"
+        private const val LAST_API_CALL_KEY = "last_api_call_timestamp"  // New constant
+        private const val COOLDOWN_MINUTES = 30L  // New constant
         private const val PREFERENCES_NAME = "transaction_cache_prefs"
         private val LOW_ACTIVITY_HOURS = 0..6 // Midnight to 6 AM
         private const val REFRESH_PRIORITY_THRESHOLD = 50.0
@@ -29,6 +31,18 @@ class TransactionCacheManager(
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
 
     suspend fun shouldRefreshCache(userId: Int): Boolean {
+        // Check cooldown period first
+        val lastApiCallTime = preferences.getLong(LAST_API_CALL_KEY, 0)
+        val timeSinceLastCall = Duration.between(
+            Instant.ofEpochMilli(lastApiCallTime),
+            Instant.now()
+        )
+
+        if (timeSinceLastCall.toMinutes() < COOLDOWN_MINUTES) {
+            Log.d(TAG, "In cooldown period (${COOLDOWN_MINUTES - timeSinceLastCall.toMinutes()} minutes remaining)")
+            return false
+        }
+
         val currentTime = System.currentTimeMillis()
         val lastFetchTimestamp = cachedTransactionDao.getLastFetchTimestamp(userId) ?: 0
         val timeSinceLastFetch = Duration.between(
@@ -122,6 +136,7 @@ class TransactionCacheManager(
     }
 
     fun forceRefresh(userId: Int): Boolean {
+        // Allow refresh if manually requested, regardless of cooldown
         val currentApiCalls = getApiCallsToday()
         return currentApiCalls < MAX_API_CALLS_PER_DAY ||
                 getTimeUntilApiReset().toMinutes() < 30
@@ -143,8 +158,11 @@ class TransactionCacheManager(
 
         cachedTransactionDao.insertCachedTransactions(cachedEntities)
         incrementApiCallCount()
+        // Update last API call timestamp
+        preferences.edit().putLong(LAST_API_CALL_KEY, currentTime).apply()
         Log.d(TAG, "Cached ${transactions.size} transactions for user $userId")
     }
+
 
     private fun getApiCallsToday(): Int {
         val currentDate = DateUtils.getCurrentDate()
@@ -185,5 +203,14 @@ class TransactionCacheManager(
 
     fun getRemainingApiCalls(): Int {
         return MAX_API_CALLS_PER_DAY - getApiCallsToday()
+    }
+
+    fun getCooldownTimeRemaining(): Long {
+        val lastApiCallTime = preferences.getLong(LAST_API_CALL_KEY, 0)
+        val timeSinceLastCall = Duration.between(
+            Instant.ofEpochMilli(lastApiCallTime),
+            Instant.now()
+        )
+        return maxOf(0L, COOLDOWN_MINUTES - timeSinceLastCall.toMinutes())
     }
 }

@@ -6,6 +6,7 @@ import androidx.room.withTransaction
 import com.splitter.splittr.MyApplication
 import com.splitter.splittr.data.extensions.toEntity
 import com.splitter.splittr.data.extensions.toModel
+import com.splitter.splittr.data.local.dao.GroupDao
 import com.splitter.splittr.data.local.dao.GroupMemberDao
 import com.splitter.splittr.data.local.dao.SyncMetadataDao
 import com.splitter.splittr.data.local.dao.UserDao
@@ -37,6 +38,7 @@ class UserRepository(
     private val dispatchers: CoroutineDispatchers,
     private val syncMetadataDao: SyncMetadataDao,
     private val groupMemberDao: GroupMemberDao,
+    private val groupDao: GroupDao,
     private val userSyncManager: UserSyncManager,
     private val context: Context
 ) : SyncableRepository {
@@ -208,6 +210,15 @@ class UserRepository(
                 )
 
                 groupMemberDao.insertGroupMember(groupMemberEntity)
+
+                // Update group's updated_at timestamp
+                val group = groupDao.getGroupByIdSync(groupId)
+                if (group != null) {
+                    groupDao.updateGroup(group.copy(
+                        updatedAt = timestamp,
+                        syncStatus = SyncStatus.PENDING_SYNC
+                    ))
+                }
 
                 userId
             }

@@ -8,6 +8,7 @@ import com.splitter.splittr.data.local.dataClasses.LoginRequest
 import com.splitter.splittr.data.repositories.InstitutionRepository
 import com.splitter.splittr.data.repositories.UserRepository
 import com.splitter.splittr.ui.screens.RegisterRequest
+import com.splitter.splittr.utils.AuthUtils
 import com.splitter.splittr.utils.CoroutineDispatchers
 import com.splitter.splittr.utils.TokenManager
 import kotlinx.coroutines.delay
@@ -54,6 +55,7 @@ class AuthViewModel(
                         // Store token and wait for completion
                         withContext(dispatchers.io) {
                             TokenManager.saveAccessToken(context, token)
+                            AuthUtils.storeLoginState(context, token)
                             // Add delay to ensure token is propagated
                             delay(100)
                         }

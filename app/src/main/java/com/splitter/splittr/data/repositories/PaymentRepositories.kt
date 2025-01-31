@@ -74,8 +74,9 @@ class PaymentRepository(
     // Helper function to calculate split amounts
     private fun calculateSplitAmount(amount: Double, paymentType: String): Double {
         val absAmount = abs(amount)
-        return if (paymentType == "spent") -absAmount else absAmount
+        return if (paymentType == "received") absAmount else -absAmount
     }
+
     fun getPaymentById(paymentId: Int): Flow<PaymentEntity?> = flow {
         Log.d(TAG, "Getting payment with ID: $paymentId")
 

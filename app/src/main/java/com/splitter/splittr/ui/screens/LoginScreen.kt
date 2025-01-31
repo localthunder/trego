@@ -2,13 +2,23 @@ package com.splitter.splittr.ui.screens
 
 import android.content.Context
 import android.util.Log
+import android.view.View
 import android.widget.Toast
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -33,16 +43,27 @@ import kotlinx.coroutines.withContext
 @Composable
 fun LoginScreen(navController: NavController) {
     val context = LocalContext.current
+    val view = LocalView.current
+    val focusManager = LocalFocusManager.current
     val myApplication = context.applicationContext as MyApplication
     val authViewModel: AuthViewModel = viewModel(factory = myApplication.viewModelFactory)
     val institutionViewModel: InstitutionViewModel = viewModel(factory = myApplication.viewModelFactory)
     val userViewModel: UserViewModel = viewModel(factory = myApplication.viewModelFactory)
 
-    var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-
     val authResult by authViewModel.authResult.collectAsStateWithLifecycle()
     val loading by authViewModel.loading.collectAsStateWithLifecycle()
+
+
+    // Add security settings through DisposableEffect
+    DisposableEffect(Unit) {
+        view.apply {
+            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+        }
+        onDispose { }
+    }
+
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
 
     LaunchedEffect(authResult) {
         authResult?.onSuccess { authResponse ->
@@ -117,6 +138,17 @@ fun LoginScreen(navController: NavController) {
             value = email,
             onValueChange = { email = it },
             label = { Text("Email") },
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Email,
+                autoCorrect = false,
+                imeAction = ImeAction.Next
+            ),
+            keyboardActions = KeyboardActions(
+                onNext = {
+                    focusManager.moveFocus(FocusDirection.Down)
+                }
+            ),
+            singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -127,7 +159,23 @@ fun LoginScreen(navController: NavController) {
             onValueChange = { password = it },
             label = { Text("Password") },
             visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth()
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Password,
+                autoCorrect = false,
+                imeAction = ImeAction.Done
+            ),
+            keyboardActions = KeyboardActions(
+                onDone = {
+                    val loginRequest = LoginRequest(email = email, password = password)
+                    authViewModel.login(context, loginRequest)
+                }
+            ),
+            singleLine = true,
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics {
+                    contentDescription = "Password Input"
+                },
         )
 
         Spacer(modifier = Modifier.height(16.dp))

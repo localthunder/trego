@@ -1,6 +1,7 @@
 package com.splitter.splittr.ui.components
 
 import android.app.DatePickerDialog
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -9,7 +10,11 @@ import androidx.compose.ui.platform.LocalContext
 import java.util.*
 
 @Composable
-fun GlobalDatePickerDialog(date: String, onDateChange: (String) -> Unit) {
+fun GlobalDatePickerDialog(
+    date: String,
+    enabled: Boolean,
+    onDateChange: (String) -> Unit
+) {
     val context = LocalContext.current
     val calendar = remember { Calendar.getInstance() }
     val year = calendar.get(Calendar.YEAR)
@@ -21,10 +26,23 @@ fun GlobalDatePickerDialog(date: String, onDateChange: (String) -> Unit) {
         { _, selectedYear, selectedMonth, selectedDay ->
             val formattedDate = "$selectedYear-${selectedMonth + 1}-$selectedDay"
             onDateChange(formattedDate)
-        }, year, month, day
+        },
+        year,
+        month,
+        day
     )
 
-    TextButton(onClick = { datePickerDialog.show() }) {
-        Text(date)
+    TextButton(
+        onClick = { datePickerDialog.show() },
+        enabled = enabled
+    ) {
+        Text(
+            text = date,
+            color = if (enabled) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+            }
+        )
     }
 }
