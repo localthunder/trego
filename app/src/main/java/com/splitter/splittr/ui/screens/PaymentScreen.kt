@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.splitter.splittr.MyApplication
+import com.splitter.splittr.ui.components.CurrencySelectionBottomSheet
 import com.splitter.splittr.ui.components.GlobalDatePickerDialog
 import com.splitter.splittr.ui.components.GlobalFAB
 import com.splitter.splittr.ui.components.GlobalTopAppBar
@@ -51,6 +52,7 @@ fun PaymentScreen(
     val screenState by paymentsViewModel.paymentScreenState.collectAsState()
     val users by userViewModel.users.collectAsState(emptyList())
     val navigationState by paymentsViewModel.navigationState.collectAsState()
+    var showCurrencySheet by remember { mutableStateOf(false) }
 
     val editablePayment = screenState.editablePayment
     val editableSplits = screenState.editableSplits
@@ -204,9 +206,7 @@ fun PaymentScreen(
                                 text = getCurrencySymbol(editablePayment?.currency ?: "USD"),
                                 style = MaterialTheme.typography.bodyLarge,
                                 modifier = Modifier
-                                    .clickable {
-                                        navController.navigate("currencySelection")
-                                    }
+                                    .clickable { showCurrencySheet = true }
                                     .padding(end = 8.dp)
                             )
 
@@ -511,6 +511,14 @@ fun PaymentScreen(
                             )
                         }
                     }
+                }
+                if (showCurrencySheet) {
+                    CurrencySelectionBottomSheet(
+                        onDismiss = { showCurrencySheet = false },
+                        onCurrencySelected = { selectedCurrency ->
+                            paymentsViewModel.processAction(PaymentAction.UpdateCurrency(selectedCurrency))
+                        }
+                    )
                 }
             }
         )
