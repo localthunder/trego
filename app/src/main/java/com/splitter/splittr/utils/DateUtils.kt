@@ -1,39 +1,165 @@
 package com.splitter.splittr.utils
 
 import android.util.Log
-import java.time.Instant
-import java.time.LocalDate
-import java.time.LocalDateTime
-import java.time.OffsetDateTime
-import java.time.ZoneId
-import java.time.ZoneOffset
-import java.time.ZonedDateTime
+import java.time.*
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
+import java.util.Locale
 
 object DateUtils {
     private const val TAG = "DateUtils"
 
-    // Standard format for storing timestamps: "2024-05-20 04:02:40.143-07"
+    // Standard formats
     private val STANDARD_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSX")
     private val DATE_ONLY_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+    private val DISPLAY_FORMAT_CURRENT_YEAR = DateTimeFormatter.ofPattern("d MMM", Locale.getDefault())
+    private val DISPLAY_FORMAT_FULL = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.getDefault())
 
+    // All supported input formats
     private val PARSABLE_FORMATS = listOf(
-        STANDARD_FORMAT,                                      // "2024-05-20 04:02:40.143-07"
-        DateTimeFormatter.ISO_OFFSET_DATE_TIME,               // "2024-05-20T04:02:40.143-07:00"
-        DateTimeFormatter.ISO_INSTANT,                        // "2024-05-20T04:02:40.143Z"
-        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),   // "2024-05-20 04:02:40"
-        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS") // "2024-05-20 04:02:40.143"
-
+        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSXXX"), // ISO 8601 with millis and timezone
+        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX"),     // ISO 8601 with timezone
+        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSX"),   // ISO 8601 with millis and offset
+        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"),        // ISO 8601 without timezone
+        STANDARD_FORMAT,                                             // Our standard format
+        DateTimeFormatter.ISO_OFFSET_DATE_TIME,                      // Standard ISO format
+        DateTimeFormatter.ISO_INSTANT,                               // Standard ISO instant
+        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),          // Simple datetime
+        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS"),      // Simple datetime with millis
+        DATE_ONLY_FORMAT                                            // Date only
     )
 
-    fun getCurrentDate(): String {
-        return LocalDate.now().format(DATE_ONLY_FORMAT)
+    /**
+     * Formats a date string for display, showing only month and day if current year
+     */
+    fun formatForDisplay(dateStr: String): String {
+        for (formatter in PARSABLE_FORMATS) {
+            try {
+                val parsedDate = when {
+                    formatter.toString().contains("XXX") -> {
+                        ZonedDateTime.parse(dateStr, formatter)
+                    }
+                    dateStr.contains("T") || dateStr.contains(" ") -> {
+                        LocalDateTime.parse(dateStr, formatter)
+                            .atZone(ZoneId.systemDefault())
+                    }
+                    else -> {
+                        LocalDate.parse(dateStr, formatter)
+                            .atStartOfDay(ZoneId.systemDefault())
+                    }
+                }
+
+                return if (parsedDate.year == Year.now().value) {
+                    DISPLAY_FORMAT_CURRENT_YEAR.format(parsedDate)
+                } else {
+                    DISPLAY_FORMAT_FULL.format(parsedDate)
+                }
+            } catch (e: DateTimeParseException) {
+                continue
+            }
+        }
+
+        // Try parsing as Unix timestamp
+        try {
+            val instant = Instant.ofEpochMilli(dateStr.toLong())
+            val zonedDateTime = instant.atZone(ZoneId.systemDefault())
+            return if (zonedDateTime.year == Year.now().value) {
+                DISPLAY_FORMAT_CURRENT_YEAR.format(zonedDateTime)
+            } else {
+                DISPLAY_FORMAT_FULL.format(zonedDateTime)
+            }
+        } catch (e: NumberFormatException) {
+            // Not a numeric timestamp
+        }
+
+        Log.w(TAG, "Unable to parse date for display: $dateStr")
+        return "N/A"
     }
 
     /**
-     * Compares two timestamps to determine if an update is needed.
-     * Returns true if serverTimestamp is more recent than localTimestamp.
+     * Formats a date to our standard storage format (ISO 8601)
+     */
+    fun formatToStorageFormat(dateStr: String): String {
+        return try {
+            // If it's already in ISO format, just return it
+            if (dateStr.matches(Regex("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z"))) {
+                return dateStr
+            }
+
+            // Try parsing as Unix timestamp first
+            try {
+                val instant = Instant.ofEpochMilli(dateStr.toLong())
+                return instant.toString()
+            } catch (e: NumberFormatException) {
+                // Not a numeric timestamp, continue with string parsing
+            }
+
+            // Try each format
+            val instant = parseTimestamp(dateStr)
+            instant.toString()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to format date: $dateStr, using current time")
+            Instant.now().toString()
+        }
+    }
+
+    /**
+     * Parses any supported timestamp format to Instant
+     */
+    fun parseTimestamp(timestamp: String): Instant {
+        for (formatter in PARSABLE_FORMATS) {
+            try {
+                return when {
+                    formatter.toString().contains("XXX") -> {
+                        ZonedDateTime.parse(timestamp, formatter).toInstant()
+                    }
+                    timestamp.contains("T") || timestamp.contains(" ") -> {
+                        LocalDateTime.parse(timestamp, formatter)
+                            .atZone(ZoneOffset.UTC)
+                            .toInstant()
+                    }
+                    else -> {
+                        LocalDate.parse(timestamp, formatter)
+                            .atStartOfDay(ZoneOffset.UTC)
+                            .toInstant()
+                    }
+                }
+            } catch (e: DateTimeParseException) {
+                continue
+            }
+        }
+
+        throw IllegalArgumentException("Unable to parse timestamp: $timestamp")
+    }
+
+    /**
+     * Gets current timestamp in ISO 8601 format
+     */
+    fun getCurrentTimestamp(): String = Instant.now().toString()
+
+    /**
+     * Gets current date in yyyy-MM-dd format
+     */
+    fun getCurrentDate(): String = LocalDate.now().format(DATE_ONLY_FORMAT)
+
+    /**
+     * Converts any supported timestamp format to ISO 8601
+     */
+    fun standardizeTimestamp(
+        timestamp: String?,
+        useCurrentTimeForNull: Boolean = true
+    ): String {
+        return when {
+            timestamp == null || timestamp.isBlank() -> {
+                if (useCurrentTimeForNull) getCurrentTimestamp()
+                else throw IllegalArgumentException("Timestamp cannot be null or blank")
+            }
+            else -> formatToStorageFormat(timestamp)
+        }
+    }
+
+    /**
+     * Compares two timestamps to determine if an update is needed
      */
     fun isUpdateNeeded(
         serverTimestamp: String?,
@@ -50,106 +176,33 @@ object DateUtils {
             if (entityId != null) {
                 Log.d(TAG, """
                     Timestamp comparison for entity $entityId:
-                    Server timestamp: $serverTimestamp (${formatTimestamp(serverInstant)})
-                    Local timestamp: $localTimestamp (${formatTimestamp(localInstant)})
+                    Server timestamp: $serverTimestamp
+                    Local timestamp: $localTimestamp
                     Needs update: $needsUpdate
                 """.trimIndent())
             }
 
             needsUpdate
         } catch (e: Exception) {
-            Log.e(TAG, """
-                Error comparing timestamps:
-                Server timestamp: $serverTimestamp
-                Local timestamp: $localTimestamp
-                Entity ID: $entityId
-                Error: ${e.message}
-            """.trimIndent())
+            Log.e(TAG, "Error comparing timestamps: $e")
             false
         }
     }
 
     /**
-     * Parses a timestamp string into an Instant object.
-     * Handles multiple timestamp formats.
+     * Gets a future timestamp
      */
-    fun parseTimestamp(timestamp: String): Instant {
-        // First try parsing as milliseconds since epoch
-        try {
-            val millis = timestamp.toLong()
-            return Instant.ofEpochMilli(millis)
-        } catch (e: NumberFormatException) {
-            // Not a numeric timestamp, continue with string parsing
-        }
-
-        // Try each format in sequence
-        for (formatter in PARSABLE_FORMATS) {
-            try {
-                return when (formatter) {
-                    STANDARD_FORMAT,
-                    DateTimeFormatter.ISO_OFFSET_DATE_TIME -> {
-                        // These formats include timezone information
-                        ZonedDateTime.parse(timestamp, formatter).toInstant()
-                    }
-                    DateTimeFormatter.ISO_INSTANT -> {
-                        Instant.from(formatter.parse(timestamp))
-                    }
-                    else -> {
-                        // For formats without timezone, assume UTC
-                        LocalDateTime.parse(timestamp, formatter)
-                            .atZone(ZoneOffset.UTC)
-                            .toInstant()
-                    }
-                }
-            } catch (e: DateTimeParseException) {
-                continue // Try next format
-            }
-        }
-
-        throw IllegalArgumentException("Unable to parse timestamp: $timestamp")
-    }
+    fun getFutureTimestamp(seconds: Long): String =
+        Instant.now().plusSeconds(seconds).toString()
 
     /**
-     * Formats an Instant to the standard format: "2024-05-20 04:02:40.143-07"
+     * Gets a past timestamp
      */
-    fun formatTimestamp(instant: Instant): String {
-        return STANDARD_FORMAT.format(instant.atZone(ZoneId.systemDefault()))
-    }
+    fun getPastTimestamp(seconds: Long): String =
+        Instant.now().minusSeconds(seconds).toString()
 
     /**
-     * Converts any supported timestamp format to our standard format
-     */
-    fun standardizeTimestamp(
-        timestamp: String?,
-        useCurrentTimeForNull: Boolean = false
-    ): String {
-        return when {
-            timestamp == null -> {
-                if (useCurrentTimeForNull) {
-                    getCurrentTimestamp()
-                } else {
-                    getCurrentTimestamp() // Let's default to current time instead of throwing
-                }
-            }
-            timestamp.isBlank() -> getCurrentTimestamp()
-            else -> try {
-                formatTimestamp(parseTimestamp(timestamp))
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to parse timestamp: $timestamp, using current time")
-                getCurrentTimestamp()
-            }
-        }
-    }
-
-    /**
-     * Gets current timestamp in standard format
-     */
-    fun getCurrentTimestamp(): String {
-        return formatTimestamp(Instant.now())
-    }
-
-    /**
-     * Validates if a timestamp string is in the correct format
+     * Validates if a timestamp string is in any supported format
      */
     fun isValidTimestamp(timestamp: String): Boolean {
         return try {
@@ -158,21 +211,5 @@ object DateUtils {
         } catch (e: Exception) {
             false
         }
-    }
-
-    /**
-     * Gets a timestamp for a future time
-     * @param seconds Number of seconds in the future
-     */
-    fun getFutureTimestamp(seconds: Long): String {
-        return formatTimestamp(Instant.now().plusSeconds(seconds))
-    }
-
-    /**
-     * Gets a timestamp for a past time
-     * @param seconds Number of seconds in the past
-     */
-    fun getPastTimestamp(seconds: Long): String {
-        return formatTimestamp(Instant.now().minusSeconds(seconds))
     }
 }

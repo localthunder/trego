@@ -16,8 +16,11 @@ import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
+import androidx.room.Database
+import com.splitter.splittr.data.local.AppDatabase
 import com.splitter.splittr.data.repositories.RequisitionRepository
 import com.splitter.splittr.data.network.ApiService
+import com.splitter.splittr.data.repositories.UserRepository
 import com.splitter.splittr.ui.navigation.NavGraph
 import com.splitter.splittr.ui.theme.GlobalTheme
 import com.splitter.splittr.utils.AuthManager
@@ -35,6 +38,7 @@ class MainActivity : FragmentActivity() {
     private lateinit var viewModelFactory: ViewModelProvider.Factory
     private lateinit var requisitionRepository: RequisitionRepository
     private lateinit var apiService: ApiService
+    private lateinit var userRepository: UserRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,6 +49,7 @@ class MainActivity : FragmentActivity() {
         viewModelFactory = myApplication.viewModelFactory
         requisitionRepository = myApplication.requisitionRepository
         apiService = myApplication.apiService
+        userRepository = myApplication.userRepository
 
         setContent {
             GlobalTheme {
@@ -64,6 +69,8 @@ class MainActivity : FragmentActivity() {
                             Log.d("MainActivity", "User exists, prompting for biometrics")
                             AuthManager.promptForBiometrics(
                                 this@MainActivity,
+                                userRepository = userRepository,
+                                userId = userId,
                                 onSuccess = {
                                     Log.d("MainActivity", "Biometric authentication succeeded, navigating to home")
                                     navController.navigate("home") {
@@ -129,6 +136,8 @@ class MainActivity : FragmentActivity() {
             if (AuthManager.isUserLoggedIn(context)) {
                 AuthManager.promptForBiometrics(
                     this@MainActivity,
+                    userRepository = userRepository,
+                    userId = userId,
                     onSuccess = {
                         Log.d("MainActivity", "Biometric authentication succeeded")
                         navController.navigate("home") {

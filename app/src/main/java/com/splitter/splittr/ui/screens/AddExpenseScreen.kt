@@ -112,7 +112,6 @@ fun AddExpenseScreen(
             // Action Buttons
             ActionButtons(
                 onAddCustom = { navController.navigate("paymentDetails/$groupId/0") },
-                onAddRecurring = { /* TODO */ },
                 onConnectBank = { navController.navigate("institutions") }
             )
 
@@ -249,7 +248,6 @@ fun AddExpenseScreen(
 @Composable
 private fun ActionButtons(
     onAddCustom: () -> Unit,
-    onAddRecurring: () -> Unit,
     onConnectBank: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -259,13 +257,8 @@ private fun ActionButtons(
             onClick = onAddCustom
         )
         ActionButton(
-            icon = Icons.Default.EventRepeat,
-            text = "Add recurring expense",
-            onClick = onAddRecurring
-        )
-        ActionButton(
             icon = Icons.Default.AccountBalance,
-            text = "Connect another bank account",
+            text = "Connect another card or bank account",
             onClick = onConnectBank
         )
     }

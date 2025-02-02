@@ -295,6 +295,56 @@ class UserRepository(
             Result.failure(e)
         }
     }
+
+    suspend fun updateLastLoginDate(userId: Int): Result<Unit> = withContext(dispatchers.io) {
+        try {
+            val currentTime = DateUtils.getCurrentTimestamp()
+
+            // Get current user
+            val user = userDao.getUserByIdDirect(userId) ?:
+            return@withContext Result.failure(Exception("User not found"))
+
+            // Update local database
+            val updatedUser = user.copy(
+                lastLoginDate = currentTime,
+                updatedAt = currentTime,
+                syncStatus = SyncStatus.PENDING_SYNC
+            )
+            userDao.updateUserDirect(updatedUser)
+
+            // If online, sync to server
+            if (NetworkUtils.isOnline()) {
+                try {
+                    // Convert to server model
+                    val serverUser = myApplication.entityServerConverter
+                        .convertUserToServer(updatedUser)
+                        .getOrElse {
+                            Log.e(TAG, "Failed to convert user for server update", it)
+                            return@withContext Result.failure(it)
+                        }
+
+                    // Update server
+                    val response = apiService.updateUser(serverUser.userId, serverUser)
+
+                    // Update local entity with server response
+                    myApplication.entityServerConverter
+                        .convertUserFromServer(response, updatedUser, true)
+                        .onSuccess { syncedUser ->
+                            userDao.updateUserDirect(syncedUser.copy(syncStatus = SyncStatus.SYNCED))
+                        }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to sync last login date to server", e)
+                    // Don't fail the operation since local update succeeded
+                }
+            }
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating last login date", e)
+            Result.failure(e)
+        }
+    }
+
     override suspend fun sync(): Unit = withContext(dispatchers.io) {
         try {
             Log.d(TAG, "Starting user sync")

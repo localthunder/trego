@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.splitter.splittr.data.extensions.toModel
+import com.splitter.splittr.data.local.dataClasses.PaymentEntityWithSplits
 import com.splitter.splittr.data.local.entities.GroupMemberEntity
 import com.splitter.splittr.data.local.entities.PaymentEntity
 import com.splitter.splittr.data.local.entities.PaymentSplitEntity
@@ -23,13 +24,16 @@ import com.splitter.splittr.data.repositories.UserRepository
 import com.splitter.splittr.utils.DateUtils
 import com.splitter.splittr.utils.InstitutionLogoManager
 import com.splitter.splittr.utils.getUserIdFromPreferences
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.format.DateTimeFormatter
@@ -55,6 +59,15 @@ class PaymentsViewModel(
 
     private val _users = MutableStateFlow<List<UserEntity>>(emptyList())
     val users: StateFlow<List<UserEntity>> = _users.asStateFlow()
+
+    private val _groupPaymentsAndSplits = MutableStateFlow<List<PaymentEntityWithSplits>>(emptyList())
+    val groupPaymentsAndSplits = _groupPaymentsAndSplits.asStateFlow()
+
+    private val _loading = MutableStateFlow(false)
+    val loading = _loading.asStateFlow()
+
+    private val _error = MutableStateFlow<String?>(null)
+    val error = _error.asStateFlow()
 
     private var userId: Int? = null
 
@@ -346,6 +359,8 @@ class PaymentsViewModel(
 
     private fun initializeFromTransaction(transactionDetails: TransactionDetails, groupId: Int) {
         val currentUserId = userId ?: return
+        val paymentType = if ((transactionDetails.amount ?: 0.0) > 0) "received" else "spent"
+
         val newPayment = PaymentEntity(
             id = 0,
             groupId = groupId,
@@ -357,7 +372,7 @@ class PaymentsViewModel(
             paymentDate = transactionDetails.bookingDateTime ?: DateUtils.getCurrentTimestamp(),
             currency = transactionDetails.currency,
             splitMode = "equally",
-            paymentType = "spent",
+            paymentType = paymentType,
             institutionId = transactionDetails.institutionId,
             createdBy = currentUserId,
             updatedBy = currentUserId,
@@ -540,7 +555,7 @@ class PaymentsViewModel(
             )
 
             // Format the payment date
-            val formattedDate = formatPaymentDate(editablePayment.paymentDate)
+            val formattedDate = DateUtils.formatToStorageFormat(editablePayment.paymentDate)
             val paymentToSave = editablePayment.copy(
                 paymentDate = formattedDate,
                 transactionId = transaction.transactionId
@@ -616,7 +631,7 @@ class PaymentsViewModel(
                 paymentOperationStatus = PaymentOperationStatus.Loading
             )
 
-            val formattedDate = formatPaymentDate(editablePayment.paymentDate)
+            val formattedDate = DateUtils.formatToStorageFormat(editablePayment.paymentDate)
             val paymentToSave = editablePayment.copy(paymentDate = formattedDate)
 
             val result = when {
@@ -669,18 +684,6 @@ class PaymentsViewModel(
     // Add this function to reset navigation state
     fun resetNavigationState() {
         _navigationState.value = NavigationState.Idle
-    }
-
-    private fun formatPaymentDate(date: String): String {
-        return try {
-            // Assuming the input is a Unix timestamp in milliseconds
-            val instant = Instant.ofEpochMilli(date.toLong())
-            // Format to ISO 8601 string
-            DateTimeFormatter.ISO_INSTANT.format(instant)
-        } catch (e: Exception) {
-            // If parsing fails, return the current time as ISO 8601 string
-            Instant.now().toString()
-        }
     }
 
     fun archivePayment() {
@@ -800,6 +803,33 @@ class PaymentsViewModel(
     fun clearPaymentItemInfo(paymentId: Int) {
         _paymentItemInfo.update { currentMap ->
             currentMap - paymentId
+        }
+    }
+
+    fun fetchGroupPayments(groupId: Int) {
+        viewModelScope.launch {
+            try {
+                _loading.value = true
+                _error.value = null
+
+                Log.d("PaymentsViewModel", "Starting payment fetch for group: $groupId")
+
+                paymentRepository.getGroupPayments(groupId)
+                    .catch { e ->
+                        Log.e("PaymentsViewModel", "Error fetching payments", e)
+                        _error.value = e.message
+                        _loading.value = false
+                    }
+                    .collect { payments ->
+                        Log.d("PaymentsViewModel", "Received ${payments.size} payments")
+                        _groupPaymentsAndSplits.value = payments
+                        _loading.value = false
+                    }
+            } catch (e: Exception) {
+                Log.e("PaymentsViewModel", "Error in fetchGroupPayments", e)
+                _error.value = e.message
+                _loading.value = false
+            }
         }
     }
 

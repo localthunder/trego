@@ -9,6 +9,12 @@ import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
 import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
 import androidx.fragment.app.FragmentActivity
+import com.splitter.splittr.data.local.dao.UserDao
+import com.splitter.splittr.data.repositories.UserRepository
+import com.splitter.splittr.data.sync.SyncStatus
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 object AuthManager {
     private const val TAG = "AuthManager"
@@ -20,22 +26,34 @@ object AuthManager {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         return token != null && prefs.getBoolean(KEY_AUTHENTICATED, false)
     }
+
     fun setAuthenticated(context: Context, authenticated: Boolean) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().putBoolean(KEY_AUTHENTICATED, authenticated).apply()
     }
 
+    private fun updateLastLoginDate(userRepository: UserRepository, userId: Int) {
+        CoroutineScope(Dispatchers.IO).launch {
+            userRepository.updateLastLoginDate(userId)
+                .onFailure { e ->
+                    Log.e(TAG, "Failed to update last login date", e)
+                }
+        }
+    }
+
     fun promptForBiometrics(
         activity: FragmentActivity,
+        userRepository: UserRepository,
+        userId: Int,
         onSuccess: () -> Unit,
         onFailure: () -> Unit
     ) {
         Log.d(TAG, "Starting biometric prompt")
         val biometricManager = BiometricManager.from(activity)
 
-        // Check what authentication methods are available
         val canAuthenticateResult = biometricManager.canAuthenticate(
-            BiometricManager.Authenticators.BIOMETRIC_STRONG or DEVICE_CREDENTIAL
+            BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                    BiometricManager.Authenticators.DEVICE_CREDENTIAL
         )
 
         Log.d(TAG, "Authentication capability result: $canAuthenticateResult")
@@ -49,6 +67,7 @@ object AuthManager {
                         override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                             Log.d(TAG, "Authentication succeeded")
                             setAuthenticated(activity, true)
+                            updateLastLoginDate(userRepository, userId)
                             onSuccess()
                         }
 
@@ -56,8 +75,8 @@ object AuthManager {
                             Log.e(TAG, "Authentication error $errorCode: $errString")
                             if (errorCode == BiometricPrompt.ERROR_NO_BIOMETRICS) {
                                 Log.d(TAG, "No biometrics enrolled, allowing device credentials")
-                                // Continue with device credentials
                                 setAuthenticated(activity, true)
+                                updateLastLoginDate(userRepository, userId)
                                 onSuccess()
                             } else {
                                 setAuthenticated(activity, false)
@@ -91,31 +110,8 @@ object AuthManager {
             }
             else -> {
                 Log.e(TAG, "Device cannot authenticate: $canAuthenticateResult")
-                // If device has no security set up, we might want to handle this differently
                 onFailure()
             }
         }
     }
-
-//    private fun createAuthCallback(onSuccess: () -> Unit, onFailure: () -> Unit): BiometricPrompt.AuthenticationCallback {
-//        return object : BiometricPrompt.AuthenticationCallback() {
-//            override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-//                super.onAuthenticationError(errorCode, errString)
-//                Log.e(TAG, "Authentication error: $errString")
-//                onFailure()
-//            }
-//
-//            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-//                super.onAuthenticationSucceeded(result)
-//                Log.d(TAG, "Authentication succeeded!")
-//                onSuccess()
-//            }
-//
-//            override fun onAuthenticationFailed() {
-//                super.onAuthenticationFailed()
-//                Log.e(TAG, "Authentication failed")
-//                onFailure()
-//            }
-//        }
-//    }
 }

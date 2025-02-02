@@ -25,8 +25,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.splitter.splittr.data.repositories.InstitutionRepository
-import com.splitter.splittr.utils.FormattingUtils.formatDate
+import com.splitter.splittr.utils.DateUtils
 import com.splitter.splittr.utils.InstitutionLogoManager
 
 @Composable
@@ -112,7 +111,7 @@ fun PaymentAndTransactionCard(
 
                 bookingDateTime?.let {
                     Text(
-                        text = formatDate(it),
+                        text = DateUtils.formatForDisplay(it),
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color.Gray,
                         fontSize = 12.sp

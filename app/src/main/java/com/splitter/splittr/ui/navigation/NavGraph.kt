@@ -21,6 +21,7 @@ import com.splitter.splittr.ui.screens.BankAccountsScreen
 import com.splitter.splittr.ui.screens.CurrencySelectionScreen
 import com.splitter.splittr.ui.screens.GroupBalancesScreen
 import com.splitter.splittr.ui.screens.GroupDetailsScreen
+import com.splitter.splittr.ui.screens.GroupTotalsScreen
 import com.splitter.splittr.ui.screens.HomeScreen
 import com.splitter.splittr.ui.screens.InstitutionsScreen
 import com.splitter.splittr.ui.screens.InviteMembersScreen
@@ -156,6 +157,17 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
         ){backStackEntry ->
             val groupId = backStackEntry.arguments?.getInt("groupId") ?: return@composable
             GroupBalancesScreen(navController, context, groupId)
+        }
+        composable(
+            route = "groupTotals/{groupId}",
+            arguments = listOf(navArgument("groupId") { type = NavType.IntType })
+        ) { backStackEntry ->
+            val groupId = backStackEntry.arguments?.getInt("groupId") ?: return@composable
+            GroupTotalsScreen(
+                navController = navController,
+                context = context,
+                groupId = groupId
+            )
         }
     }
 }

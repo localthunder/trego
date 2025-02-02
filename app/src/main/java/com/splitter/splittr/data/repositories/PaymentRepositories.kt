@@ -12,6 +12,7 @@ import com.splitter.splittr.data.local.dao.PaymentDao
 import com.splitter.splittr.data.local.dao.PaymentSplitDao
 import com.splitter.splittr.data.local.dao.SyncMetadataDao
 import com.splitter.splittr.data.local.dao.TransactionDao
+import com.splitter.splittr.data.local.dataClasses.PaymentEntityWithSplits
 import com.splitter.splittr.data.local.entities.PaymentEntity
 import com.splitter.splittr.data.local.entities.PaymentSplitEntity
 import com.splitter.splittr.data.network.ApiService
@@ -282,6 +283,10 @@ class PaymentRepository(
             val userId = getUserIdFromPreferences(context)
                 ?: return@withContext Result.failure(IllegalStateException("User ID not found"))
 
+            // Determine payment type based on transaction amount
+            val effectiveAmount = transaction.getEffectiveAmount()
+            val adjustedPaymentType = if (effectiveAmount > 0) "received" else payment.paymentType
+
             // Create a complete transaction object with all required fields
             val completeTransaction = transaction.copy(
                 userId = userId,
@@ -339,6 +344,7 @@ class PaymentRepository(
             // Adjust the payment with the calculated amount
             val adjustedPayment = payment.copy(
                 amount = finalAmount,
+                paymentType = adjustedPaymentType,
                 transactionId = transaction.transactionId,
                 paidByUserId = userId,
                 currency = transaction.getEffectiveCurrency()
@@ -346,7 +352,7 @@ class PaymentRepository(
 
             // Adjust the splits based on payment type
             val adjustedSplits = splits.map { split ->
-                split.copy(amount = calculateSplitAmount(split.amount, payment.paymentType))
+                split.copy(amount = calculateSplitAmount(split.amount, adjustedPaymentType))
             }
 
             return@withContext createPaymentWithSplits(adjustedPayment, adjustedSplits).also { result ->
@@ -793,6 +799,68 @@ class PaymentRepository(
         }
     }
 
+    fun getGroupPayments(groupId: Int): Flow<List<PaymentEntityWithSplits>> = flow {
+        try {
+            // First emission - get current local data
+            emit(getLocalPayments(groupId))
+
+            // Check if we need to sync
+            if (shouldSyncGroupPayments(groupId)) {
+                try {
+                    // Request sync through the sync manager
+                    paymentSyncManager.performSync()
+
+                    // After sync completes, emit fresh local data
+                    emit(getLocalPayments(groupId))
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error during sync", e)
+                    // Don't throw here - we already emitted initial data
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in getGroupPayments", e)
+            throw e
+        }
+    }.flowOn(dispatchers.io)
+
+    private suspend fun getLocalPayments(groupId: Int): List<PaymentEntityWithSplits> {
+        Log.d(TAG, "Getting local payments for group $groupId")
+        return withContext(dispatchers.io) {
+            val paymentEntities = paymentDao.getNonArchivedPaymentsByGroup(groupId)
+            Log.d(TAG, "Found ${paymentEntities.size} non-archived payments")
+
+            paymentEntities.map { paymentEntity ->
+                val splits = paymentSplitDao.getNonArchivedSplitsByPayment(paymentEntity.id)
+                Log.d(TAG, "Payment ${paymentEntity.id} has ${splits.size} splits")
+
+                PaymentEntityWithSplits(paymentEntity, splits)
+            }.also { results ->
+                Log.d(TAG, """
+                Final payment results:
+                Total payments: ${results.size}
+                Payment details:
+                ${results.joinToString("\n") { payment ->
+                    """
+                    - ID: ${payment.payment.id}
+                    Amount: ${payment.payment.amount}
+                    Type: ${payment.payment.paymentType}
+                    Currency: ${payment.payment.currency}
+                    Splits: ${payment.splits.size}
+                    """.trimIndent()
+                }}
+            """.trimIndent())
+            }
+        }
+    }
+
+    private suspend fun shouldSyncGroupPayments(groupId: Int): Boolean {
+        // Check sync metadata to determine if sync is needed
+        val metadata = syncMetadataDao.getMetadata("payments_group_$groupId") ?: return true
+
+        val timeSinceLastSync = System.currentTimeMillis() - metadata.lastSyncTimestamp
+        return timeSinceLastSync > SYNC_INTERVAL || metadata.syncStatus != SyncStatus.SYNCED
+    }
+
     override suspend fun sync(): Unit = withContext(dispatchers.io) {
         try {
             Log.d(TAG, "Starting payment sync process")
@@ -827,5 +895,6 @@ class PaymentRepository(
     }
     companion object {
         private const val TAG = "PaymentRepository"
+        private const val SYNC_INTERVAL = 5 * 60 * 1000 // 5 minutes
     }
 }

@@ -9,3 +9,8 @@ data class PaymentWithSplits(
     val payment: Payment,
     val splits: List<PaymentSplit>,
 )
+
+data class PaymentEntityWithSplits(
+    val payment: PaymentEntity,
+    val splits: List<PaymentSplitEntity> = emptyList()
+)

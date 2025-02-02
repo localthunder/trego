@@ -199,7 +199,8 @@ fun GroupDetailsScreen(
                             item {
                                 GroupActionButtons(
                                     onAddMembersClick = { showAddMembersBottomSheet = true },
-                                    onBalancesClick = { navController.navigate("groupBalances/$groupId") }
+                                    onBalancesClick = { navController.navigate("groupBalances/$groupId") },
+                                    onTotalsClick = { navController.navigate("groupTotals/$groupId") }
                                 )
                             }
                             item {
@@ -500,7 +501,8 @@ fun GroupMembersSection(
 @Composable
 fun GroupActionButtons(
     onAddMembersClick: () -> Unit,
-    onBalancesClick: () -> Unit
+    onBalancesClick: () -> Unit,
+    onTotalsClick: () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -513,6 +515,9 @@ fun GroupActionButtons(
         }
         Button(onClick = onBalancesClick) {
             Text("Balances")
+        }
+        Button(onClick = onTotalsClick) {
+            Text("Totals")
         }
     }
 }
