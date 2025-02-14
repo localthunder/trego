@@ -41,7 +41,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-fun LoginScreen(navController: NavController) {
+fun LoginScreen(navController: NavController, inviteCode: String? = null) {
     val context = LocalContext.current
     val view = LocalView.current
     val focusManager = LocalFocusManager.current
@@ -102,8 +102,14 @@ fun LoginScreen(navController: NavController) {
 
                 // 5. Navigate to home screen
                 withContext(Dispatchers.Main) {
-                    navController.navigate("home") {
-                        popUpTo("login") { inclusive = true }
+                    if (inviteCode != null) {
+                        navController.navigate("invite/$inviteCode") {
+                            popUpTo("login") { inclusive = true }
+                        }
+                    } else {
+                        navController.navigate("home") {
+                            popUpTo("login") { inclusive = true }
+                        }
                     }
                 }
             } catch (e: Exception) {

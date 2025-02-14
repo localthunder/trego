@@ -129,7 +129,7 @@ fun AddExpenseScreen(
                             account.institutionId?.let { id ->
                                 institutionViewModel.createRequisitionLink(
                                     institutionId = id,
-                                    baseUrl = "splitter://bankaccounts"
+                                    baseUrl = "splittr://bankaccounts"
                                 )
                             }
                         }
@@ -141,7 +141,7 @@ fun AddExpenseScreen(
                         onReconnectClick = { institutionId ->
                             institutionViewModel.createRequisitionLink(
                                 institutionId = institutionId,
-                                baseUrl = "splitter://bankaccounts"
+                                baseUrl = "splittr://bankaccounts"
                             )
                         }
                     )

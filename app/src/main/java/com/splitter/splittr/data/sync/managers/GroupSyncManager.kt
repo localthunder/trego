@@ -84,7 +84,8 @@ class GroupSyncManager(
                     description = serverResult.description,
                     syncStatus = SyncStatus.SYNCED,
                     updatedAt = serverResult.updatedAt,
-                    inviteLink = serverResult.inviteLink
+                    inviteLink = serverResult.inviteLink,
+                    defaultCurrency = serverResult.defaultCurrency
                 )
 
                 // Use updateGroup instead of insertGroup to ensure we update the existing record

@@ -140,7 +140,7 @@ fun InstitutionItem(
 
     LaunchedEffect(shouldCreateRequisition) {
         if (shouldCreateRequisition) {
-            val baseUrl = "splitter://bankaccounts"
+            val baseUrl = "splittr://bankaccounts"
             val requisitionRequest = RequisitionRequest(
                 baseUrl = baseUrl,
                 institutionId = institution.id,

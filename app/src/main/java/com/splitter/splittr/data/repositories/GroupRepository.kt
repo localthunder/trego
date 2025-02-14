@@ -4,6 +4,7 @@ import android.content.ContentValues.TAG
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import androidx.room.withTransaction
 import com.splitter.splittr.MyApplication
 import com.splitter.splittr.data.extensions.toEntity
 import com.splitter.splittr.data.extensions.toListItem
@@ -16,7 +17,9 @@ import com.splitter.splittr.data.local.dao.PaymentSplitDao
 import com.splitter.splittr.data.local.dao.SyncMetadataDao
 import com.splitter.splittr.data.local.dao.UserDao
 import com.splitter.splittr.data.local.dao.UserGroupArchiveDao
+import com.splitter.splittr.data.local.dataClasses.CurrencySettlingInstructions
 import com.splitter.splittr.data.local.dataClasses.GroupImageUploadResult
+import com.splitter.splittr.data.local.dataClasses.SettlingInstruction
 import com.splitter.splittr.data.local.entities.GroupEntity
 import com.splitter.splittr.data.local.entities.GroupMemberEntity
 import com.splitter.splittr.data.local.entities.UserGroupArchiveEntity
@@ -221,6 +224,7 @@ class GroupRepository(
                 createdAt = currentTime,
                 updatedAt = currentTime,
                 inviteLink = group.inviteLink,
+                defaultCurrency = existingUser?.defaultCurrency ?: "GBP",
                 syncStatus = SyncStatus.PENDING_SYNC
             )
 
@@ -447,15 +451,42 @@ class GroupRepository(
 
     suspend fun removeMemberFromGroup(memberId: Int): Result<Unit> = withContext(dispatchers.io) {
         try {
+            // First get the member to find their group
+            val member = groupMemberDao.getGroupMemberByIdSync(memberId)
+                ?: return@withContext Result.failure(Exception("Member not found"))
+
+            // Calculate user's balance in the group
+            val balances = calculateGroupBalances(member.groupId).getOrElse {
+                return@withContext Result.failure(Exception("Failed to calculate balances: ${it.message}"))
+            }
+
+            // Find this member's balance
+            val memberBalance = balances.find { it.userId == member.userId }
+
+            // Check if user has any non-zero balances
+            val hasNonZeroBalance = memberBalance?.balances?.any { (_, amount) ->
+                // Use a small epsilon for floating point comparison
+                Math.abs(amount) > 0.01
+            } ?: false
+
+            if (hasNonZeroBalance) {
+                return@withContext Result.failure(Exception("Cannot remove member with non-zero balance"))
+            }
+
+            // If balance is zero, proceed with removal
             groupMemberDao.removeGroupMember(memberId)
+
+            // Sync with server if online
             if (NetworkUtils.isOnline()) {
                 val localMember = groupMemberDao.getGroupMemberByIdSync(memberId)
-                (localMember?.serverId)?.let {
+                localMember?.serverId?.let {
                     apiService.removeMemberFromGroup(it)
                 }
             }
+
             Result.success(Unit)
         } catch (e: Exception) {
+            Log.e("GroupRepository", "Failed to remove member", e)
             Result.failure(e)
         }
     }
@@ -913,6 +944,105 @@ class GroupRepository(
         } catch (e: Exception) {
             Log.e(TAG, "Error checking group archive status", e)
             emit(false)
+        }
+    }
+
+
+    suspend fun calculateSettlingInstructions(groupId: Int): Result<List<CurrencySettlingInstructions>> = withContext(dispatchers.io) {
+        try {
+            // Get the balances first
+            val balances = calculateGroupBalances(groupId).getOrElse {
+                return@withContext Result.failure(it)
+            }
+
+            // Group balances by currency
+            val currencyBalances = mutableMapOf<String, MutableList<Pair<String, Double>>>()
+
+            balances.forEach { userBalance ->
+                userBalance.balances.forEach { (currency, amount) ->
+                    currencyBalances.getOrPut(currency) { mutableListOf() }
+                        .add(Pair(userBalance.username, amount))
+                }
+            }
+
+            val instructions = currencyBalances.map { (currency, balanceList) ->
+                // Sort balances: negative (debtors) first, positive (creditors) last
+                val sortedBalances = balanceList.sortedBy { it.second }
+                val currencyInstructions = mutableListOf<SettlingInstruction>()
+
+                var i = 0 // Index for debtors (negative balances)
+                var j = sortedBalances.size - 1 // Index for creditors (positive balances)
+
+                while (i < j) {
+                    val debtor = sortedBalances[i]
+                    val creditor = sortedBalances[j]
+
+                    // Skip effectively zero balances
+                    if (kotlin.math.abs(debtor.second) < 0.01 || kotlin.math.abs(creditor.second) < 0.01) {
+                        if (kotlin.math.abs(debtor.second) < 0.01) i++
+                        if (kotlin.math.abs(creditor.second) < 0.01) j--
+                        continue
+                    }
+
+                    // Calculate transfer amount
+                    val transferAmount = kotlin.math.min(kotlin.math.abs(debtor.second), creditor.second)
+
+                    currencyInstructions.add(
+                        SettlingInstruction(
+                            from = debtor.first,
+                            to = creditor.first,
+                            amount = transferAmount,
+                            currency = currency
+                        )
+                    )
+
+                    // Update balances
+                    val updatedDebtorBalance = debtor.second + transferAmount
+                    val updatedCreditorBalance = creditor.second - transferAmount
+
+                    // Move indices if balances are settled
+                    if (kotlin.math.abs(updatedDebtorBalance) < 0.01) i++
+                    if (kotlin.math.abs(updatedCreditorBalance) < 0.01) j--
+                }
+
+                CurrencySettlingInstructions(currency, currencyInstructions)
+            }
+
+            Result.success(instructions)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error calculating settling instructions", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun joinGroupByInvite(inviteCode: String, userId: Int): Result<Int> = withContext(dispatchers.io) {
+        try {
+            if (NetworkUtils.isOnline()) {
+                val serverResponse = apiService.joinGroupByInvite(inviteCode)
+                val localGroup = serverResponse.toEntity(SyncStatus.SYNCED)
+
+                myApplication.database.withTransaction {
+                    // Insert or update the group
+                    val groupId = groupDao.insertGroup(localGroup).toInt()
+
+                    // Add user as member
+                    val memberEntity = GroupMemberEntity(
+                        groupId = groupId,
+                        userId = userId,
+                        createdAt = DateUtils.getCurrentTimestamp(),
+                        updatedAt = DateUtils.getCurrentTimestamp(),
+                        removedAt = null,
+                        syncStatus = SyncStatus.SYNCED
+                    )
+                    groupMemberDao.insertGroupMember(memberEntity)
+
+                    Result.success(groupId)
+                }
+            } else {
+                Result.failure(IOException("Internet connection required to join group"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 

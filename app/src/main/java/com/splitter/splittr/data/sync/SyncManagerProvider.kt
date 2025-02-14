@@ -3,7 +3,9 @@ package com.splitter.splittr.data.sync
 import android.content.Context
 import com.splitter.splittr.MyApplication
 import com.splitter.splittr.data.cache.TransactionCacheManager
+import com.splitter.splittr.data.calculators.DefaultSplitCalculator
 import com.splitter.splittr.data.local.AppDatabase
+import com.splitter.splittr.data.managers.CurrencyConversionManager
 import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.data.repositories.BankAccountRepository
 import com.splitter.splittr.data.repositories.GroupRepository
@@ -14,6 +16,7 @@ import com.splitter.splittr.data.repositories.RequisitionRepository
 import com.splitter.splittr.data.repositories.TransactionRepository
 import com.splitter.splittr.data.repositories.UserRepository
 import com.splitter.splittr.data.sync.managers.BankAccountSyncManager
+import com.splitter.splittr.data.sync.managers.CurrencyConversionSyncManager
 import com.splitter.splittr.data.sync.managers.GroupMemberSyncManager
 import com.splitter.splittr.data.sync.managers.PaymentSyncManager
 import com.splitter.splittr.data.sync.managers.RequisitionSyncManager
@@ -22,6 +25,8 @@ import com.splitter.splittr.data.sync.managers.UserGroupArchiveSyncManager
 import com.splitter.splittr.data.sync.managers.UserSyncManager
 import com.splitter.splittr.utils.AppCoroutineDispatchers
 import com.splitter.splittr.utils.CoroutineDispatchers
+import com.splitter.splittr.utils.EntityServerConverter
+
 class SyncManagerProvider(
     private val context: Context,
     private val apiService: ApiService,
@@ -126,6 +131,30 @@ class SyncManagerProvider(
         )
     }
 
+    val currencyConversionSyncManager by lazy {
+        CurrencyConversionSyncManager(
+            currencyConversionDao = database.currencyConversionDao(),
+            userDao = database.userDao(),
+            apiService = apiService,
+            syncMetadataDao = syncMetadataDao,
+            dispatchers = dispatchers,
+            context = context
+        )
+    }
+
+
+    val currencyConversionManager by lazy {
+        CurrencyConversionManager(
+            apiService = apiService,
+            currencyConversionDao = database.currencyConversionDao(),
+            paymentDao = database.paymentDao(),
+            paymentSplitDao = database.paymentSplitDao(),
+            splitCalculator = DefaultSplitCalculator(),
+            entityServerConverter = EntityServerConverter(context),
+            dispatchers = dispatchers
+        )
+    }
+
     // Repository Providers
     fun provideBankAccountRepository() = BankAccountRepository(
         bankAccountDao = database.bankAccountDao(),
@@ -166,11 +195,14 @@ class SyncManagerProvider(
         groupDao = database.groupDao(),
         groupMemberDao = database.groupMemberDao(),
         transactionDao = database.transactionDao(),
+        currencyConversionDao = database.currencyConversionDao(),
         apiService = apiService,
         dispatchers = dispatchers,
         context = context,
         syncMetadataDao = syncMetadataDao,
-        paymentSyncManager = paymentSyncManager
+        paymentSyncManager = paymentSyncManager,
+        currencyConversionSyncManager = currencyConversionSyncManager,
+        splitCalculator = DefaultSplitCalculator()
     )
 
     fun providePaymentSplitRepository() = PaymentSplitRepository(

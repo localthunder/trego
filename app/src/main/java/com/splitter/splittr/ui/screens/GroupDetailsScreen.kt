@@ -14,10 +14,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
@@ -30,6 +32,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
@@ -39,11 +42,15 @@ import com.splitter.splittr.ui.components.GlobalFAB
 import com.splitter.splittr.ui.components.GlobalTopAppBar
 import com.splitter.splittr.data.model.GroupMember
 import com.splitter.splittr.ui.components.AddMembersBottomSheet
+import com.splitter.splittr.ui.components.BatchCurrencyConversionButton
 import com.splitter.splittr.ui.components.PaymentItem
+import com.splitter.splittr.ui.components.SettleUpButton
 import com.splitter.splittr.ui.theme.GlobalTheme
 import com.splitter.splittr.ui.viewmodels.GroupViewModel
 import com.splitter.splittr.ui.viewmodels.UserViewModel
+import com.splitter.splittr.utils.FormattingUtils.formatAsCurrency
 import com.splitter.splittr.utils.ImageUtils
+import kotlin.math.absoluteValue
 
 @SuppressLint("UnrememberedMutableState")
 @OptIn(ExperimentalMaterialApi::class)
@@ -60,8 +67,14 @@ fun GroupDetailsScreen(
     var showRestoreConfirmDialog by remember { mutableStateOf(false) }
     val archiveState by groupViewModel.archiveGroupState.collectAsState()
     val restoreState by groupViewModel.restoreGroupState.collectAsState()
+    val groupBalances by groupViewModel.groupBalances.collectAsState()
     val groupDetailsState by groupViewModel.groupDetailsState.collectAsState()
     var showAddMembersBottomSheet by remember { mutableStateOf(false) }
+    var showLeaveGroupDialog by remember { mutableStateOf(false) }
+    val paymentUpdateTrigger by groupViewModel.paymentsUpdateTrigger.collectAsState()
+
+
+
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -70,7 +83,11 @@ fun GroupDetailsScreen(
     }
 
     LaunchedEffect(groupId) {
-        groupViewModel.loadGroupDetails(groupId)
+        groupViewModel.initializeGroupDetails(groupId)
+    }
+
+    LaunchedEffect(groupDetailsState.payments) {
+        groupViewModel.checkCurrentUserBalance()
     }
 
     val refreshing = groupDetailsState.isLoading
@@ -126,6 +143,24 @@ fun GroupDetailsScreen(
                                     }
                                 }
                             )
+                            Divider()
+                            DropdownMenuItem(
+                                text = { Text("Leave Group") },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.ExitToApp,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                },
+                                colors = MenuDefaults.itemColors(
+                                    textColor = MaterialTheme.colorScheme.error
+                                ),
+                                onClick = {
+                                    showMenu = false
+                                    showLeaveGroupDialog = true
+                                }
+                            )
                         }
                     }
                 )
@@ -148,6 +183,7 @@ fun GroupDetailsScreen(
                     groupDetailsState.isLoading && groupDetailsState.group == null -> {
                         CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                     }
+
                     groupDetailsState.error != null -> {
                         Text(
                             "Error: ${groupDetailsState.error}",
@@ -155,12 +191,14 @@ fun GroupDetailsScreen(
                             modifier = Modifier.align(Alignment.Center)
                         )
                     }
+
                     groupDetailsState.group == null -> {
                         Text(
                             "No group data available",
                             modifier = Modifier.align(Alignment.Center)
                         )
                     }
+
                     else -> {
                         LazyColumn {
                             item {
@@ -184,11 +222,20 @@ fun GroupDetailsScreen(
                                             Text(
                                                 it,
                                                 style = MaterialTheme.typography.bodyLarge,
-                                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                                                color = MaterialTheme.colorScheme.onBackground.copy(
+                                                    alpha = 0.7f
+                                                )
                                             )
                                         }
                                     }
                                 }
+                            }
+                            item {
+                                SettleUpButton(
+                                    groupId = groupId,
+                                    balances = groupBalances,
+                                    onSettleUpClick = { navController.navigate("settleUp/$groupId") }
+                                )
                             }
                             item {
                                 GroupMembersSection(
@@ -203,12 +250,31 @@ fun GroupDetailsScreen(
                                     onTotalsClick = { navController.navigate("groupTotals/$groupId") }
                                 )
                             }
+
                             item {
                                 Text(
                                     "Payments",
                                     style = MaterialTheme.typography.titleLarge,
                                     color = MaterialTheme.colorScheme.onBackground,
                                     modifier = Modifier.padding(16.dp)
+                                )
+                            }
+                            item {
+                                BatchCurrencyConversionButton(
+                                    paymentsCount = groupDetailsState.payments
+                                        .filter {
+                                            it.currency != groupDetailsState.group?.defaultCurrency &&
+                                                    it.currency != null
+                                        }.size,
+                                    targetCurrency = groupDetailsState.group?.defaultCurrency
+                                        ?: "GBP",
+                                    isConverting = groupDetailsState.isConverting,
+                                    conversionError = groupDetailsState.conversionError,
+                                    onConvertClicked = {
+                                        groupDetailsState.group?.id?.let { groupId ->
+                                            groupViewModel.batchConvertCurrencies(groupId)
+                                        }
+                                    }
                                 )
                             }
                             items(
@@ -220,7 +286,8 @@ fun GroupDetailsScreen(
                                                 payment.updatedAt.toLongOrNull() != null -> payment.updatedAt.toLong()
                                                 else -> {
                                                     // Try parsing ISO format
-                                                    val instant = java.time.Instant.parse(payment.updatedAt)
+                                                    val instant =
+                                                        java.time.Instant.parse(payment.updatedAt)
                                                     instant.toEpochMilli()
                                                 }
                                             }
@@ -230,11 +297,13 @@ fun GroupDetailsScreen(
                                         }
                                     }
                             ) { payment ->
-                                PaymentItem(
-                                    payment = payment,
-                                    context = context,
-                                    onClick = { navController.navigate("paymentDetails/$groupId/${payment.id}") }
-                                )
+                                key(payment.id.toString() + payment.updatedAt + paymentUpdateTrigger) {
+                                    PaymentItem(
+                                        payment = payment,
+                                        context = context,
+                                        onClick = { navController.navigate("paymentDetails/$groupId/${payment.id}") }
+                                    )
+                                }
                             }
                         }
                     }
@@ -319,7 +388,74 @@ fun GroupDetailsScreen(
                 }
             )
         }
+        //Leave group confirmation dialog
+        if (showLeaveGroupDialog) {
+            val userBalance by groupViewModel.currentUserBalance.collectAsStateWithLifecycle()
+            val hasNonZeroBalance = userBalance?.balances?.any { (_, amount) ->
+                Math.abs(amount) > 0.01
+            } ?: false
 
+            AlertDialog(
+                onDismissRequest = { showLeaveGroupDialog = false },
+                title = { Text("Leave Group") },
+                text = {
+                    Column {
+                        if (hasNonZeroBalance) {
+                            Text("You have outstanding balances in this group:")
+                            Spacer(modifier = Modifier.height(8.dp))
+                            userBalance?.balances?.forEach { (currency, amount) ->
+                                if (Math.abs(amount) > 0.01) {
+                                    Text(
+                                        buildString {
+                                            if (amount < 0) append("You owe: ") else append("You are owed: ")
+                                            append(amount.absoluteValue.formatAsCurrency(currency))
+                                        },
+                                        color = if (amount < 0)
+                                            MaterialTheme.colorScheme.error
+                                        else
+                                            MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("You'll need to settle up before leaving.")
+                        } else {
+                            Text("Are you sure you want to leave this group?")
+                        }
+                    }
+                },
+                confirmButton = {
+                    if (hasNonZeroBalance) {
+                        val isOwed =
+                            userBalance?.balances?.any { (_, amount) -> amount > 0 } ?: false
+                        TextButton(
+                            onClick = {
+                                showLeaveGroupDialog = false
+                                navController.navigate("group/${groupId}/balances")
+                            }
+                        ) {
+                            Text(if (isOwed) "Request Payment" else "Settle Up")
+                        }
+                    } else {
+                        TextButton(
+                            onClick = {
+                                showLeaveGroupDialog = false
+                                groupViewModel.getCurrentMemberId()?.let { memberId ->
+                                    groupViewModel.removeMember(memberId)
+                                }
+                            }
+                        ) {
+                            Text("Leave")
+                        }
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showLeaveGroupDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
         // Handle archive state changes
         LaunchedEffect(archiveState) {
             when (archiveState) {

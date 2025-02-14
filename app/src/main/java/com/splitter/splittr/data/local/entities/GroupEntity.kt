@@ -22,5 +22,6 @@ data class GroupEntity(
     @ColumnInfo(name = "created_at") val createdAt: String,
     @ColumnInfo(name = "updated_at") val updatedAt: String,
     @ColumnInfo(name = "invite_link") val inviteLink: String?,
+    @ColumnInfo(name = "default_currency") val defaultCurrency: String = "GBP",
     @ColumnInfo(name = "sync_status") var syncStatus: SyncStatus = SyncStatus.PENDING_SYNC
 )

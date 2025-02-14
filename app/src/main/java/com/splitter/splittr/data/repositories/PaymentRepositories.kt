@@ -4,24 +4,33 @@ import android.content.ContentValues.TAG
 import android.content.Context
 import android.util.Log
 import com.splitter.splittr.MyApplication
+import com.splitter.splittr.data.calculators.SplitCalculator
 import com.splitter.splittr.data.extensions.toEntity
 import com.splitter.splittr.data.extensions.toModel
+import com.splitter.splittr.data.local.dao.CurrencyConversionDao
 import com.splitter.splittr.data.local.dao.GroupDao
 import com.splitter.splittr.data.local.dao.GroupMemberDao
 import com.splitter.splittr.data.local.dao.PaymentDao
 import com.splitter.splittr.data.local.dao.PaymentSplitDao
 import com.splitter.splittr.data.local.dao.SyncMetadataDao
 import com.splitter.splittr.data.local.dao.TransactionDao
+import com.splitter.splittr.data.local.dataClasses.BatchConversionResult
+import com.splitter.splittr.data.local.dataClasses.ConversionAttempt
+import com.splitter.splittr.data.local.dataClasses.CurrencyConversionResult
 import com.splitter.splittr.data.local.dataClasses.PaymentEntityWithSplits
+import com.splitter.splittr.data.local.entities.CurrencyConversionEntity
 import com.splitter.splittr.data.local.entities.PaymentEntity
 import com.splitter.splittr.data.local.entities.PaymentSplitEntity
+import com.splitter.splittr.data.managers.CurrencyConversionManager
 import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.data.sync.SyncStatus
 import com.splitter.splittr.data.model.Payment
 import com.splitter.splittr.data.model.PaymentSplit
 import com.splitter.splittr.data.model.Transaction
 import com.splitter.splittr.data.model.TransactionAmount
+import com.splitter.splittr.data.network.ExchangeRateService
 import com.splitter.splittr.data.sync.SyncableRepository
+import com.splitter.splittr.data.sync.managers.CurrencyConversionSyncManager
 import com.splitter.splittr.data.sync.managers.PaymentSyncManager
 import com.splitter.splittr.utils.CoroutineDispatchers
 import com.splitter.splittr.utils.DateUtils
@@ -31,6 +40,7 @@ import com.splitter.splittr.utils.ServerIdUtil
 import com.splitter.splittr.utils.ServerIdUtil.getLocalId
 import com.splitter.splittr.utils.ServerIdUtil.getServerId
 import com.splitter.splittr.utils.getUserIdFromPreferences
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -41,8 +51,11 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import java.math.BigDecimal
+import java.math.RoundingMode
 import kotlin.math.abs
 
 class PaymentRepository(
@@ -51,17 +64,22 @@ class PaymentRepository(
     private val groupDao: GroupDao,
     private val groupMemberDao: GroupMemberDao,
     private val transactionDao: TransactionDao,
+    private val currencyConversionDao: CurrencyConversionDao,
     private val apiService: ApiService,
     private val dispatchers: CoroutineDispatchers,
     private val context: Context,
     private val syncMetadataDao: SyncMetadataDao,
-    private val paymentSyncManager: PaymentSyncManager
+    private val paymentSyncManager: PaymentSyncManager,
+    private val currencyConversionSyncManager: CurrencyConversionSyncManager,
+    private val splitCalculator: SplitCalculator
 ) : SyncableRepository {
 
     override val entityType = "payments"
     override val syncPriority = 4
 
     val myApplication = context.applicationContext as MyApplication
+
+    val currencyConversionManager = myApplication.syncManagerProvider.currencyConversionManager
 
     private val _payments = MutableStateFlow<List<PaymentEntity>>(emptyList())
     val payments: StateFlow<List<PaymentEntity>> = _payments.asStateFlow()
@@ -861,6 +879,223 @@ class PaymentRepository(
         return timeSinceLastSync > SYNC_INTERVAL || metadata.syncStatus != SyncStatus.SYNCED
     }
 
+    suspend fun convertCurrency(
+        amount: Double,
+        fromCurrency: String,
+        toCurrency: String,
+        paymentId: Int? = null,
+        userId: Int? = null,
+        customExchangeRate: Double? = null
+    ): Result<CurrencyConversionResult> = withContext(dispatchers.io) {
+        try {
+            // Get exchange rate either from custom input or service
+            val (rateResult, rateSource) = if (customExchangeRate != null) {
+                Pair(customExchangeRate, "user_$userId")
+            } else {
+                val exchangeRateService = ExchangeRateService()
+                val rate = exchangeRateService.getExchangeRate(
+                    fromCurrency = fromCurrency,
+                    toCurrency = toCurrency
+                ).getOrNull() ?: return@withContext Result.failure(
+                    Exception("Could not get exchange rate")
+                )
+                Pair(rate, "ECB/ExchangeRatesAPI")
+            }
+
+            val convertedAmount = amount * rateResult
+
+            // If paymentId and userId are provided, handle the conversion
+            if (paymentId != null && userId != null) {
+                // Use the CurrencyConversionManager to handle all conversion-related updates
+                currencyConversionManager.performConversion(
+                    paymentId = paymentId,
+                    fromCurrency = fromCurrency,
+                    toCurrency = toCurrency,
+                    amount = amount,
+                    exchangeRate = rateResult,
+                    userId = userId,
+                    source = rateSource
+                ).getOrThrow()
+            }
+
+            Result.success(
+                CurrencyConversionResult(
+                    originalAmount = amount,
+                    originalCurrency = fromCurrency,
+                    convertedAmount = convertedAmount,
+                    targetCurrency = toCurrency,
+                    exchangeRate = rateResult
+                )
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error converting currency", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getConversionCountForPayment(paymentId: Int): Int {
+        return currencyConversionDao.getConversionCountForPayment(paymentId)
+    }
+
+    suspend fun getLatestConversionForPayment(paymentId: Int): CurrencyConversionEntity? {
+        return currencyConversionDao.getLatestConversionForPayment(paymentId)
+    }
+
+    suspend fun undoCurrencyConversion(paymentId: Int): Result<PaymentEntity> = withContext(dispatchers.io) {
+        try {
+            val conversion = currencyConversionDao.getLatestConversionForPayment(paymentId)
+                ?: return@withContext Result.failure(Exception("No conversion found for payment"))
+
+            val payment = paymentDao.getPaymentById(paymentId).first()
+                ?: return@withContext Result.failure(Exception("Payment not found"))
+            val splits = paymentSplitDao.getPaymentSplitsByPayment(paymentId).first()
+
+            val updatedPayment = payment.copy(
+                currency = conversion.originalCurrency,
+                amount = conversion.originalAmount
+            )
+
+            val currentTime = DateUtils.getCurrentTimestamp()
+
+            // Use split calculator for the conversion back
+            val newSplits = splitCalculator.calculateSplits(
+                payment = updatedPayment,
+                splits = splits,
+                targetAmount = conversion.originalAmount.toBigDecimal().setScale(2, RoundingMode.HALF_UP),
+                targetCurrency = conversion.originalCurrency,
+                userId = payment.updatedBy,
+                currentTime = currentTime
+            )
+
+            updatePaymentWithSplits(updatedPayment, newSplits)
+                .onSuccess {
+                    currencyConversionDao.markPaymentConversionsAsDeleted(
+                        paymentId = paymentId,
+                        timestamp = currentTime,
+                        syncStatus = SyncStatus.PENDING_SYNC
+                    )
+                }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error undoing currency conversion", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun batchConvertGroupCurrencies(
+        groupId: Int,
+        userId: Int
+    ): Result<BatchConversionResult> = withContext(dispatchers.io) {
+        try {
+            // Get group details and validate
+            val group = groupDao.getGroupByIdSync(groupId)
+                ?: return@withContext Result.failure(Exception("Group not found"))
+
+            val targetCurrency = group.defaultCurrency
+                ?: return@withContext Result.failure(Exception("Group has no default currency"))
+
+            // Get all non-archived payments for the group
+            val payments = paymentDao.getNonArchivedPaymentsByGroup(groupId)
+
+            // Filter payments that need conversion (different currency than group default)
+            val paymentsToConvert = payments.filter { payment ->
+                payment.currency != null && payment.currency != targetCurrency
+            }
+
+            if (paymentsToConvert.isEmpty()) {
+                return@withContext Result.success(BatchConversionResult(0, emptyList(), emptyList()))
+            }
+
+            // Track results
+            val successfulConversions = mutableListOf<ConversionAttempt>()
+            val failedConversions = mutableListOf<ConversionAttempt>()
+
+            // Process each payment
+            paymentsToConvert.forEach { payment ->
+                try {
+                    val fromCurrency = payment.currency ?: "GBP"
+
+                    // Get exchange rate from service
+                    val exchangeRateService = ExchangeRateService()
+                    val rate = exchangeRateService.getExchangeRate(
+                        fromCurrency = fromCurrency,
+                        toCurrency = targetCurrency
+                    ).getOrNull()
+
+                    if (rate == null) {
+                        failedConversions.add(
+                            ConversionAttempt(
+                                paymentId = payment.id,
+                                fromCurrency = fromCurrency,
+                                toCurrency = targetCurrency,
+                                originalAmount = payment.amount,
+                                error = "Could not get exchange rate"
+                            )
+                        )
+                        return@forEach
+                    }
+
+                    // Use CurrencyConversionManager to perform the conversion
+                    val result = currencyConversionManager.performConversion(
+                        paymentId = payment.id,
+                        fromCurrency = fromCurrency,
+                        toCurrency = targetCurrency,
+                        amount = payment.amount,
+                        exchangeRate = rate,
+                        userId = userId,
+                        source = "ECB/ExchangeRatesAPI"
+                    )
+
+                    result.fold(
+                        onSuccess = { conversion ->
+                            successfulConversions.add(
+                                ConversionAttempt(
+                                    paymentId = payment.id,
+                                    fromCurrency = fromCurrency,
+                                    toCurrency = targetCurrency,
+                                    originalAmount = payment.amount,
+                                    convertedAmount = conversion.finalAmount,
+                                    exchangeRate = conversion.exchangeRate
+                                )
+                            )
+                        },
+                        onFailure = { error ->
+                            failedConversions.add(
+                                ConversionAttempt(
+                                    paymentId = payment.id,
+                                    fromCurrency = fromCurrency,
+                                    toCurrency = targetCurrency,
+                                    originalAmount = payment.amount,
+                                    error = error.message ?: "Unknown error"
+                                )
+                            )
+                        }
+                    )
+                } catch (e: Exception) {
+                    failedConversions.add(
+                        ConversionAttempt(
+                            paymentId = payment.id,
+                            fromCurrency = payment.currency ?: "GBP",
+                            toCurrency = targetCurrency,
+                            originalAmount = payment.amount,
+                            error = e.message ?: "Unknown error"
+                        )
+                    )
+                }
+            }
+
+            Result.success(
+                BatchConversionResult(
+                    totalPayments = paymentsToConvert.size,
+                    successfulConversions = successfulConversions,
+                    failedConversions = failedConversions
+                )
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in batch currency conversion", e)
+            Result.failure(e)
+        }
+    }
+
     override suspend fun sync(): Unit = withContext(dispatchers.io) {
         try {
             Log.d(TAG, "Starting payment sync process")
@@ -870,7 +1105,11 @@ class PaymentRepository(
                 throw IOException("No network connection available")
             }
 
+            // Run payment sync first
             paymentSyncManager.performSync()
+
+            // Then run currency conversion sync
+            currencyConversionSyncManager.performSync()
 
             // Update sync metadata
             syncMetadataDao.update(entityType) {
@@ -881,7 +1120,7 @@ class PaymentRepository(
                 )
             }
 
-            Log.d(TAG, "Payment sync completed successfully")
+            Log.d(TAG, "Payment and currency conversion sync completed successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Error during payment sync", e)
             syncMetadataDao.update(entityType) {

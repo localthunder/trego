@@ -88,7 +88,7 @@ class InstitutionViewModel(
 
     fun createRequisitionLink(
         institutionId: String,
-        baseUrl: String = "splitter://bankaccounts"
+        baseUrl: String = "splittr://bankaccounts"
     ) {
         viewModelScope.launch {
             _loading.value = true

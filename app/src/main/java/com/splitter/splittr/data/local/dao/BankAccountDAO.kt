@@ -25,6 +25,12 @@ interface BankAccountDao {
     @Query("UPDATE accounts SET sync_status = :status, updated_at = CURRENT_TIMESTAMP WHERE account_id = :accountId")
     suspend fun updateBankAccountSyncStatus(accountId: String, status: SyncStatus)
 
+    @Query("UPDATE accounts SET deleted_at = CURRENT_TIMESTAMP WHERE account_id = :accountId")
+    suspend fun locallyDeleteBankAccount(accountId: String)
+
+    @Query("DELETE from accounts WHERE account_id = :accountId")
+    suspend fun deleteBankAccount(accountId: String)
+
     @Query("UPDATE accounts SET needsReauthentication = :needsReauthentication, updated_at = CURRENT_TIMESTAMP WHERE account_id = :accountId")
     suspend fun updateNeedsReauthentication(accountId: String, needsReauthentication: Boolean)
 

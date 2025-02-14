@@ -68,7 +68,7 @@ class InstitutionRepository(
 
     suspend fun createRequisitionAndGetLink(
         institutionId: String,
-        baseUrl: String = "splitter://bankaccounts"
+        baseUrl: String = "splittr://bankaccounts"
     ): RequisitionResponseWithRedirect = withContext(dispatchers.io) {
         val requisitionRequest = RequisitionRequest(
             baseUrl = baseUrl,

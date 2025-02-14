@@ -63,6 +63,7 @@ fun PaymentItem(
         borderSize = 2.dp,
         borderBrush = Brush.linearGradient(gradientColors),
         onClick = onClick,
-        paidByUser = itemInfo?.paidByUsername
+        paidByUser = itemInfo?.paidByUsername,
+        currency = payment.currency ?: "no currency"
     )
 }

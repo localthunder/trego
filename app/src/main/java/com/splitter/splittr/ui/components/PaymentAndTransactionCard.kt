@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.splitter.splittr.utils.CurrencyUtils.currencySymbols
 import com.splitter.splittr.utils.DateUtils
 import com.splitter.splittr.utils.InstitutionLogoManager
 
@@ -38,8 +39,10 @@ fun PaymentAndTransactionCard(
     borderSize: Dp = 2.dp,
     borderBrush: Brush = Brush.linearGradient(listOf(Color.Gray, Color.LightGray)),
     paidByUser: String? = null,
+    currency: String,
     onClick: () -> Unit = {}
 ) {
+    val currencySymbol = currencySymbols[currency]
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -86,7 +89,7 @@ fun PaymentAndTransactionCard(
                 }
 
                 Text(
-                    text = "You owe £${amount}",
+                    text = "You owe ${currencySymbol}${amount}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color(0xFFFFA726)
                 )
@@ -96,9 +99,9 @@ fun PaymentAndTransactionCard(
                 horizontalAlignment = Alignment.End
             ) {
                 val formattedAmount = if (amount < 0) {
-                    "£${-amount}"
+                    "${currencySymbol}${-amount}"
                 } else {
-                    "+£$amount"
+                    "+${currencySymbol}$amount"
                 }
                 val amountColor = if (amount < 0) Color.Black else Color.Green
 

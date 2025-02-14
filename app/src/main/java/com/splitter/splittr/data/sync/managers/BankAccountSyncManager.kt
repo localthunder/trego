@@ -45,29 +45,40 @@ class BankAccountSyncManager(
         // Mark as pending sync before server operation
         bankAccountDao.updateBankAccountSyncStatus(accountId, SyncStatus.PENDING_SYNC)
 
-        // Get server result
-        val serverResult = if (existingAccount == null) {
-            Log.d(TAG, "Creating new bank account on server: $accountId")
-            apiService.addAccount(entity)
+        if (existingAccount?.syncStatus == SyncStatus.LOCALLY_DELETED) {
+            // Handle deletion sync
+            val response = apiService.deleteBankAccount(accountId)
+            if (response.isSuccessful) {
+                bankAccountDao.deleteBankAccount(accountId)
+                Result.success(entity)
+            } else {
+                Result.failure(Exception("Server deletion failed: ${response.code()}"))
+            }
         } else {
-            Log.d(TAG, "Updating existing bank account on server: $accountId")
-            apiService.updateAccount(accountId, entity).data  // Add .data here since we modified the API response
-        }
+            // Get server result
+            val serverResult = if (existingAccount == null) {
+                Log.d(TAG, "Creating new bank account on server: $accountId")
+                apiService.addAccount(entity)
+            } else {
+                Log.d(TAG, "Updating existing bank account on server: $accountId")
+                apiService.updateAccount(accountId, entity).data  // Add .data here since we modified the API response
+            }
 
-        // Convert and save the result
-        myApplication.entityServerConverter
-            .convertBankAccountFromServer(serverResult, existingAccount)
-            .fold(
-                onSuccess = { localAccount ->
-                    bankAccountDao.insertBankAccount(localAccount)
-                    bankAccountDao.updateBankAccountSyncStatus(accountId, SyncStatus.SYNCED)
-                    Result.success(serverResult)
-                },
-                onFailure = { error ->
-                    bankAccountDao.updateBankAccountSyncStatus(accountId, SyncStatus.SYNC_FAILED)
-                    Result.failure(error)
-                }
-            )
+            // Convert and save the result
+            myApplication.entityServerConverter
+                .convertBankAccountFromServer(serverResult, existingAccount)
+                .fold(
+                    onSuccess = { localAccount ->
+                        bankAccountDao.insertBankAccount(localAccount)
+                        bankAccountDao.updateBankAccountSyncStatus(accountId, SyncStatus.SYNCED)
+                        Result.success(serverResult)
+                    },
+                    onFailure = { error ->
+                        bankAccountDao.updateBankAccountSyncStatus(accountId, SyncStatus.SYNC_FAILED)
+                        Result.failure(error)
+                    }
+                )
+        }
     } catch (e: Exception) {
         Log.e(TAG, "Error syncing bank account to server: ${entity.accountId}", e)
         bankAccountDao.updateBankAccountSyncStatus(entity.accountId, SyncStatus.SYNC_FAILED)
@@ -86,20 +97,13 @@ class BankAccountSyncManager(
             ?: throw IllegalStateException("No server ID found for user $userId")
 
         Log.d(TAG, "Fetching bank accounts since $since for user $userId")
-        return apiService.getAccountsSince(since, serverUserId)
+        return apiService.getAccountsSince(since, serverUserId).also { accounts ->
+            Log.d(TAG, "Received ${accounts.size} accounts from server")
+        }
     }
 
     override suspend fun applyServerChange(serverEntity: BankAccount) {
         try {
-            // Log the raw server entity before processing
-            Log.d(TAG, """
-            Raw server account details:
-            accountId: ${serverEntity.accountId}
-            requisitionId: ${serverEntity.requisitionId}
-            userId: ${serverEntity.userId}
-            institutionId: ${serverEntity.institutionId}
-            Raw object: $serverEntity
-        """.trimIndent())
 
             // Validate required fields
             if (serverEntity.accountId == null) {

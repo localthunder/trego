@@ -35,9 +35,10 @@ import com.splitter.splittr.data.sync.SyncMetadata
         UserEntity::class,
         SyncMetadata:: class,
         CachedTransactionEntity:: class,
+        CurrencyConversionEntity:: class,
         UserGroupArchiveEntity::class],
 
-    version = 54,
+    version = 56,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -54,6 +55,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun userDao(): UserDao
     abstract fun syncMetadataDao(): SyncMetadataDao
     abstract fun cachedTransactionDao(): CachedTransactionDao
+    abstract fun currencyConversionDao(): CurrencyConversionDao
     abstract fun userGroupArchivesDao(): UserGroupArchiveDao
 
 

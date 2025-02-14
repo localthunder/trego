@@ -3,9 +3,10 @@
     <!-- Configuration for the emulator -->
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">10.0.2.2</domain>
+        <domain includeSubdomains="true">192.168.1.205</domain>
     </domain-config>
     <!-- Configuration for the local device -->
     <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">192.168.68.62</domain>
+        <domain includeSubdomains="true">192.168.1.64</domain>
     </domain-config>
 </network-security-config>

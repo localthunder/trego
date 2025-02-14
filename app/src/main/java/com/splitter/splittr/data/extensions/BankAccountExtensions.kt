@@ -20,7 +20,8 @@ fun BankAccount.toEntity(syncStatus: SyncStatus): BankAccountEntity {
         createdAt = this.createdAt,
         updatedAt = this.updatedAt,
         syncStatus = syncStatus,
-        needsReauthentication = this.needsReauthentication
+        needsReauthentication = this.needsReauthentication,
+        deletedAt = null
     )
 }
 

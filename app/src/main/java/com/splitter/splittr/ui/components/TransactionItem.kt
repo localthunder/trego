@@ -57,6 +57,7 @@ fun TransactionItem(
         institutionName = transaction.institutionName ?: "N/A",
         borderSize = 2.dp,
         borderBrush = Brush.linearGradient(gradientColors),
+        currency = transaction.getEffectiveCurrency(),
         onClick = onClick
     )
 }

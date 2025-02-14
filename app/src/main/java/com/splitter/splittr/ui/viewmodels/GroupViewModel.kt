@@ -9,6 +9,9 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.splitter.splittr.data.extensions.toModel
+import com.splitter.splittr.data.local.dataClasses.BatchConversionResult
+import com.splitter.splittr.data.local.dataClasses.CurrencySettlingInstructions
+import com.splitter.splittr.data.local.dataClasses.SettlingInstruction
 import com.splitter.splittr.data.local.dataClasses.UserGroupListItem
 import com.splitter.splittr.data.local.entities.GroupEntity
 import com.splitter.splittr.data.local.entities.GroupMemberEntity
@@ -59,7 +62,10 @@ class GroupViewModel(
         val imageLoadingState: ImageLoadingState = ImageLoadingState.Idle,
         val localImagePath: String? = null,
         val isDownloadingImage: Boolean = false,
-        val isArchived: Boolean = false
+        val isArchived: Boolean = false,
+        val isConverting: Boolean = false,
+        val conversionResult: BatchConversionResult? = null,
+        val conversionError: String? = null
     )
 
 
@@ -70,6 +76,7 @@ class GroupViewModel(
         object Success : ImageLoadingState()
         data class Error(val message: String) : ImageLoadingState()
     }
+
     sealed class ArchiveGroupState {
         object Idle : ArchiveGroupState()
         object Loading : ArchiveGroupState()
@@ -87,8 +94,10 @@ class GroupViewModel(
     private val _groupDetailsState = MutableStateFlow(GroupDetailsState())
     val groupDetailsState: StateFlow<GroupDetailsState> = _groupDetailsState.asStateFlow()
 
-    private val _groupCreationStatus = MutableLiveData<Result<Pair<GroupEntity, GroupMemberEntity>>>()
-    val groupCreationStatus: LiveData<Result<Pair<GroupEntity, GroupMemberEntity>>> = _groupCreationStatus
+    private val _groupCreationStatus =
+        MutableLiveData<Result<Pair<GroupEntity, GroupMemberEntity>>>()
+    val groupCreationStatus: LiveData<Result<Pair<GroupEntity, GroupMemberEntity>>> =
+        _groupCreationStatus
 
     private val _groupUpdateStatus = MutableLiveData<Result<GroupEntity>>()
     val groupUpdateStatus: LiveData<Result<GroupEntity>> = _groupUpdateStatus
@@ -143,6 +152,15 @@ class GroupViewModel(
     private val _archivedGroupItems = MutableStateFlow<List<UserGroupListItem>>(emptyList())
     val archivedGroupItems: StateFlow<List<UserGroupListItem>> = _archivedGroupItems.asStateFlow()
 
+    private val _currentUserBalance = MutableStateFlow<UserBalanceWithCurrency?>(null)
+    val currentUserBalance: StateFlow<UserBalanceWithCurrency?> = _currentUserBalance.asStateFlow()
+
+    private val _settlingInstructions = MutableStateFlow<List<CurrencySettlingInstructions>>(emptyList())
+    val settlingInstructions: StateFlow<List<CurrencySettlingInstructions>> = _settlingInstructions.asStateFlow()
+
+    private val _paymentsUpdateTrigger = MutableStateFlow(0)
+    val paymentsUpdateTrigger: StateFlow<Int> = _paymentsUpdateTrigger.asStateFlow()
+
     init {
         viewModelScope.launch {
             groupRepository.ensureGroupImagesDownloaded()
@@ -162,6 +180,13 @@ class GroupViewModel(
         }
     }
 
+    fun initializeGroupDetails(groupId: Int) {
+        viewModelScope.launch {
+            loadGroupDetails(groupId)
+            fetchGroupBalances(groupId)
+        }
+    }
+
     fun loadGroupDetails(groupId: Int) {
         currentLoadJob?.cancel()
         currentLoadJob = viewModelScope.launch {
@@ -174,9 +199,11 @@ class GroupViewModel(
                         loadGroup(groupId)
                     } catch (e: Exception) {
                         Log.e("GroupViewModel", "Error loading group", e)
-                        _groupDetailsState.update { it.copy(
-                            error = "Failed to load group details: ${e.message}"
-                        )}
+                        _groupDetailsState.update {
+                            it.copy(
+                                error = "Failed to load group details: ${e.message}"
+                            )
+                        }
                     } finally {
                         hasLoadedGroup = true
                         checkInitialLoadComplete()
@@ -291,7 +318,10 @@ class GroupViewModel(
                     ) { nonArchived, archived ->
                         _userGroupItems.value = nonArchived
                         _archivedGroupItems.value = archived
-                        Log.d("GroupViewModel", "Collected ${nonArchived.size} non-archived and ${archived.size} archived groups")
+                        Log.d(
+                            "GroupViewModel",
+                            "Collected ${nonArchived.size} non-archived and ${archived.size} archived groups"
+                        )
                     }.collect {
                         _loading.value = false
                         hasLoadedGroups = true
@@ -325,7 +355,8 @@ class GroupViewModel(
         }
     }
 
-    suspend fun getGroupById(groupId: Int): Flow<GroupEntity?> = groupRepository.getGroupById(groupId)
+    suspend fun getGroupById(groupId: Int): Flow<GroupEntity?> =
+        groupRepository.getGroupById(groupId)
 
 
     fun loadUserGroups(userId: Int) {
@@ -387,9 +418,33 @@ class GroupViewModel(
         }
     }
 
-    fun removeMemberFromGroup(memberId: Int) {
+    fun removeMember(memberId: Int) {
         viewModelScope.launch {
+            _groupDetailsState.update { it.copy(isLoading = true) }
+
             groupRepository.removeMemberFromGroup(memberId)
+                .onSuccess {
+                    _groupDetailsState.update {
+                        it.copy(
+                            isLoading = false,
+                            error = null
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    val errorMessage = when {
+                        error.message?.contains("non-zero balance") == true ->
+                            "Cannot remove member with outstanding balance"
+
+                        else -> "Failed to remove member: ${error.message}"
+                    }
+                    _groupDetailsState.update {
+                        it.copy(
+                            isLoading = false,
+                            error = errorMessage
+                        )
+                    }
+                }
         }
     }
 
@@ -499,10 +554,12 @@ class GroupViewModel(
         viewModelScope.launch {
             try {
                 Log.d("GroupViewModel", "Starting image upload for group $groupId")
-                _groupDetailsState.update { it.copy(
-                    uploadStatus = UploadStatus.Loading,
-                    imageLoadingState = ImageLoadingState.Loading
-                ) }
+                _groupDetailsState.update {
+                    it.copy(
+                        uploadStatus = UploadStatus.Loading,
+                        imageLoadingState = ImageLoadingState.Loading
+                    )
+                }
 
                 val result = groupRepository.handleGroupImageUpload(groupId, imageUri)
 
@@ -531,7 +588,9 @@ class GroupViewModel(
                         _groupDetailsState.update {
                             it.copy(
                                 uploadStatus = UploadStatus.Error(error.message ?: "Upload failed"),
-                                imageLoadingState = ImageLoadingState.Error(error.message ?: "Upload failed")
+                                imageLoadingState = ImageLoadingState.Error(
+                                    error.message ?: "Upload failed"
+                                )
                             )
                         }
                     }
@@ -563,19 +622,58 @@ class GroupViewModel(
 
     fun fetchGroupBalances(groupId: Int) {
         viewModelScope.launch {
-            val result = groupRepository.calculateGroupBalances(groupId)
-            if (result.isSuccess) {
-                _groupBalances.value = result.getOrDefault(emptyList())
-            } else {
-                // Handle error
+            try {
+                _loading.value = true
+                _error.value = null
+
+                val result = groupRepository.calculateGroupBalances(groupId)
+                result.onSuccess { balances ->
+                    _groupBalances.value = balances
+                }.onFailure { error ->
+                    _error.value = error.message
+                }
+            } catch (e: Exception) {
+                _error.value = e.message
+            } finally {
+                _loading.value = false
             }
         }
     }
+
+    fun batchConvertCurrencies(groupId: Int) {
+        viewModelScope.launch {
+            val userId = getUserIdFromPreferences(context) ?: return@launch
+
+            _groupDetailsState.update { it.copy(isConverting = true, conversionError = null) }
+
+            paymentRepository.batchConvertGroupCurrencies(groupId, userId)
+                .fold(
+                    onSuccess = { result ->
+                        _groupDetailsState.update { current ->
+                            current.copy(
+                                conversionResult = result,
+                                isConverting = false
+                            )
+                        }
+                        // Reload group details to refresh payment data
+                        loadGroupDetails(groupId)
+                    },
+                    onFailure = { error ->
+                        _groupDetailsState.update { current ->
+                            current.copy(
+                                conversionError = error.message,
+                                isConverting = false
+                            )
+                        }
+                    }
+                )
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         currentLoadJob?.cancel()
     }
-
 
 
     fun archiveGroup(groupId: Int) {
@@ -680,5 +778,84 @@ class GroupViewModel(
 
     fun resetRestoreGroupState() {
         _restoreGroupState.value = RestoreGroupState.Idle
+    }
+
+    fun getCurrentMemberId(): Int? {
+        val currentUserId = getUserIdFromPreferences(context) ?: return null
+        return groupMembers.value.find { it.userId == currentUserId }?.id
+    }
+
+    fun checkCurrentUserBalance() {
+        viewModelScope.launch {
+            Log.d("GroupViewModel", "Starting checkCurrentUserBalance")
+            val groupId = groupDetailsState.value.group?.id
+            Log.d("GroupViewModel", "Current groupId: $groupId")
+
+            if (groupId == null) {
+                Log.e("GroupViewModel", "No groupId found, returning early")
+                return@launch
+            }
+
+            // Load balances first
+            groupRepository.calculateGroupBalances(groupId)
+                .onSuccess { balances ->
+                    Log.d("GroupViewModel", "Successfully loaded balances: $balances")
+                    _groupBalances.value = balances
+
+                    // Now check user balance
+                    val userId = getUserIdFromPreferences(context)
+                    Log.d("GroupViewModel", "Retrieved userId: $userId")
+
+                    if (userId == null) {
+                        Log.e("GroupViewModel", "No userId found")
+                        return@onSuccess
+                    }
+
+                    val userBalance = balances.find { it.userId == userId }
+                    Log.d("GroupViewModel", "Found userBalance: $userBalance")
+
+                    _currentUserBalance.value = userBalance
+                    Log.d("GroupViewModel", "Updated _currentUserBalance to: ${_currentUserBalance.value}")
+                }
+                .onFailure { error ->
+                    Log.e("GroupViewModel", "Failed to load balances", error)
+                }
+        }
+    }
+
+    fun fetchSettlingInstructions(groupId: Int) {
+        viewModelScope.launch {
+            try {
+                _loading.value = true
+                _error.value = null
+
+                groupRepository.calculateSettlingInstructions(groupId)
+                    .onSuccess { instructions ->
+                        _settlingInstructions.value = instructions
+                    }
+                    .onFailure { error ->
+                        _error.value = error.message
+                    }
+            } catch (e: Exception) {
+                _error.value = e.message
+            } finally {
+                _loading.value = false
+            }
+        }
+    }
+
+    suspend fun joinGroupByInvite(inviteCode: String): Result<Int> {
+        return try {
+            val userId = getUserIdFromPreferences(context) ?:
+            return Result.failure(Exception("User not logged in"))
+
+            val result = groupRepository.joinGroupByInvite(inviteCode, userId)
+            result.onSuccess { groupId ->
+                loadGroupDetails(groupId)
+            }
+            result
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 }

@@ -18,6 +18,7 @@ fun Group.toEntity(syncStatus: SyncStatus = SyncStatus.PENDING_SYNC): GroupEntit
         createdAt = this.createdAt,
         updatedAt = this.updatedAt,
         inviteLink = this.inviteLink,
+        defaultCurrency = this.defaultCurrency,
         syncStatus = syncStatus,
     )
 }
@@ -31,7 +32,8 @@ fun GroupEntity.toModel(): Group {
         createdAt = this.createdAt,
         updatedAt = this.updatedAt,
         inviteLink = this.inviteLink,
-    )
+        defaultCurrency = this.defaultCurrency,
+        )
 }
 
 fun GroupEntity.toListItem(): UserGroupListItem {

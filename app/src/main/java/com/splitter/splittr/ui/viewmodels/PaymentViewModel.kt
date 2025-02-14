@@ -1,11 +1,13 @@
 package com.splitter.splittr.ui.viewmodels
 
+import android.content.ContentValues.TAG
 import android.content.Context
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.splitter.splittr.data.extensions.toModel
 import com.splitter.splittr.data.local.dataClasses.PaymentEntityWithSplits
+import com.splitter.splittr.data.local.entities.GroupEntity
 import com.splitter.splittr.data.local.entities.GroupMemberEntity
 import com.splitter.splittr.data.local.entities.PaymentEntity
 import com.splitter.splittr.data.local.entities.PaymentSplitEntity
@@ -106,14 +108,24 @@ class PaymentsViewModel(
         val paidToUser: Int? = null,
         val institutionName: String? = null,
         val isTransaction: Boolean = false,
+        val hasBeenConverted: Boolean = false, //meaning it has an entry in the currency conversion table
         val expandedPaidByUserList: Boolean = false,
         val expandedPaidToUserList: Boolean = false,
         val expandedPaymentTypeList: Boolean = false,
         val showDeleteDialog: Boolean = false,
         val selectedMembers: Set<GroupMemberEntity> = emptySet(),
+        val group: GroupEntity? = null,
+        val originalCurrency: String? = null,
+        val conversionId: Int? = null,
+        val isConverting: Boolean = false,
+        val conversionError: String? = null
+
     ) {
         val shouldShowSplitUI: Boolean
             get() = editablePayment?.paymentType != "transferred"
+
+        val shouldLockUI: Boolean  // Add this computed property
+            get() = isTransaction || hasBeenConverted
 
         val effectiveSplits: List<PaymentSplitEntity>
             get() = when {
@@ -281,29 +293,41 @@ class PaymentsViewModel(
         val institutionId: String?
     )
 
+    fun getGroup(): GroupEntity? = _paymentScreenState.value.group
+
     fun initializePaymentScreen(paymentId: Int, groupId: Int, transactionDetails: TransactionDetails?) {
         val currentUserId = userId ?: return
         viewModelScope.launch {
-            when {
-                paymentId != 0 -> {
-                    // Load existing payment
-                    loadExistingPayment(paymentId)
-                    _paymentScreenState.update { currentState ->
-                        val membersWithSplits = currentState.groupMembers.filter { member ->
-                            currentState.editableSplits.any { split -> split.userId == member.userId }
+            try {
+                // Load the group first
+                val group = groupRepository.getGroupById(groupId).first()
+                _paymentScreenState.update { it.copy(group = group) }
+
+                when {
+                    paymentId != 0 -> {
+                        // Load existing payment
+                        loadExistingPayment(paymentId)
+                        _paymentScreenState.update { currentState ->
+                            val membersWithSplits = currentState.groupMembers.filter { member ->
+                                currentState.editableSplits.any { split -> split.userId == member.userId }
+                            }
+                            currentState.copy(selectedMembers = membersWithSplits.toSet())
                         }
-                        currentState.copy(selectedMembers = membersWithSplits.toSet())
+                        loadUsers()
                     }
-                    loadUsers()
+
+                    transactionDetails?.transactionId != null -> {
+                        initializeFromTransaction(transactionDetails, groupId)
+                        recalculateSplits(currentUserId)  // Only for new payments
+                    }
+
+                    else -> {
+                        initializeNewPayment(groupId, currentUserId)
+                        recalculateSplits(currentUserId)  // Only for new payments
+                    }
                 }
-                transactionDetails?.transactionId != null -> {
-                    initializeFromTransaction(transactionDetails, groupId)
-                    recalculateSplits(currentUserId)  // Only for new payments
-                }
-                else -> {
-                    initializeNewPayment(groupId, currentUserId)
-                    recalculateSplits(currentUserId)  // Only for new payments
-                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error initializing payment screen", e)
             }
         }
     }
@@ -331,6 +355,12 @@ class PaymentsViewModel(
             }.toSet()
             Log.d("PaymentsViewModel", "Selected members based on splits: ${selectedMembers.size} - $selectedMembers")
 
+            // Check if payment has any currency conversions
+            val hasConversions = paymentRepository.getConversionCountForPayment(paymentId) > 0
+
+            val latestConversion = paymentRepository.getLatestConversionForPayment(paymentEntity.id)
+
+
             _paymentScreenState.update { currentState ->
                 currentState.copy(
                     payment = paymentEntity,
@@ -339,7 +369,10 @@ class PaymentsViewModel(
                     editableSplits = splits.map { it.copy() },
                     groupMembers = groupMembers,
                     selectedMembers = if (splits.isEmpty()) groupMembers.toSet() else selectedMembers,
-                    isTransaction = paymentEntity.transactionId != null
+                    isTransaction = paymentEntity.transactionId != null,
+                    hasBeenConverted = hasConversions,
+                    originalCurrency = latestConversion?.originalCurrency,
+                    conversionId = latestConversion?.id
                 ).also {
                     Log.d("PaymentsViewModel", "Updated state - editableSplits: ${it.editableSplits}")
                     Log.d("PaymentsViewModel", "Updated state - selectedMembers: ${it.selectedMembers}")
@@ -472,6 +505,7 @@ class PaymentsViewModel(
         Log.d("PaymentsVM", "Payment type: ${editablePayment.paymentType}")
         Log.d("PaymentsVM", "Selected members: $selectedMembers")
         Log.d("PaymentsVM", "PaidToUser: $paidToUser")
+        Log.d("PaymentsVM", "Payment amount: ${editablePayment.amount}")
 
         val newSplits = when {
             editablePayment.paymentType == "transferred" && paidToUser != null -> {
@@ -492,13 +526,35 @@ class PaymentsViewModel(
             editablePayment.splitMode == "equally" -> {
                 if (selectedMembers.isEmpty()) emptyList()
                 else {
-                    val splitAmount = editablePayment.amount / selectedMembers.size
+                    val totalAmount = editablePayment.amount
+                    val memberCount = selectedMembers.size
+                    val baseAmount = (totalAmount * 100).toLong() / memberCount
+                    val remainder = ((totalAmount * 100).toLong() % memberCount).toInt()
+
+                    Log.d("PaymentsVM", "Equal split calculation:")
+                    Log.d("PaymentsVM", "Total amount: $totalAmount")
+                    Log.d("PaymentsVM", "Member count: $memberCount")
+                    Log.d("PaymentsVM", "Base amount (cents): $baseAmount")
+                    Log.d("PaymentsVM", "Remainder (cents): $remainder")
+
+                    val remainderRecipients = selectedMembers.shuffled().take(kotlin.math.abs(remainder.toInt()))
+
                     selectedMembers.map { member ->
+                        val extra = if (remainderRecipients.contains(member)) {
+                            if (remainder > 0) 0.01 else -0.01  // Handle negative amounts
+                        } else {
+                            0.0
+                        }
+
+                        val memberAmount = (baseAmount / 100.0) + extra
+
+                        Log.d("PaymentsVM", "Member ${member.userId} amount: $memberAmount")
+
                         PaymentSplitEntity(
                             id = 0,
                             paymentId = editablePayment.id,
                             userId = member.userId,
-                            amount = splitAmount,
+                            amount = memberAmount,
                             currency = editablePayment.currency ?: "GBP",
                             createdAt = DateUtils.getCurrentTimestamp(),
                             updatedAt = DateUtils.getCurrentTimestamp(),
@@ -516,8 +572,8 @@ class PaymentsViewModel(
             }
             else -> emptyList()
         }
-        Log.d("PaymentsVM", "New splits created: $newSplits")
 
+        Log.d("PaymentsVM", "New splits created: $newSplits")
         _paymentScreenState.update { currentState ->
             currentState.copy(editableSplits = newSplits)
         }
@@ -636,6 +692,8 @@ class PaymentsViewModel(
 
             val result = when {
                 paymentToSave.id == 0 && _paymentScreenState.value.isTransaction -> {
+                    val transactionId = paymentToSave.transactionId
+
                     val transaction = paymentToSave.transactionId?.let { transactionId ->
                         transactionRepository.getTransactionById(transactionId).firstOrNull()?.toModel()
                     }
@@ -829,6 +887,106 @@ class PaymentsViewModel(
                 Log.e("PaymentsViewModel", "Error in fetchGroupPayments", e)
                 _error.value = e.message
                 _loading.value = false
+            }
+        }
+    }
+
+    fun refreshPayment(paymentId: Int) {
+        viewModelScope.launch {
+            try {
+                // Re-load the payment and its splits
+                loadExistingPayment(paymentId)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error refreshing payment", e)
+            }
+        }
+    }
+
+    fun convertPaymentCurrency(useCustomRate: Boolean = false, customRate: Double? = null) {
+        viewModelScope.launch {
+            try {
+                val currentPayment = _paymentScreenState.value.editablePayment ?: return@launch
+                val userId = this@PaymentsViewModel.userId ?: return@launch
+                val targetCurrency = _paymentScreenState.value.group?.defaultCurrency ?: return@launch
+
+                _paymentScreenState.update { it.copy(
+                    isConverting = true,
+                    conversionError = null
+                )}
+
+                val result = paymentRepository.convertCurrency(
+                    amount = currentPayment.amount,
+                    fromCurrency = currentPayment.currency ?: "GBP",
+                    toCurrency = targetCurrency,
+                    paymentId = currentPayment.id,
+                    userId = userId,
+                    customExchangeRate = customRate
+                )
+
+                result.fold(
+                    onSuccess = { conversion ->
+                        // Update payment with new amount and currency
+                        val updatedPayment = currentPayment.copy(
+                            amount = conversion.convertedAmount,
+                            currency = conversion.targetCurrency
+                        )
+
+                        // Update state
+                        _paymentScreenState.update { state ->
+                            state.copy(
+                                editablePayment = updatedPayment,
+                                payment = updatedPayment,
+                                isConverting = false
+                            )
+                        }
+
+                        // Navigate back
+                        _navigationState.value = NavigationState.NavigateBack
+                    },
+                    onFailure = { error ->
+                        _paymentScreenState.update { it.copy(
+                            isConverting = false,
+                            conversionError = error.message ?: "Failed to convert currency"
+                        )}
+                    }
+                )
+            } catch (e: Exception) {
+                _paymentScreenState.update { it.copy(
+                    isConverting = false,
+                    conversionError = e.message ?: "Failed to convert currency"
+                )}
+            }
+        }
+    }
+
+    fun undoCurrencyConversion() {
+        viewModelScope.launch {
+            try {
+                val payment = _paymentScreenState.value.payment ?: return@launch
+
+                _paymentScreenState.update { it.copy(
+                    paymentOperationStatus = PaymentOperationStatus.Loading
+                )}
+
+                paymentRepository.undoCurrencyConversion(payment.id)
+                    .onSuccess {
+                        // Reload payment data
+                        loadExistingPayment(payment.id)
+                    }
+                    .onFailure { error ->
+                        _paymentScreenState.update { it.copy(
+                            paymentOperationStatus = PaymentOperationStatus.Error(
+                                error.message ?: "Failed to undo currency conversion"
+                            )
+                        )}
+                    }
+            } catch (e: Exception) {
+                Log.e("PaymentsViewModel", "Error in undoCurrencyConversion", e)
+                _paymentScreenState.update { it.copy(
+                    paymentOperationStatus = PaymentOperationStatus.Error(
+                        e.message ?: "An unexpected error occurred"
+                    )
+                )}
             }
         }
     }

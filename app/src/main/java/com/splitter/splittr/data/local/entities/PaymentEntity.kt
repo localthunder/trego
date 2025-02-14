@@ -62,6 +62,6 @@ data class PaymentEntity(
     @ColumnInfo(name = "institution_id") val institutionId: String?,
     @ColumnInfo(name = "payment_type") val paymentType: String,
     @ColumnInfo(name = "currency") val currency: String?,
-    @ColumnInfo(name = "deleted_at") val deletedAt: Timestamp?,
+    @ColumnInfo(name = "deleted_at") val deletedAt: String?,
     @ColumnInfo(name = "sync_status") var syncStatus: SyncStatus = SyncStatus.PENDING_SYNC
 )

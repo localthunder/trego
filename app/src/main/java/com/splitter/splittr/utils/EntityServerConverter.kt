@@ -4,7 +4,9 @@ import android.content.ContentValues.TAG
 import android.content.Context
 import android.util.Log
 import com.splitter.splittr.data.extensions.toEntity
+import com.splitter.splittr.data.local.dataClasses.CurrencyConversionData
 import com.splitter.splittr.data.local.entities.BankAccountEntity
+import com.splitter.splittr.data.local.entities.CurrencyConversionEntity
 import com.splitter.splittr.data.local.entities.GroupEntity
 import com.splitter.splittr.data.local.entities.GroupMemberEntity
 import com.splitter.splittr.data.local.entities.PaymentEntity
@@ -15,6 +17,7 @@ import com.splitter.splittr.data.local.entities.UserEntity
 import com.splitter.splittr.data.local.entities.UserGroupArchiveEntity
 import com.splitter.splittr.data.model.BankAccount
 import com.splitter.splittr.data.model.CreditorAccount
+import com.splitter.splittr.data.model.CurrencyConversion
 import com.splitter.splittr.data.model.Group
 import com.splitter.splittr.data.model.GroupMember
 import com.splitter.splittr.data.model.Payment
@@ -24,6 +27,7 @@ import com.splitter.splittr.data.model.Transaction
 import com.splitter.splittr.data.model.TransactionAmount
 import com.splitter.splittr.data.model.User
 import com.splitter.splittr.data.sync.SyncStatus
+import com.splitter.splittr.utils.ServerIdUtil.getLocalId
 
 //Local Ids are used as foreign keys on the device, when something is passed to the server the local ids need to be
 //substituted for the correct server ids. Entity Server Converter does this.
@@ -157,6 +161,7 @@ class EntityServerConverter(private val context: Context) {
                 groupImg = group.groupImg,
                 createdAt = group.createdAt,
                 updatedAt = group.updatedAt,
+                defaultCurrency = group.defaultCurrency,
                 inviteLink = group.inviteLink
             ))
         } catch (e: Exception) {
@@ -181,6 +186,7 @@ class EntityServerConverter(private val context: Context) {
                 createdAt = serverGroup.createdAt,
                 updatedAt = serverGroup.updatedAt,
                 inviteLink = serverGroup.inviteLink,
+                defaultCurrency = serverGroup.defaultCurrency,
                 syncStatus = SyncStatus.SYNCED,
             ))
         } catch (e: Exception) {
@@ -320,7 +326,8 @@ class EntityServerConverter(private val context: Context) {
                 updatedAt = serverAccount.updatedAt,
                 syncStatus = SyncStatus.SYNCED,
                 needsReauthentication = existingAccount?.needsReauthentication
-                    ?: serverAccount.needsReauthentication
+                    ?: serverAccount.needsReauthentication,
+                deletedAt = null
             ))
         } catch (e: Exception) {
             Log.e(TAG, "Error converting server bank account to local entity", e)
@@ -661,6 +668,99 @@ class EntityServerConverter(private val context: Context) {
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error converting server user group archive to local entity", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun convertCurrencyConversionToServer(
+        conversion: CurrencyConversionEntity
+    ): Result<CurrencyConversion> {
+        return try {
+            val serverPaymentId = ServerIdUtil.getServerId(conversion.paymentId, "payments", context)
+                ?: return Result.failure(Exception("No server ID found for payment ${conversion.paymentId}"))
+
+            val serverCreatedById = ServerIdUtil.getServerId(conversion.createdBy, "users", context)
+                ?: return Result.failure(Exception("No server ID found for user ${conversion.createdBy}"))
+
+            val serverUpdatedById = ServerIdUtil.getServerId(conversion.updatedBy, "users", context)
+                ?: return Result.failure(Exception("No server ID found for user ${conversion.updatedBy}"))
+
+            Result.success(CurrencyConversion(
+                id = conversion.serverId ?: 0,
+                paymentId = serverPaymentId,
+                originalCurrency = conversion.originalCurrency,
+                originalAmount = conversion.originalAmount,
+                finalCurrency = conversion.finalCurrency,
+                finalAmount = conversion.finalAmount,
+                exchangeRate = conversion.exchangeRate,
+                source = conversion.source,
+                createdBy = serverCreatedById,
+                updatedBy = serverUpdatedById,
+                createdAt = conversion.createdAt,
+                updatedAt = conversion.updatedAt
+            ))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun convertCurrencyConversionFromServer(
+        serverData: CurrencyConversionData,
+        existingConversion: CurrencyConversionEntity? = null
+    ): Result<CurrencyConversionEntity> {
+        return try {
+
+            val serverConversion = serverData.currencyConversion
+
+            val localPaymentId = getLocalId(serverConversion.paymentId, "payments", context)
+            Log.d(TAG, "Resolved local payment ID: $localPaymentId (existing: ${existingConversion?.paymentId})")
+
+            if (localPaymentId == null && existingConversion?.paymentId == null) {
+                Log.e(TAG, "Failed to resolve local payment ID for server payment ${serverConversion.paymentId}")
+                return Result.failure(Exception("Could not resolve local payment ID"))
+            }
+
+            val localCreatedById = getLocalId(serverConversion.createdBy, "users", context)
+            Log.d(TAG, "Resolved local created by ID: $localCreatedById (existing: ${existingConversion?.createdBy})")
+
+            if (localCreatedById == null && existingConversion?.createdBy == null) {
+                Log.e(TAG, "Failed to resolve local user ID for created by ${serverConversion.createdBy}")
+                return Result.failure(Exception("Could not resolve local user ID"))
+            }
+
+            val localUpdatedById = getLocalId(serverConversion.updatedBy, "users", context)
+            Log.d(TAG, "Resolved local updated by ID: $localUpdatedById (existing: ${existingConversion?.updatedBy})")
+
+            if (localUpdatedById == null && existingConversion?.updatedBy == null) {
+                Log.e(TAG, "Failed to resolve local user ID for updated by ${serverConversion.updatedBy}")
+                return Result.failure(Exception("Could not resolve local user ID"))
+            }
+
+            val finalLocalPaymentId = localPaymentId ?: existingConversion?.paymentId!!
+            val finalLocalCreatedById = localCreatedById ?: existingConversion?.createdBy!!
+            val finalLocalUpdatedById = localUpdatedById ?: existingConversion?.updatedBy!!
+
+
+            val localEntity = CurrencyConversionEntity(
+                id = existingConversion?.id ?: 0,
+                serverId = serverConversion.id,
+                paymentId = finalLocalPaymentId,
+                originalCurrency = serverConversion.originalCurrency,
+                originalAmount = serverConversion.originalAmount,
+                finalCurrency = serverConversion.finalCurrency,
+                finalAmount = serverConversion.finalAmount,
+                exchangeRate = serverConversion.exchangeRate,
+                source = serverConversion.source,
+                createdBy = finalLocalCreatedById,
+                updatedBy = finalLocalUpdatedById,
+                createdAt = serverConversion.createdAt,
+                updatedAt = serverConversion.updatedAt,
+                syncStatus = SyncStatus.SYNCED
+            )
+
+            Result.success(localEntity)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error converting currency conversion from server", e)
             Result.failure(e)
         }
     }

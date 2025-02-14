@@ -9,6 +9,7 @@ import com.splitter.splittr.data.extensions.toModel
 import com.splitter.splittr.data.local.dao.BankAccountDao
 import com.splitter.splittr.data.local.dao.RequisitionDao
 import com.splitter.splittr.data.local.dao.SyncMetadataDao
+import com.splitter.splittr.data.local.entities.BankAccountEntity
 import com.splitter.splittr.data.network.ApiService
 import com.splitter.splittr.data.sync.SyncStatus
 import com.splitter.splittr.data.model.BankAccount
@@ -39,13 +40,14 @@ class BankAccountRepository(
     private val syncMetadataDao: SyncMetadataDao,
     private val context: Context,
     private val bankAccountSyncManager: BankAccountSyncManager,
-    private val requisitionSyncManager: RequisitionSyncManager
+    private val requisitionSyncManager: RequisitionSyncManager,
 ) : SyncableRepository {
 
     override val entityType = "bank_accounts"
     override val syncPriority = 2
 
     val myApplication = context.applicationContext as MyApplication
+    val transactionRepository = myApplication.transactionRepository
 
     // Handle conflicts between local and server data
     fun getUserAccounts(userId: Int): Flow<List<BankAccount>> = flow {
@@ -139,10 +141,10 @@ class BankAccountRepository(
     }
 
 
-    suspend fun addAccount(account: BankAccount): Result<BankAccount> = withContext(dispatchers.io) {
+    suspend fun addAccount(account: BankAccountEntity): Result<BankAccountEntity> = withContext(dispatchers.io) {
         try {
             // Save locally first (optimistic update)
-            val entity = account.toEntity(SyncStatus.PENDING_SYNC)
+            val entity = account.copy(syncStatus = SyncStatus.PENDING_SYNC)
             bankAccountDao.insertBankAccount(entity)
 
             // Try to sync if online
@@ -150,24 +152,25 @@ class BankAccountRepository(
                 try {
                     val serverUserId = getServerId(account.userId, "users", context)
                     val serverAccountRequest = account.copy(userId = serverUserId ?: account.userId)
-                    val serverAccount = apiService.addAccount(serverAccountRequest)
-                    val resolution = ConflictResolver.resolve(account, serverAccount)
-                    when (resolution) {
+                    val serverAccount = apiService.addAccount(serverAccountRequest.toModel())
+                    val resolution = ConflictResolver.resolve(account.toModel(), serverAccount)
+                    val result = when (resolution) {
                         is ConflictResolution.ServerWins -> {
                             bankAccountDao.insertBankAccount(serverAccount.toEntity(SyncStatus.SYNCED))
-                            Result.success(serverAccount)
+                            Result.success(serverAccount.toEntity(syncStatus = SyncStatus.SYNCED))
                         }
                         is ConflictResolution.LocalWins -> {
                             Result.success(account)
                         }
                     }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to sync with server", e)
-                    Result.success(account)
-                }
-            } else {
-                Result.success(account)
-            }
+
+                    // Fetch transactions after account is synced
+                    transactionRepository.fetchAccountTransactions(account.accountId, account.userId)
+
+                    result
+                } catch (e: Exception) { Log.e(TAG, "Failed to sync with server", e)
+                    Result.success(account) } } else { Result.success(account)
+                    }
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -206,6 +209,48 @@ class BankAccountRepository(
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e("InstitutionRepository", "Error updating account after reauth", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteBankAccount(accountId: String): Result<Unit> = withContext(dispatchers.io) {
+        try {
+            Log.d(TAG, "Starting bank account deletion process for account: $accountId")
+
+            // Step 1: Perform soft delete locally first
+            bankAccountDao.locallyDeleteBankAccount(accountId)
+
+            // Step 2: Mark as pending deletion in sync status
+            bankAccountDao.updateBankAccountSyncStatus(accountId, SyncStatus.LOCALLY_DELETED)
+
+            // Step 3: Attempt server deletion if online
+            if (NetworkUtils.isOnline()) {
+                try {
+                    Log.d(TAG, "Attempting server deletion for account: $accountId")
+                    val response = apiService.deleteBankAccount(accountId)
+
+                    if (response.isSuccessful) {
+                        Log.d(TAG, "Server deletion successful, removing local record")
+                        // On successful server deletion, remove local record completely
+                        bankAccountDao.deleteBankAccount(accountId)
+                    } else {
+                        Log.e(TAG, "Server deletion failed with status: ${response.code()}")
+                        // Keep the local soft delete and sync status for retry
+                        return@withContext Result.failure(Exception("Server deletion failed: ${response.code()}"))
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error during server deletion", e)
+                    // Keep the local soft delete and sync status for retry
+                    return@withContext Result.failure(e)
+                }
+            } else {
+                Log.d(TAG, "Offline - keeping account marked for deletion for later sync")
+                // When offline, keep the account marked as LOCALLY_DELETED for later sync
+            }
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in deleteBankAccount", e)
             Result.failure(e)
         }
     }

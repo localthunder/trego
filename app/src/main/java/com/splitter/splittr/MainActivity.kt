@@ -39,6 +39,7 @@ class MainActivity : FragmentActivity() {
     private lateinit var requisitionRepository: RequisitionRepository
     private lateinit var apiService: ApiService
     private lateinit var userRepository: UserRepository
+    private var pendingInviteCode: MutableState<String?> = mutableStateOf(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -99,6 +100,11 @@ class MainActivity : FragmentActivity() {
                         navController = navController,
                         referenceState = referenceState
                     )
+
+                    HandleInviteCode(
+                        navController = navController,
+                        pendingInviteCode = pendingInviteCode
+                    )
                 }
             }
         }
@@ -112,14 +118,24 @@ class MainActivity : FragmentActivity() {
             val decodedUri = Uri.parse(URLDecoder.decode(uriString, StandardCharsets.UTF_8.name()))
             val scheme = decodedUri.scheme
             val host = decodedUri.host
+            val path = decodedUri.path
             val reference = decodedUri.getQueryParameter("reference")
             Log.d("MainActivity", "Decoded URI: $decodedUri")
             Log.d("MainActivity", "scheme: $scheme, host: $host, reference: $reference")
 
-            if (scheme == "splitter" && host == "bankaccounts" && reference != null) {
-                // This part is crucial:
-                referenceState.value = reference
-                Log.d("MainActivity", "Reference set: $reference")
+            when {
+                scheme == "splittr" && host == "groups" && path?.startsWith("/invite/") == true -> {
+                    val inviteCode = path.removePrefix("/invite/")
+                    referenceState.value = null // Clear any bank reference
+                    // Store invite code for processing after auth check
+                    pendingInviteCode.value = inviteCode
+                }
+                // Existing bank account handling
+                scheme == "splittr" && host == "bankaccounts" -> {
+                    val reference = data.getQueryParameter("reference")
+                    referenceState.value = reference
+                    pendingInviteCode.value = null
+                }
             }
         }
     }
@@ -178,6 +194,19 @@ class MainActivity : FragmentActivity() {
                     fetchRequisitionAndNavigate(reference, navController, context)
                 }
                 referenceState.value = null // Reset the state after handling
+            }
+        }
+    }
+
+    @Composable
+    private fun HandleInviteCode(
+        navController: NavHostController,
+        pendingInviteCode: MutableState<String?>
+    ) {
+        LaunchedEffect(pendingInviteCode.value) {
+            pendingInviteCode.value?.let { code ->
+                navController.navigate("invite/$code")
+                pendingInviteCode.value = null
             }
         }
     }

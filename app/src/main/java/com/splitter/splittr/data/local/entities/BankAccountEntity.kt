@@ -44,6 +44,6 @@ data class BankAccountEntity(
     @ColumnInfo(name = "created_at") val createdAt: String,
     @ColumnInfo(name = "updated_at") val updatedAt: String,
     @ColumnInfo(name = "sync_status") var syncStatus: SyncStatus = SyncStatus.PENDING_SYNC,
-    val needsReauthentication: Boolean = false
-
+    val needsReauthentication: Boolean = false,
+    @ColumnInfo(name = "deleted_at") val deletedAt: String?
 )

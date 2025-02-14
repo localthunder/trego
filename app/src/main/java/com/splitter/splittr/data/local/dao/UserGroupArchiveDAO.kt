@@ -40,7 +40,7 @@ interface UserGroupArchiveDao {
 
     @Query("""
         SELECT * FROM user_group_archives 
-        WHERE sync_status != 'SYNCED'
+        WHERE sync_status != 'SYNCED' || 'LOCALLY_DELETED'
     """)
     fun getUnsyncedArchives(): Flow<List<UserGroupArchiveEntity>>
 

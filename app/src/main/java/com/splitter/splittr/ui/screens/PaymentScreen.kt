@@ -1,6 +1,7 @@
 package com.splitter.splittr.ui.screens
 
 import android.content.Context
+import android.util.Log
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -24,6 +25,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.splitter.splittr.MyApplication
+import com.splitter.splittr.data.local.entities.TransactionEntity
+import com.splitter.splittr.data.model.Transaction
+import com.splitter.splittr.ui.components.ConvertCurrencyButton
 import com.splitter.splittr.ui.components.CurrencySelectionBottomSheet
 import com.splitter.splittr.ui.components.GlobalDatePickerDialog
 import com.splitter.splittr.ui.components.GlobalFAB
@@ -33,6 +37,7 @@ import com.splitter.splittr.ui.viewmodels.PaymentsViewModel
 import com.splitter.splittr.ui.viewmodels.PaymentsViewModel.PaymentAction
 import com.splitter.splittr.ui.viewmodels.UserViewModel
 import com.splitter.splittr.utils.CurrencyUtils
+import com.splitter.splittr.utils.DateUtils
 import com.splitter.splittr.utils.FormattingUtils.formatPaymentAmount
 import com.splitter.splittr.utils.getUserIdFromPreferences
 import java.util.*
@@ -47,6 +52,8 @@ fun PaymentScreen(
     val myApplication = context.applicationContext as MyApplication
     val paymentsViewModel: PaymentsViewModel = viewModel(factory = myApplication.viewModelFactory)
     val userViewModel: UserViewModel = viewModel(factory = myApplication.viewModelFactory)
+    val paymentRepository = myApplication.paymentRepository
+    val transactionRepository = myApplication.transactionRepository
 
     val userId = getUserIdFromPreferences(context)
     val screenState by paymentsViewModel.paymentScreenState.collectAsState()
@@ -74,6 +81,65 @@ fun PaymentScreen(
 
     LaunchedEffect(paymentId) {
         if (userId != null) {
+            // Check TransactionCache first for the transaction
+            transactionDetails?.transactionId?.let { transactionId ->
+                val cachedTransactions = TransactionCache.getTransactions()
+                val cachedTransaction = cachedTransactions?.find { it.transactionId == transactionId }
+
+                if (cachedTransaction != null) {
+                    Log.d("PaymentScreen", "Found transaction in cache: $transactionId")
+                    try {
+                        // Save cached transaction to local database
+                        transactionRepository.saveTransaction(cachedTransaction)
+                            .onSuccess {
+                                Log.d("PaymentScreen", "Successfully saved cached transaction $transactionId")
+                            }
+                            .onFailure { error ->
+                                Log.e("PaymentScreen", "Failed to save cached transaction", error)
+                            }
+                    } catch (e: Exception) {
+                        Log.e("PaymentScreen", "Error saving cached transaction", e)
+                    }
+                } else {
+                    Log.d("PaymentScreen", "Transaction not found in cache, will create new")
+                    // Create new transaction if not found in cache
+                    val newTransaction = Transaction(
+                        transactionId = transactionId,
+                        userId = userId,
+                        description = transactionDetails.description,
+                        amount = transactionDetails.amount ?: 0.0,
+                        currency = transactionDetails.currency,
+                        bookingDateTime = transactionDetails.bookingDateTime,
+                        creditorName = transactionDetails.creditorName,
+                        institutionId = transactionDetails.institutionId,
+                        createdAt = DateUtils.getCurrentTimestamp(),
+                        updatedAt = DateUtils.getCurrentTimestamp(),
+                        accountId = null,
+                        bookingDate = null,
+                        debtorName = null,
+                        creditorAccount = null,
+                        institutionName = null,
+                        internalTransactionId = null,
+                        proprietaryBankTransactionCode = null,
+                        remittanceInformationUnstructured = null,
+                        valueDate = null
+                    )
+
+                    try {
+                        transactionRepository.saveTransaction(newTransaction)
+                            .onSuccess {
+                                Log.d("PaymentScreen", "Successfully saved new transaction $transactionId")
+                            }
+                            .onFailure { error ->
+                                Log.e("PaymentScreen", "Failed to save new transaction", error)
+                            }
+                    } catch (e: Exception) {
+                        Log.e("PaymentScreen", "Error saving new transaction", e)
+                    }
+                }
+            }
+
+            // Then initialize the payment screen
             paymentsViewModel.initializePaymentScreen(paymentId, groupId, transactionDetails)
         }
     }
@@ -88,7 +154,6 @@ fun PaymentScreen(
     LaunchedEffect(navigationState) {
         when (navigationState) {
             is PaymentsViewModel.NavigationState.NavigateBack -> {
-                navController.popBackStack()
                 navController.popBackStack()
                 paymentsViewModel.resetNavigationState()
             }
@@ -227,7 +292,7 @@ fun PaymentScreen(
                                 },
                                 label = { Text("Amount") },
                                 modifier = Modifier.weight(1f),
-                                enabled = !screenState.isTransaction,
+                                enabled = !screenState.shouldLockUI,
                                 keyboardOptions = KeyboardOptions.Default.copy(
                                     keyboardType = KeyboardType.Number,
                                     imeAction = ImeAction.Next
@@ -238,6 +303,31 @@ fun PaymentScreen(
                                     }
                                 ),
                             )
+                        }
+
+                        //Convert currency button
+                        if (editablePayment != null && editablePayment.id != 0) {  // Check if this is an existing payment
+                            val group = paymentsViewModel.getGroup()
+                            val groupDefaultCurrency = group?.defaultCurrency ?: "GBP"
+
+                            if (editablePayment.currency != groupDefaultCurrency) {
+                                ConvertCurrencyButton(
+                                    currentCurrency = editablePayment.currency ?: "GBP",
+                                    targetCurrency = groupDefaultCurrency,
+                                    amount = editablePayment.amount,
+                                    isConverting = screenState.isConverting,
+                                    conversionError = screenState.conversionError,
+                                    onConvertClicked = { confirmed, customRate ->
+                                        if (confirmed) {
+                                            paymentsViewModel.convertPaymentCurrency(
+                                                useCustomRate = customRate != null,
+                                                customRate = customRate
+                                            )
+                                        }
+                                    },
+                                    modifier = Modifier.padding(start = 8.dp)
+                                )
+                            }
                         }
 
                         if (editablePayment?.paymentType == "transferred") {
@@ -336,6 +426,18 @@ fun PaymentScreen(
                         )
 
                         Spacer(modifier = Modifier.height(16.dp))
+
+                        if (screenState.hasBeenConverted) {
+                            screenState.originalCurrency?.let { currency ->
+                                CurrencyConvertedCard(
+                                    originalCurrency = currency,
+                                    onUndo = {
+                                        paymentsViewModel.undoCurrencyConversion()
+                                        navController.popBackStack()
+                                    }
+                                )
+                            }
+                        }
 
                         if (screenState.shouldShowSplitUI) {
 
@@ -469,7 +571,7 @@ fun PaymentScreen(
                                             leadingIcon = {
                                                 Text(
                                                     getCurrencySymbol(
-                                                        editablePayment?.currency ?: "USD"
+                                                        editablePayment?.currency ?: "GBP"
                                                     )
                                                 )
                                             },
@@ -570,6 +672,42 @@ fun PaymentTypeDropdownMenu(viewModel: PaymentsViewModel) {
                     viewModel.processAction(PaymentAction.ToggleExpandedPaymentTypeList)
                 }
             )
+        }
+    }
+}
+
+@Composable
+fun CurrencyConvertedCard(
+    originalCurrency: String,
+    onUndo: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "This payment cannot be edited because it was converted from $originalCurrency",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer
+            )
+
+            Button(
+                onClick = onUndo,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.onErrorContainer,
+                    contentColor = MaterialTheme.colorScheme.errorContainer
+                )
+            ) {
+                Text("Undo Conversion to Edit")
+            }
         }
     }
 }

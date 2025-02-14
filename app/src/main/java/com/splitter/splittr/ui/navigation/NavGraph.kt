@@ -2,10 +2,12 @@ package com.splitter.splittr.ui.navigation
 
 import android.content.Context
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -18,7 +20,6 @@ import com.splitter.splittr.data.sync.SyncManagerProvider
 import com.splitter.splittr.ui.screens.AddExpenseScreen
 import com.splitter.splittr.ui.screens.AddGroupScreen
 import com.splitter.splittr.ui.screens.BankAccountsScreen
-import com.splitter.splittr.ui.screens.CurrencySelectionScreen
 import com.splitter.splittr.ui.screens.GroupBalancesScreen
 import com.splitter.splittr.ui.screens.GroupDetailsScreen
 import com.splitter.splittr.ui.screens.GroupTotalsScreen
@@ -27,12 +28,16 @@ import com.splitter.splittr.ui.screens.InstitutionsScreen
 import com.splitter.splittr.ui.screens.InviteMembersScreen
 import com.splitter.splittr.ui.screens.LoginScreen
 import com.splitter.splittr.ui.screens.PaymentScreen
+import com.splitter.splittr.ui.screens.ProfileScreen
 import com.splitter.splittr.ui.screens.RegisterScreen
+import com.splitter.splittr.ui.screens.SettleUpScreen
 import com.splitter.splittr.ui.screens.TransactionsScreen
 import com.splitter.splittr.ui.screens.UserGroupsScreen
 import com.splitter.splittr.ui.viewmodels.GroupViewModel
 import com.splitter.splittr.ui.viewmodels.PaymentsViewModel
+import com.splitter.splittr.ui.viewmodels.UserViewModel
 import com.splitter.splittr.utils.AppCoroutineDispatchers
+import com.splitter.splittr.utils.getUserIdFromPreferences
 
 @Composable
 fun NavGraph(navController: NavHostController, context: Context, userId: Int, apiService: ApiService, modifier: Modifier = Modifier, viewModelFactory: ViewModelProvider.Factory
@@ -54,8 +59,18 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
         startDestination = "home",
         modifier = modifier
     ) {
-        composable(route = "login") {
-            LoginScreen(navController)
+        composable(
+            route = "login?inviteCode={inviteCode}",
+            arguments = listOf(navArgument("inviteCode") {
+                type = NavType.StringType
+                nullable = true
+            })
+        ) { backStackEntry ->
+            val inviteCode = backStackEntry.arguments?.getString("inviteCode")
+            LoginScreen(
+                navController = navController,
+                inviteCode = inviteCode
+            )
         }
         composable(route = "register") {
             RegisterScreen(navController)
@@ -65,6 +80,18 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
         }
         composable(route = "institutions") {
             InstitutionsScreen(navController, context)
+        }
+        composable(
+            route = "profile/{userId}",
+            arguments = listOf(navArgument("userId") { type = NavType.IntType })
+        ) { backStackEntry ->
+            val userId = backStackEntry.arguments?.getInt("userId") ?: return@composable
+            ProfileScreen(
+                navController = navController,
+                userViewModel = viewModel(factory = viewModelFactory),
+                bankAccountViewModel = viewModel(factory = viewModelFactory),
+                userId = userId
+            )
         }
         composable(
             route = "bankaccounts/{requisitionId}",
@@ -137,11 +164,6 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
                 transactionRepository = transactionRepository
             )
         }
-        composable("currencySelection") {
-            CurrencySelectionScreen(navController) { selectedCurrency ->
-                navController.previousBackStackEntry?.savedStateHandle?.set("currency", selectedCurrency)
-            }
-        }
         composable(
             route = "inviteMembers/{groupId}",
             arguments = listOf(navArgument("groupId") { type = NavType.IntType })
@@ -168,6 +190,45 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
                 context = context,
                 groupId = groupId
             )
+        }
+        composable(
+            route = "settleUp/{groupId}",
+            arguments = listOf(navArgument("groupId") { type = NavType.IntType })
+        ) { backStackEntry ->
+            val groupId = backStackEntry.arguments?.getInt("groupId") ?: return@composable
+            SettleUpScreen(
+                navController = navController,
+                groupId = groupId
+            )
+        }
+        composable(
+            route = "invite/{inviteCode}",
+            arguments = listOf(navArgument("inviteCode") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val inviteCode = backStackEntry.arguments?.getString("inviteCode")
+            val context = LocalContext.current
+            val groupViewModel = backStackEntry.sharedViewModel<GroupViewModel>(navController, viewModelFactory)
+            val userViewModel = backStackEntry.sharedViewModel<UserViewModel>(navController, viewModelFactory)
+
+            LaunchedEffect(inviteCode) {
+                if (inviteCode != null) {
+                    val userId = getUserIdFromPreferences(context)
+                    if (userId != null) {
+                        // User is logged in, handle group join
+                        groupViewModel.joinGroupByInvite(inviteCode)
+                            .onSuccess { groupId ->
+                                navController.navigate("groupDetails/$groupId") {
+                                    popUpTo("invite/$inviteCode") { inclusive = true }
+                                }
+                            }
+                    } else {
+                        // User not logged in, redirect to login
+                        navController.navigate("login?inviteCode=$inviteCode") {
+                            popUpTo("invite/$inviteCode") { inclusive = true }
+                        }
+                    }
+                }
+            }
         }
     }
 }

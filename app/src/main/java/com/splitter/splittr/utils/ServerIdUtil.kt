@@ -15,6 +15,7 @@ object ServerIdUtil {
             "group_members" -> database.groupMemberDao().getGroupMemberByIdSync(localId)?.serverId
             "payments" -> database.paymentDao().getPaymentById(localId).firstOrNull()?.serverId
             "payment_splits" -> database.paymentSplitDao().getPaymentSplitById(localId)?.serverId
+            "currency_conversions" -> database.currencyConversionDao().getConversionByIdSync(localId)?.serverId
             else -> {
                 Log.w("ServerIdUtil", "Unknown entity type: $entityType")
                 null
@@ -32,6 +33,7 @@ object ServerIdUtil {
             "group_members" -> database.groupMemberDao().getGroupMemberByServerId(serverId)?.id
             "payments" -> database.paymentDao().getPaymentByServerId(serverId)?.id
             "payment_splits" -> database.paymentSplitDao().getPaymentSplitByServerId(serverId)?.id
+            "currency_conversions" -> database.currencyConversionDao().getConversionByServerId(serverId)?.id
             else -> {
                 Log.w("ServerIdUtil", "Unknown entity type: $entityType")
                 null

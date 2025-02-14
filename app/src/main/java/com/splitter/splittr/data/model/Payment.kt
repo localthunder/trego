@@ -20,6 +20,6 @@ data class Payment(
     @SerializedName("split_mode") val splitMode: String,
     @SerializedName("payment_type") val paymentType: String,
     val currency: String?,
-    @SerializedName("deleted_at") val deletedAt: Timestamp?,
+    @SerializedName("deleted_at") val deletedAt: String?,
     val institutionId: String?
 ) : TimestampedEntity

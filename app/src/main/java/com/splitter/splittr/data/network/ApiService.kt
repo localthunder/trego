@@ -4,6 +4,7 @@ import android.net.Uri
 import com.google.gson.annotations.SerializedName
 import com.splitter.splittr.data.local.dataClasses.ApiResponse
 import com.splitter.splittr.data.local.dataClasses.AuthResponse
+import com.splitter.splittr.data.local.dataClasses.CurrencyConversionResponse
 import com.splitter.splittr.data.local.dataClasses.GroupMemberResponse
 import com.splitter.splittr.data.local.dataClasses.GroupMemberWithGroupResponse
 import com.splitter.splittr.data.local.dataClasses.LoginRequest
@@ -106,8 +107,14 @@ interface ApiService {
     @POST("/api/gocardless/transactions")
     suspend fun createTransaction(@Body transaction: Transaction): Transaction
 
+    @GET("/api/gocardless/transactions/account/{accountId}")
+    suspend fun getAccountTransactions(@Path("accountId") accountId: String, ): List<Transaction>
+
     @GET("/api/gocardless/{userId}/accounts")
     suspend fun getUserAccounts(@Path("userId") userId: Int): List<BankAccount>
+
+    @DELETE("/api/gocardless/accounts/{accountId}")
+    suspend fun deleteBankAccount(@Path("accountId") accountId: String): Response<Unit>
 
     @POST("/api/groups")
     suspend fun createGroup(@Body group: Group): Group
@@ -203,6 +210,12 @@ interface ApiService {
         @Query("userId") userId: Int
     ): List<User>
 
+    @GET("api/payments/currency-conversions/changes")
+    suspend fun getCurrencyConversionsSince(
+        @Query("since") timestamp: Long,
+        @Query("userId") userId: Int
+    ): CurrencyConversionResponse
+
 
     @GET("api/groups/{groupId}/members")
     suspend fun getMembersOfGroup(@Path("groupId") groupId: Int): List<GroupMember>
@@ -266,19 +279,19 @@ interface ApiService {
         @Part image: MultipartBody.Part
     ): UploadResponsed
 
-    @PUT("accounts/{accountId}/needs-reauthentication")
+    @PUT("/api/accounts/{accountId}/needs-reauthentication")
     suspend fun updateNeedsReauthentication(
         @Path("accountId") accountId: String,
         @Body needsReauthentication: Boolean
     ): Unit
 
-    @GET("accounts/reauthentication")
+    @GET("/api/accounts/reauthentication")
     suspend fun getAccountsNeedingReauthentication(): List<BankAccount>
 
-    @GET("accounts/{accountId}/reauthentication")
+    @GET("/api/accounts/{accountId}/reauthentication")
     suspend fun getNeedsReauthentication(@Path("accountId") accountId: String): Map<String, Boolean>
 
-    @PUT("accounts/{accountId}/reauth")
+    @PUT("/api/accounts/{accountId}/reauth")
     suspend fun updateAccountAfterReauth(
         @Path("accountId") accountId: String,
         @Body newRequisitionId: Map<String, String>
@@ -286,4 +299,16 @@ interface ApiService {
 
     @GET("/api/health")
     suspend fun healthCheck(): Response<Unit>
+
+    @POST("/api/payments/currency-conversions")
+    suspend fun createCurrencyConversion(@Body conversion: CurrencyConversion): CurrencyConversion
+
+    @PUT("/api/payments/currency-conversions/{id}")
+    suspend fun updateCurrencyConversion(@Path("id") id: Int, @Body conversion: CurrencyConversion): CurrencyConversion
+
+    @DELETE("api/payments/currency-conversions/{id}")
+    suspend fun deleteCurrencyConversion(@Path("id") id: Int): Response<Unit>
+
+    @POST("api/groups/join/{inviteCode}")
+    suspend fun joinGroupByInvite(@Path("inviteCode") inviteCode: String): Group
 }

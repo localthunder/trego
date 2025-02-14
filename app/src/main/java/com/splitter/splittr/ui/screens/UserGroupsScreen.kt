@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
@@ -58,11 +59,26 @@ fun UserGroupsScreen(navController: NavController) {
     GlobalTheme {
         Scaffold(
             topBar = {
-                GlobalTopAppBar(title = {
-                    Text(
-                        "Your Groups",
-                        style = MaterialTheme.typography.headlineSmall
-                    )
+                GlobalTopAppBar(
+                    title = {
+                        Text(
+                            "Your Groups",
+                            style = MaterialTheme.typography.headlineSmall
+                        )
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = {
+                                getUserIdFromPreferences(context)?.let { userId ->
+                                    navController.navigate("profile/$userId")
+                                }
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AccountCircle,
+                                contentDescription = "Profile"
+                            )
+                        }
                 })
             },
             floatingActionButton = {

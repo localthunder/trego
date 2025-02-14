@@ -21,7 +21,7 @@ interface PaymentDao {
     fun getPaymentById(paymentId: Int): Flow<PaymentEntity?>
 
     @Query("SELECT * FROM payments WHERE server_id = :serverId")
-    fun getPaymentByServerId(serverId: Int): PaymentEntity
+    suspend fun getPaymentByServerId(serverId: Int): PaymentEntity
 
     @Query("SELECT * FROM payments WHERE transaction_id = :transactionId")
     fun getPaymentByTransactionId(transactionId: String): Flow<PaymentEntity?>

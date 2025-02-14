@@ -2,9 +2,11 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.splitter.splittr.data.extensions.toModel
+import com.splitter.splittr.data.local.entities.BankAccountEntity
 import com.splitter.splittr.data.repositories.BankAccountRepository
 import com.splitter.splittr.data.model.BankAccount
 import com.splitter.splittr.utils.CoroutineDispatchers
+import com.splitter.splittr.utils.getUserIdFromPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
@@ -17,6 +19,9 @@ class BankAccountViewModel(
 ) : ViewModel() {
     private val _bankAccounts = MutableStateFlow<List<BankAccount>>(emptyList())
     val bankAccounts: StateFlow<List<BankAccount>> = _bankAccounts
+
+    private val _deleteStatus = MutableStateFlow<Result<Unit>?>(null)
+    val deleteStatus: StateFlow<Result<Unit>?> = _deleteStatus
 
     private val _loading = MutableStateFlow<Boolean>(false)
     val loading: StateFlow<Boolean> = _loading
@@ -74,7 +79,7 @@ class BankAccountViewModel(
         }
     }
 
-    suspend fun addBankAccount(account: BankAccount): Boolean {
+    suspend fun addBankAccount(account: BankAccountEntity): Boolean {
         _loading.value = (true)
         return try {
             val result = bankAccountRepository.addAccount(account)
@@ -110,5 +115,34 @@ class BankAccountViewModel(
                 _loading.value = false
             }
         }
+    }
+
+    fun deleteBankAccount(accountId: String) {
+        viewModelScope.launch {
+            _loading.value = true
+            _error.value = null
+            try {
+                val result = bankAccountRepository.deleteBankAccount(accountId)
+                _deleteStatus.value = result
+
+                if (result.isSuccess) {
+                    Log.e("BankAccountViewModel", "Account deleted successfully")
+
+                } else {
+                    _error.value = result.exceptionOrNull()?.message ?: "Failed to delete account"
+                }
+            } catch (e: Exception) {
+                Log.e("BankAccountViewModel", "Error deleting bank account", e)
+                _error.value = e.message
+                _deleteStatus.value = Result.failure(e)
+            } finally {
+                _loading.value = false
+            }
+        }
+    }
+
+    // Function to clear delete status after handling
+    fun clearDeleteStatus() {
+        _deleteStatus.value = null
     }
 }
