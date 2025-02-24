@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "55639188292",
+    "project_id": "splittr-b4c9d",
+    "storage_bucket": "splittr-b4c9d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:55639188292:android:940dfcbe8c1f005823ed11",
+        "android_client_info": {
+          "package_name": "com.helgolabs.trego"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDV0JW37K2rtv8gXC8nT3w2Qk0N5xM7oKc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
