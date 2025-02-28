@@ -493,6 +493,17 @@ fun PaymentScreen(
                                         onClick = {
                                             paymentsViewModel.processAction(
                                                 PaymentsViewModel.PaymentAction.UpdateSplitMode(
+                                                    "percentage"
+                                                )
+                                            )
+                                            expanded = false
+                                        },
+                                        text = { Text("percentage") }
+                                    )
+                                    DropdownMenuItem(
+                                        onClick = {
+                                            paymentsViewModel.processAction(
+                                                PaymentsViewModel.PaymentAction.UpdateSplitMode(
                                                     "unequally"
                                                 )
                                             )
@@ -571,32 +582,118 @@ fun PaymentScreen(
                                             style = MaterialTheme.typography.bodyLarge,
                                             color = MaterialTheme.colorScheme.onBackground
                                         )
-                                        TextField(
-                                            value = formatPaymentAmount(split.amount.toString()),
-                                            onValueChange = { input ->
-                                                val newAmount =
-                                                    input.filter { char -> char.isDigit() || char == '.' }
-                                                        .toDoubleOrNull() ?: 0.0
-                                                paymentsViewModel.processAction(
-                                                    PaymentsViewModel.PaymentAction.UpdateSplit(
-                                                        split.userId,
-                                                        newAmount
+                                        when (editablePayment?.splitMode) {
+                                            "percentage" -> {
+                                                // Percentage input (editable)
+                                                TextField(
+                                                    value = (split.percentage?.let {
+                                                        // Format as whole number if no decimal part
+                                                        if (it % 1 == 0.0) it.toInt().toString() else it.toString()
+                                                    } ?: "0"),
+                                                    onValueChange = { input ->
+                                                        // Filter to only allow digits and at most one decimal point
+                                                        val filtered = input.filter { char ->
+                                                            char.isDigit() || char == '.'
+                                                        }
+
+                                                        // Allow only up to 2 decimal places
+                                                        val newInput = if (filtered.contains('.')) {
+                                                            val parts = filtered.split('.')
+                                                            if (parts.size > 1 && parts[1].length > 2) {
+                                                                parts[0] + "." + parts[1].take(2)
+                                                            } else {
+                                                                filtered
+                                                            }
+                                                        } else {
+                                                            filtered
+                                                        }
+
+                                                        val newPercentage = newInput.toDoubleOrNull() ?: 0.0
+                                                        paymentsViewModel.processAction(
+                                                            PaymentsViewModel.PaymentAction.UpdateSplitPercentage(
+                                                                split.userId,
+                                                                newPercentage
+                                                            )
+                                                        )
+                                                    },
+                                                    trailingIcon = {
+                                                        Text("%")
+                                                    },
+                                                    modifier = Modifier.width(100.dp),
+                                                    keyboardOptions = KeyboardOptions.Default.copy(
+                                                        keyboardType = KeyboardType.Number
                                                     )
                                                 )
-                                            },
-                                            modifier = Modifier.width(100.dp),
-                                            enabled = editablePayment?.splitMode == "unequally",
-                                            leadingIcon = {
-                                                Text(
-                                                    getCurrencySymbol(
-                                                        editablePayment?.currency ?: "GBP"
+
+                                                // Amount display (disabled)
+                                                TextField(
+                                                    value = formatPaymentAmount(split.amount.toString()),
+                                                    onValueChange = { },
+                                                    enabled = false,
+                                                    leadingIcon = {
+                                                        Text(
+                                                            getCurrencySymbol(
+                                                                editablePayment.currency ?: "GBP"
+                                                            )
+                                                        )
+                                                    },
+                                                    colors = TextFieldDefaults.colors(
+                                                        disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                                                        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                                        disabledLeadingIconColor = MaterialTheme.colorScheme.onSurface
                                                     )
                                                 )
-                                            },
-                                            keyboardOptions = KeyboardOptions.Default.copy(
-                                                keyboardType = KeyboardType.Number
-                                            )
-                                        )
+                                            }
+                                            "unequally" -> {
+                                                // Amount input (editable)
+                                                TextField(
+                                                    value = formatPaymentAmount(split.amount.toString()),
+                                                    onValueChange = { input ->
+                                                        val newAmount = input.filter { char ->
+                                                            char.isDigit() || char == '.'
+                                                        }.toDoubleOrNull() ?: 0.0
+                                                        paymentsViewModel.processAction(
+                                                            PaymentsViewModel.PaymentAction.UpdateSplit(
+                                                                split.userId,
+                                                                newAmount
+                                                            )
+                                                        )
+                                                    },
+                                                    modifier = Modifier.width(100.dp),
+                                                    leadingIcon = {
+                                                        Text(
+                                                            getCurrencySymbol(
+                                                                editablePayment?.currency ?: "GBP"
+                                                            )
+                                                        )
+                                                    },
+                                                    keyboardOptions = KeyboardOptions.Default.copy(
+                                                        keyboardType = KeyboardType.Number
+                                                    )
+                                                )
+                                            }
+                                            else -> {
+                                                // Equal amount (disabled)
+                                                TextField(
+                                                    value = formatPaymentAmount(split.amount.toString()),
+                                                    onValueChange = { },
+                                                    modifier = Modifier.width(100.dp),
+                                                    enabled = false,
+                                                    leadingIcon = {
+                                                        Text(
+                                                            getCurrencySymbol(
+                                                                editablePayment?.currency ?: "GBP"
+                                                            )
+                                                        )
+                                                    },
+                                                    colors = TextFieldDefaults.colors(
+                                                        disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                                                        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                                        disabledLeadingIconColor = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                         }

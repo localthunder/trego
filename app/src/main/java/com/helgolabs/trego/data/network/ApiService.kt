@@ -239,6 +239,12 @@ interface ApiService {
         @Query("userId") userId: Int
     ): CurrencyConversionResponse
 
+    @GET("api/groups/default-splits/changes")
+    suspend fun getGroupDefaultSplitsSince(
+        @Query("since") timestamp: Long,
+        @Query("userId") userId: Int
+    ): List<GroupDefaultSplit>
+
 
     @GET("api/groups/{groupId}/members")
     suspend fun getMembersOfGroup(@Path("groupId") groupId: Int): List<GroupMember>
@@ -334,4 +340,22 @@ interface ApiService {
 
     @POST("api/groups/join/{inviteCode}")
     suspend fun joinGroupByInvite(@Path("inviteCode") inviteCode: String): Group
+
+    @GET("api/groups/{groupId}/default-splits")
+    suspend fun getGroupDefaultSplits(@Path("groupId") groupId: Int): List<GroupDefaultSplit>
+
+    @POST("api/groups/{groupId}/default-splits")
+    suspend fun createGroupDefaultSplit(@Path("groupId") groupId: Int, @Body defaultSplit: GroupDefaultSplit): GroupDefaultSplit
+
+    @PUT("api/groups/{groupId}/default-splits/{splitId}")
+    suspend fun updateGroupDefaultSplit(@Path("groupId") groupId: Int, @Path("splitId") splitId: Int, @Body defaultSplit: GroupDefaultSplit): GroupDefaultSplit
+
+    @POST("api/groups/{groupId}/default-splits/batch")
+    suspend fun createOrUpdateBatchGroupDefaultSplits(@Path("groupId") groupId: Int, @Body defaultSplits: List<GroupDefaultSplit>): List<GroupDefaultSplit>
+
+    @DELETE("api/groups/{groupId}/default-splits")
+    suspend fun deleteGroupDefaultSplits(@Path("groupId") groupId: Int): Response<Unit>
+
+    @DELETE("api/groups/{groupId}/default-splits/{splitId}")
+    suspend fun deleteGroupDefaultSplit(@Path("groupId") groupId: Int, @Path("splitId") splitId: Int): Response<Unit>
 }

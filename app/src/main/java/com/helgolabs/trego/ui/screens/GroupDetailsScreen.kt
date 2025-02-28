@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material3.pulltorefresh.pullToRefresh
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -107,64 +108,13 @@ fun GroupDetailsScreen(
                 GlobalTopAppBar(
                     title = { Text(groupDetailsState.group?.name ?: "Group Details") },
                     actions = {
-                        var showMenu by remember { mutableStateOf(false) }
-
-                        IconButton(onClick = { showMenu = true }) {
+                        IconButton(onClick = {
+                            // Navigate to settings page
+                            navController.navigate("groupSettings/${groupId}")
+                        }) {
                             Icon(
-                                imageVector = Icons.Default.MoreVert,
-                                contentDescription = "More options"
-                            )
-                        }
-
-                        DropdownMenu(
-                            expanded = showMenu,
-                            onDismissRequest = { showMenu = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        if (groupDetailsState.isArchived) "Unarchive Group"
-                                        else "Archive Group"
-                                    )
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = if (groupDetailsState.isArchived)
-                                            Icons.Default.Unarchive
-                                        else Icons.Default.Archive,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.error
-                                    )
-                                },
-                                colors = MenuDefaults.itemColors(
-                                    textColor = MaterialTheme.colorScheme.error
-                                ),
-                                onClick = {
-                                    showMenu = false
-                                    if (groupDetailsState.isArchived) {
-                                        showRestoreConfirmDialog = true
-                                    } else {
-                                        showArchiveConfirmDialog = true
-                                    }
-                                }
-                            )
-                            Divider()
-                            DropdownMenuItem(
-                                text = { Text("Leave Group") },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.ExitToApp,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.error
-                                    )
-                                },
-                                colors = MenuDefaults.itemColors(
-                                    textColor = MaterialTheme.colorScheme.error
-                                ),
-                                onClick = {
-                                    showMenu = false
-                                    showLeaveGroupDialog = true
-                                }
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "Group Settings"
                             )
                         }
                     }

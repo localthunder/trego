@@ -11,6 +11,7 @@ import com.helgolabs.trego.data.extensions.toListItem
 import com.helgolabs.trego.data.extensions.toModel
 import com.helgolabs.trego.data.local.dataClasses.UserGroupListItem
 import com.helgolabs.trego.data.local.dao.GroupDao
+import com.helgolabs.trego.data.local.dao.GroupDefaultSplitDao
 import com.helgolabs.trego.data.local.dao.GroupMemberDao
 import com.helgolabs.trego.data.local.dao.PaymentDao
 import com.helgolabs.trego.data.local.dao.PaymentSplitDao
@@ -20,15 +21,18 @@ import com.helgolabs.trego.data.local.dao.UserGroupArchiveDao
 import com.helgolabs.trego.data.local.dataClasses.CurrencySettlingInstructions
 import com.helgolabs.trego.data.local.dataClasses.GroupImageUploadResult
 import com.helgolabs.trego.data.local.dataClasses.SettlingInstruction
+import com.helgolabs.trego.data.local.entities.GroupDefaultSplitEntity
 import com.helgolabs.trego.data.local.entities.GroupEntity
 import com.helgolabs.trego.data.local.entities.GroupMemberEntity
 import com.helgolabs.trego.data.local.entities.UserGroupArchiveEntity
 import com.helgolabs.trego.data.model.Group
+import com.helgolabs.trego.data.model.GroupDefaultSplit
 import com.helgolabs.trego.data.network.ApiService
 import com.helgolabs.trego.data.sync.SyncStatus
 import com.helgolabs.trego.data.model.GroupMember
 import com.helgolabs.trego.data.sync.GroupSyncManager
 import com.helgolabs.trego.data.sync.SyncableRepository
+import com.helgolabs.trego.data.sync.managers.GroupDefaultSplitSyncManager
 import com.helgolabs.trego.data.sync.managers.GroupMemberSyncManager
 import com.helgolabs.trego.data.sync.managers.UserGroupArchiveSyncManager
 import com.helgolabs.trego.ui.screens.UserBalanceWithCurrency
@@ -36,6 +40,7 @@ import com.helgolabs.trego.utils.CoroutineDispatchers
 import com.helgolabs.trego.utils.DateUtils
 import com.helgolabs.trego.utils.ImageUtils
 import com.helgolabs.trego.utils.NetworkUtils
+import com.helgolabs.trego.utils.ServerIdUtil
 import com.helgolabs.trego.utils.SyncUtils
 import com.helgolabs.trego.utils.getUserIdFromPreferences
 import kotlinx.coroutines.delay
@@ -52,6 +57,8 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import kotlin.math.abs
+
 class GroupRepository(
     private val groupDao: GroupDao,
     private val groupMemberDao: GroupMemberDao,
@@ -60,12 +67,14 @@ class GroupRepository(
     private val paymentSplitDao: PaymentSplitDao,
     private val syncMetadataDao: SyncMetadataDao,
     private val userGroupArchiveDao: UserGroupArchiveDao,
+    private val groupDefaultSplitDao: GroupDefaultSplitDao,
     private val apiService: ApiService,
     private val context: Context,
     private val dispatchers: CoroutineDispatchers,
     private val groupSyncManager: GroupSyncManager,
     private val groupMemberSyncManager: GroupMemberSyncManager,
-    private val userGroupArchiveSyncManager: UserGroupArchiveSyncManager
+    private val userGroupArchiveSyncManager: UserGroupArchiveSyncManager,
+    private val groupDefaultSplitSyncManager: GroupDefaultSplitSyncManager
 ) : SyncableRepository {
 
     override val entityType = "groups"
@@ -316,6 +325,7 @@ class GroupRepository(
 
     suspend fun updateGroup(group: GroupEntity): Result<GroupEntity> = withContext(dispatchers.io) {
         try {
+            Log.d(TAG, "Updating group ${group.id}")
             // First save locally with pending sync status
             val localEntity = group.copy(syncStatus = SyncStatus.PENDING_SYNC)
             groupDao.updateGroup(localEntity)
@@ -941,6 +951,7 @@ class GroupRepository(
         groupSyncManager.performSync()
         groupMemberSyncManager.performSync()
         userGroupArchiveSyncManager.performSync()
+        groupDefaultSplitSyncManager.performSync()
     }
     private suspend fun <T> withRetry(
         maxAttempts: Int = 3,
@@ -1087,6 +1098,299 @@ class GroupRepository(
                 Result.failure(IOException("Internet connection required to join group"))
             }
         } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // Get default splits for a group - returns a Flow that will update when DB changes
+    fun getGroupDefaultSplits(groupId: Int): Flow<List<GroupDefaultSplitEntity>> {
+        return groupDefaultSplitDao.getDefaultSplitsByGroup(groupId)
+    }
+
+    // Create or update a single default split
+    suspend fun createOrUpdateDefaultSplit(defaultSplit: GroupDefaultSplitEntity): Result<GroupDefaultSplitEntity> = withContext(dispatchers.io) {
+        try {
+            // Save locally first with PENDING_SYNC status
+            val localSplit = defaultSplit.copy(syncStatus = SyncStatus.PENDING_SYNC)
+            groupDefaultSplitDao.insertOrUpdateDefaultSplit(localSplit)
+
+            // Attempt to sync with server if online
+            if (NetworkUtils.isOnline()) {
+                try {
+                    // Convert to server model
+                    val serverModelResult = myApplication.entityServerConverter.convertGroupDefaultSplitToServer(localSplit)
+                    val serverModel = serverModelResult.getOrElse { error ->
+                        // Handle conversion error
+                        Log.e("GroupRepository", "Failed to convert split to server model", error)
+                        return@withContext Result.failure(error)
+                    }
+
+                    // Use create or update based on if it's a new split or existing one
+                    val serverSplit = if (localSplit.serverId == null) {
+                        apiService.createGroupDefaultSplit(localSplit.groupId, serverModel)
+                    } else {
+                        apiService.updateGroupDefaultSplit(localSplit.groupId, localSplit.serverId, serverModel)
+                    }
+
+                    // Update local split with server ID and SYNCED status
+                    val syncedSplitResult = myApplication.entityServerConverter.convertGroupDefaultSplitFromServer(serverSplit, localSplit)
+                    val syncedSplit = syncedSplitResult.getOrElse { error ->
+                        // Handle conversion error
+                        Log.e("GroupRepository", "Failed to convert server response to local entity", error)
+                        return@withContext Result.failure(error)
+                    }
+
+                    groupDefaultSplitDao.insertOrUpdateDefaultSplit(syncedSplit.copy(syncStatus = SyncStatus.SYNCED))
+
+                    Result.success(syncedSplit)
+                } catch (e: Exception) {
+                    Log.e("GroupRepository", "Failed to sync default split with server", e)
+                    // Return the local split even if server sync fails
+                    Result.success(localSplit)
+                }
+            } else {
+                // When offline, return the local entity
+                Result.success(localSplit)
+            }
+        } catch (e: Exception) {
+            Log.e("GroupRepository", "Failed to create/update default split", e)
+            Result.failure(e)
+        }
+    }
+
+    // Create or update multiple default splits for a group
+    suspend fun updateGroupDefaultSplits(groupId: Int, splits: List<GroupDefaultSplitEntity>): Result<List<GroupDefaultSplitEntity>> = withContext(dispatchers.io) {
+        try {
+            // Start a local transaction
+            val timestamp = DateUtils.getCurrentTimestamp()
+
+            // Validate total equals 100%
+            val totalPercentage = splits.sumOf { it.percentage ?: 0.0 }
+            if (abs(totalPercentage - 100.0) > 0.001) { // Use epsilon for floating point comparison
+                return@withContext Result.failure(Exception("Total percentage must equal 100%"))
+            }
+
+            // Soft delete existing splits
+            groupDefaultSplitDao.softDeleteDefaultSplitsByGroupWithStatus(groupId, timestamp)
+
+            // Add new splits locally with PENDING_SYNC status
+            val localSplits = splits.map { it.copy(
+                syncStatus = SyncStatus.PENDING_SYNC,
+                createdAt = timestamp,
+                updatedAt = timestamp
+            )}
+            groupDefaultSplitDao.insertOrUpdateDefaultSplits(localSplits)
+
+            // Attempt to sync with server if online
+            if (NetworkUtils.isOnline()) {
+                try {
+                    // Convert to server models - handling Results properly
+                    val serverModelResults = localSplits.map { split ->
+                        myApplication.entityServerConverter.convertGroupDefaultSplitToServer(split)
+                    }
+
+                    // Check if any conversions failed
+                    val hasFailedConversions = serverModelResults.any { it.isFailure }
+                    if (hasFailedConversions) {
+                        val firstError = serverModelResults.first { it.isFailure }.exceptionOrNull()
+                        Log.e("GroupRepository", "Failed to convert splits to server models", firstError)
+                        return@withContext Result.success(localSplits) // Return local data anyway
+                    }
+
+                    // Extract successful conversions
+                    val serverModels = serverModelResults.map { it.getOrThrow() }
+
+                    val serverGroupId = ServerIdUtil.getServerId(groupId, "groups", context) ?: 0
+
+                    // Send batch update to server
+                    val serverSplits = apiService.createOrUpdateBatchGroupDefaultSplits(serverGroupId, serverModels)
+
+                    // Update local splits with server IDs and SYNCED status
+                    val syncedSplitsList = mutableListOf<GroupDefaultSplitEntity>()
+
+                    for (index in serverSplits.indices) {
+                        val serverSplit = serverSplits[index]
+                        val localSplit = localSplits.getOrNull(index)
+
+                        val convertResult = myApplication.entityServerConverter.convertGroupDefaultSplitFromServer(
+                            serverSplit,
+                            localSplit
+                        )
+
+                        if (convertResult.isSuccess) {
+                            val convertedSplit = convertResult.getOrThrow()
+                            syncedSplitsList.add(convertedSplit.copy(syncStatus = SyncStatus.SYNCED))
+                        } else {
+                            Log.e("GroupRepository", "Failed to convert server split back to local entity",
+                                convertResult.exceptionOrNull())
+                            // If we can't convert a server response, keep the original local version
+                            localSplit?.let { syncedSplitsList.add(it) }
+                        }
+                    }
+
+                    // Save all successfully converted splits
+                    if (syncedSplitsList.isNotEmpty()) {
+                        groupDefaultSplitDao.insertOrUpdateDefaultSplits(syncedSplitsList)
+                    }
+
+                    Result.success(syncedSplitsList)
+                } catch (e: Exception) {
+                    Log.e("GroupRepository", "Failed to sync batch default splits with server", e)
+                    // Return the local splits even if server sync fails
+                    Result.success(localSplits)
+                }
+            } else {
+                // When offline, return the local entities
+                Result.success(localSplits)
+            }
+        } catch (e: Exception) {
+            Log.e("GroupRepository", "Failed to update default splits", e)
+            Result.failure(e)
+        }
+    }
+
+    // Delete all default splits for a group
+    suspend fun deleteGroupDefaultSplits(groupId: Int): Result<Unit> = withContext(dispatchers.io) {
+        try {
+            // Soft delete locally first
+            val timestamp = DateUtils.getCurrentTimestamp()
+            groupDefaultSplitDao.softDeleteDefaultSplitsByGroupWithStatus(groupId, timestamp)
+
+            val serverGroupId = ServerIdUtil.getServerId(groupId, "groups", context) ?: 0
+
+            // Attempt to delete from server if online
+            if (NetworkUtils.isOnline()) {
+                try {
+                    apiService.deleteGroupDefaultSplits(serverGroupId)
+                    // Hard deletes happen on the server, so we don't need to update our local DB
+                } catch (e: Exception) {
+                    Log.e("GroupRepository", "Failed to delete default splits from server", e)
+                    // The operation is still considered successful locally
+                }
+            }
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("GroupRepository", "Failed to delete default splits", e)
+            Result.failure(e)
+        }
+    }
+
+    // Delete a specific default split by ID
+    suspend fun deleteGroupDefaultSplit(groupId: Int, splitId: Int): Result<Unit> = withContext(dispatchers.io) {
+        try {
+            // Get the entity first
+            val split = groupDefaultSplitDao.getDefaultSplitById(splitId)
+                ?: return@withContext Result.failure(Exception("Default split not found"))
+
+            // Soft delete locally first
+            val timestamp = DateUtils.getCurrentTimestamp()
+            groupDefaultSplitDao.softDeleteDefaultSplit(splitId, timestamp)
+
+            // Attempt to delete from server if online
+            if (NetworkUtils.isOnline() && split.serverId != null) {
+                try {
+                    apiService.deleteGroupDefaultSplit(groupId, split.serverId)
+                    // Hard deletes happen on the server, so we don't need to update our local DB
+                } catch (e: Exception) {
+                    Log.e("GroupRepository", "Failed to delete default split from server", e)
+                    // The operation is still considered successful locally
+                }
+            }
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("GroupRepository", "Failed to delete default split", e)
+            Result.failure(e)
+        }
+    }
+
+    // Sync pending changes for default splits
+    suspend fun syncPendingDefaultSplits(): Result<Unit> = withContext(dispatchers.io) {
+        if (!NetworkUtils.isOnline()) {
+            return@withContext Result.failure(Exception("No network connection"))
+        }
+
+        try {
+            // Get all locally modified splits
+            val pendingSplits = groupDefaultSplitDao.getUnsyncedDefaultSplits()
+
+            // Handle deleted splits
+            val deletedSplits = pendingSplits.filter { it.syncStatus == SyncStatus.LOCALLY_DELETED && it.removedAt != null }
+            deletedSplits.forEach { split ->
+                try {
+                    if (split.serverId != null) {
+                        apiService.deleteGroupDefaultSplit(split.groupId, split.serverId)
+                    }
+                } catch (e: Exception) {
+                    Log.e("GroupRepository", "Failed to sync deleted split ${split.id}", e)
+                }
+            }
+
+            // Handle added/updated splits
+            val activeSplits = pendingSplits.filter { it.syncStatus != SyncStatus.LOCALLY_DELETED && it.removedAt == null }
+
+            // Group by group ID for batch operations
+            val splitsByGroup = activeSplits.groupBy { it.groupId }
+
+            splitsByGroup.forEach { (groupId, splits) ->
+                try {
+                    // Convert to server models
+                    val serverModels = mutableListOf<GroupDefaultSplit>()
+
+                    // Process each split individually to handle conversion errors
+                    for (split in splits) {
+                        val convertResult = myApplication.entityServerConverter.convertGroupDefaultSplitToServer(split)
+                        if (convertResult.isSuccess) {
+                            serverModels.add(convertResult.getOrThrow())
+                        } else {
+                            Log.e("GroupRepository", "Failed to convert split ${split.id} to server model",
+                                convertResult.exceptionOrNull())
+                            // Skip this split
+                        }
+                    }
+
+                    // Skip if no valid conversions
+                    if (serverModels.isEmpty()) {
+                        Log.w("GroupRepository", "No valid splits to sync for group $groupId")
+                        return@forEach  // Use return@forEach instead of continue
+                    }
+
+                    // Send the valid models to server
+                    val serverSplits = apiService.createOrUpdateBatchGroupDefaultSplits(groupId, serverModels)
+
+
+                    // Update local splits with server IDs and SYNCED status
+                    val syncedSplits = mutableListOf<GroupDefaultSplitEntity>()
+
+                    for (index in serverSplits.indices) {
+                        val serverSplit = serverSplits[index]
+                        val localSplit = splits.getOrNull(index)
+
+                        val convertResult = myApplication.entityServerConverter.convertGroupDefaultSplitFromServer(
+                            serverSplit,
+                            localSplit
+                        )
+
+                        if (convertResult.isSuccess) {
+                            syncedSplits.add(convertResult.getOrThrow().copy(syncStatus = SyncStatus.SYNCED))
+                        } else {
+                            Log.e("GroupRepository", "Failed to convert server response to local entity",
+                                convertResult.exceptionOrNull())
+                        }
+                    }
+
+                    if (syncedSplits.isNotEmpty()) {
+                        groupDefaultSplitDao.insertOrUpdateDefaultSplits(syncedSplits)
+                    }
+                } catch (e: Exception) {
+                    Log.e("GroupRepository", "Failed to sync splits for group $groupId", e)
+                }
+            }
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("GroupRepository", "Failed to sync pending default splits", e)
             Result.failure(e)
         }
     }

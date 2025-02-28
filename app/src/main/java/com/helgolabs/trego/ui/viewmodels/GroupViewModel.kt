@@ -13,6 +13,7 @@ import com.helgolabs.trego.data.local.dataClasses.BatchConversionResult
 import com.helgolabs.trego.data.local.dataClasses.CurrencySettlingInstructions
 import com.helgolabs.trego.data.local.dataClasses.SettlingInstruction
 import com.helgolabs.trego.data.local.dataClasses.UserGroupListItem
+import com.helgolabs.trego.data.local.entities.GroupDefaultSplitEntity
 import com.helgolabs.trego.data.local.entities.GroupEntity
 import com.helgolabs.trego.data.local.entities.GroupMemberEntity
 import com.helgolabs.trego.data.local.entities.PaymentEntity
@@ -94,6 +95,14 @@ class GroupViewModel(
         data class Error(val message: String) : RestoreGroupState()
     }
 
+    // Define operation states
+    sealed class OperationState {
+        object Idle : OperationState()
+        object Loading : OperationState()
+        object Success : OperationState()
+        data class Error(val message: String) : OperationState()
+    }
+
     private val _groupDetailsState = MutableStateFlow(GroupDetailsState())
     val groupDetailsState: StateFlow<GroupDetailsState> = _groupDetailsState.asStateFlow()
 
@@ -163,6 +172,14 @@ class GroupViewModel(
 
     private val _paymentsUpdateTrigger = MutableStateFlow(0)
     val paymentsUpdateTrigger: StateFlow<Int> = _paymentsUpdateTrigger.asStateFlow()
+
+    // State for default splits
+    private val _groupDefaultSplits = MutableStateFlow<List<GroupDefaultSplitEntity>>(emptyList())
+    val groupDefaultSplits: StateFlow<List<GroupDefaultSplitEntity>> = _groupDefaultSplits.asStateFlow()
+
+    // State for default split operations
+    private val _defaultSplitOperationState = MutableStateFlow<OperationState>(OperationState.Idle)
+    val defaultSplitOperationState: StateFlow<OperationState> = _defaultSplitOperationState.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -939,5 +956,158 @@ class GroupViewModel(
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    // Load the default splits for a group
+    fun loadGroupDefaultSplits(groupId: Int) {
+        viewModelScope.launch {
+            try {
+                _defaultSplitOperationState.value = OperationState.Loading
+                groupRepository.getGroupDefaultSplits(groupId).collect { splits ->
+                    _groupDefaultSplits.value = splits
+                    _defaultSplitOperationState.value = OperationState.Success
+                }
+            } catch (e: Exception) {
+                Log.e("GroupViewModel", "Error loading default splits", e)
+                _defaultSplitOperationState.value = OperationState.Error(e.message ?: "Failed to load default splits")
+            }
+        }
+    }
+
+    // Create or update a single default split
+    fun createOrUpdateDefaultSplit(defaultSplit: GroupDefaultSplitEntity) {
+        viewModelScope.launch {
+            try {
+                _defaultSplitOperationState.value = OperationState.Loading
+
+                groupRepository.createOrUpdateDefaultSplit(defaultSplit)
+                    .onSuccess { split ->
+                        // Update the list with the new/updated split
+                        val currentSplits = _groupDefaultSplits.value.toMutableList()
+                        val index = currentSplits.indexOfFirst { it.id == split.id }
+
+                        if (index >= 0) {
+                            currentSplits[index] = split
+                        } else {
+                            currentSplits.add(split)
+                        }
+
+                        _groupDefaultSplits.value = currentSplits
+                        _defaultSplitOperationState.value = OperationState.Success
+                    }
+                    .onFailure { error ->
+                        _defaultSplitOperationState.value = OperationState.Error(
+                            error.message ?: "Failed to save default split"
+                        )
+                    }
+            } catch (e: Exception) {
+                Log.e("GroupViewModel", "Error saving default split", e)
+                _defaultSplitOperationState.value = OperationState.Error(e.message ?: "Failed to save default split")
+            }
+        }
+    }
+
+    // Update all default splits for a group
+    fun updateGroupDefaultSplits(groupId: Int, splits: List<GroupDefaultSplitEntity>) {
+        viewModelScope.launch {
+            try {
+                _defaultSplitOperationState.value = OperationState.Loading
+
+                groupRepository.updateGroupDefaultSplits(groupId, splits)
+                    .onSuccess { updatedSplits ->
+                        _groupDefaultSplits.value = updatedSplits
+                        _defaultSplitOperationState.value = OperationState.Success
+                    }
+                    .onFailure { error ->
+                        _defaultSplitOperationState.value = OperationState.Error(
+                            error.message ?: "Failed to update default splits"
+                        )
+                    }
+            } catch (e: Exception) {
+                Log.e("GroupViewModel", "Error updating default splits", e)
+                _defaultSplitOperationState.value = OperationState.Error(e.message ?: "Failed to update default splits")
+            }
+        }
+    }
+
+    // Delete all default splits for a group
+    fun deleteAllGroupDefaultSplits(groupId: Int) {
+        viewModelScope.launch {
+            try {
+                _defaultSplitOperationState.value = OperationState.Loading
+
+                groupRepository.deleteGroupDefaultSplits(groupId)
+                    .onSuccess {
+                        _groupDefaultSplits.value = emptyList()
+                        _defaultSplitOperationState.value = OperationState.Success
+                    }
+                    .onFailure { error ->
+                        _defaultSplitOperationState.value = OperationState.Error(
+                            error.message ?: "Failed to delete default splits"
+                        )
+                    }
+            } catch (e: Exception) {
+                Log.e("GroupViewModel", "Error deleting default splits", e)
+                _defaultSplitOperationState.value = OperationState.Error(e.message ?: "Failed to delete default splits")
+            }
+        }
+    }
+
+    // Delete a specific default split
+    fun deleteDefaultSplit(groupId: Int, splitId: Int) {
+        viewModelScope.launch {
+            try {
+                _defaultSplitOperationState.value = OperationState.Loading
+
+                groupRepository.deleteGroupDefaultSplit(groupId, splitId)
+                    .onSuccess {
+                        // Remove the split from our local list
+                        val currentSplits = _groupDefaultSplits.value.toMutableList()
+                        currentSplits.removeIf { it.id == splitId }
+                        _groupDefaultSplits.value = currentSplits
+
+                        _defaultSplitOperationState.value = OperationState.Success
+                    }
+                    .onFailure { error ->
+                        _defaultSplitOperationState.value = OperationState.Error(
+                            error.message ?: "Failed to delete split"
+                        )
+                    }
+            } catch (e: Exception) {
+                Log.e("GroupViewModel", "Error deleting split", e)
+                _defaultSplitOperationState.value = OperationState.Error(e.message ?: "Failed to delete split")
+            }
+        }
+    }
+
+    // Manually trigger sync of pending default splits
+    fun syncPendingDefaultSplits() {
+        viewModelScope.launch {
+            try {
+                _defaultSplitOperationState.value = OperationState.Loading
+
+                groupRepository.syncPendingDefaultSplits()
+                    .onSuccess {
+                        // Reload splits after sync
+                        _groupDefaultSplits.value.firstOrNull()?.groupId?.let { groupId ->
+                            loadGroupDefaultSplits(groupId)
+                        }
+                        _defaultSplitOperationState.value = OperationState.Success
+                    }
+                    .onFailure { error ->
+                        _defaultSplitOperationState.value = OperationState.Error(
+                            error.message ?: "Failed to sync default splits"
+                        )
+                    }
+            } catch (e: Exception) {
+                Log.e("GroupViewModel", "Error syncing default splits", e)
+                _defaultSplitOperationState.value = OperationState.Error(e.message ?: "Failed to sync default splits")
+            }
+        }
+    }
+
+    // Reset operation state
+    fun resetDefaultSplitOperationState() {
+        _defaultSplitOperationState.value = OperationState.Idle
     }
 }

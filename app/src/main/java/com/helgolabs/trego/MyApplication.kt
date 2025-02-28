@@ -7,6 +7,7 @@ import androidx.work.WorkManager
 import androidx.work.testing.WorkManagerTestInitHelper
 import com.google.firebase.FirebaseApp
 import com.helgolabs.trego.data.cache.TransactionCacheManager
+import com.helgolabs.trego.data.calculators.DefaultSplitCalculator
 import com.helgolabs.trego.data.local.AppDatabase
 import com.helgolabs.trego.data.repositories.BankAccountRepository
 import com.helgolabs.trego.data.repositories.GroupRepository
@@ -84,6 +85,7 @@ class MyApplication : Application(), Configuration.Provider {
     val transactionRepository: TransactionRepository by lazy { syncManagerProvider.provideTransactionRepository() }
     val userRepository: UserRepository by lazy { syncManagerProvider.provideUserRepository() }
     val notificationRepository: NotificationRepository by lazy { syncManagerProvider.provideNotificationRepository() }
+    val splitCalculator by lazy { DefaultSplitCalculator() }
 
     val institutionLogoManager: InstitutionLogoManager by lazy {
         InstitutionLogoManager(applicationContext)
@@ -153,7 +155,7 @@ class MyApplication : Application(), Configuration.Provider {
                 AuthViewModel::class.java to { AuthViewModel(userRepository, dispatchers)},
                 BankAccountViewModel::class.java to { BankAccountViewModel(bankAccountRepository, transactionRepository, dispatchers)},
                 InstitutionViewModel::class.java to { InstitutionViewModel(institutionRepository, dispatchers)},
-                PaymentsViewModel::class.java to { PaymentsViewModel(paymentRepository, paymentSplitRepository, groupRepository, transactionRepository, institutionRepository, userRepository,this) },
+                PaymentsViewModel::class.java to { PaymentsViewModel(paymentRepository, paymentSplitRepository, groupRepository, transactionRepository, institutionRepository, userRepository, splitCalculator,this) },
                 TransactionViewModel::class.java to { TransactionViewModel(transactionRepository, dispatchers, this)},
                 UserViewModel::class.java to { UserViewModel(userRepository, dispatchers, this)}
             )

@@ -10,5 +10,6 @@ data class Group(
     @SerializedName("created_at") val createdAt: String,
     @SerializedName("updated_at") val updatedAt: String,
     @SerializedName("invite_link") val inviteLink: String?,
-    @SerializedName("default_currency") val defaultCurrency: String
-)
+    @SerializedName("default_currency") val defaultCurrency: String,
+    @SerializedName("default_split_mode") val defaultSplitMode: String,
+    )

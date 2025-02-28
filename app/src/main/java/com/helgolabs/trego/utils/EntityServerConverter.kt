@@ -8,6 +8,7 @@ import com.helgolabs.trego.data.local.dataClasses.CurrencyConversionData
 import com.helgolabs.trego.data.local.entities.BankAccountEntity
 import com.helgolabs.trego.data.local.entities.CurrencyConversionEntity
 import com.helgolabs.trego.data.local.entities.DeviceTokenEntity
+import com.helgolabs.trego.data.local.entities.GroupDefaultSplitEntity
 import com.helgolabs.trego.data.local.entities.GroupEntity
 import com.helgolabs.trego.data.local.entities.GroupMemberEntity
 import com.helgolabs.trego.data.local.entities.PaymentEntity
@@ -21,6 +22,7 @@ import com.helgolabs.trego.data.model.CreditorAccount
 import com.helgolabs.trego.data.model.CurrencyConversion
 import com.helgolabs.trego.data.model.DeviceToken
 import com.helgolabs.trego.data.model.Group
+import com.helgolabs.trego.data.model.GroupDefaultSplit
 import com.helgolabs.trego.data.model.GroupMember
 import com.helgolabs.trego.data.model.Payment
 import com.helgolabs.trego.data.model.PaymentSplit
@@ -107,19 +109,19 @@ class EntityServerConverter(private val context: Context) {
             Log.d(TAG, "Converting server payment: id=${serverPayment.id} to local entity")
 
             // Get local IDs
-            val localPaidByUserId = ServerIdUtil.getLocalId(serverPayment.paidByUserId, "users", context)
+            val localPaidByUserId = getLocalId(serverPayment.paidByUserId, "users", context)
                 ?: existingPayment?.paidByUserId
                 ?: return Result.failure(Exception("Could not resolve local user ID for ${serverPayment.paidByUserId}"))
 
-            val localCreatedByUserId = ServerIdUtil.getLocalId(serverPayment.createdBy, "users", context)
+            val localCreatedByUserId = getLocalId(serverPayment.createdBy, "users", context)
                 ?: existingPayment?.createdBy
                 ?: return Result.failure(Exception("Could not resolve local user ID for ${serverPayment.createdBy}"))
 
-            val localUpdatedByUserId = ServerIdUtil.getLocalId(serverPayment.updatedBy, "users", context)
+            val localUpdatedByUserId = getLocalId(serverPayment.updatedBy, "users", context)
                 ?: existingPayment?.updatedBy
                 ?: return Result.failure(Exception("Could not resolve local user ID for ${serverPayment.updatedBy}"))
 
-            val localGroupId = ServerIdUtil.getLocalId(serverPayment.groupId, "groups", context)
+            val localGroupId = getLocalId(serverPayment.groupId, "groups", context)
                 ?: existingPayment?.groupId
                 ?: return Result.failure(Exception("Could not resolve local group ID for ${serverPayment.groupId}"))
 
@@ -164,7 +166,8 @@ class EntityServerConverter(private val context: Context) {
                 createdAt = group.createdAt,
                 updatedAt = group.updatedAt,
                 defaultCurrency = group.defaultCurrency,
-                inviteLink = group.inviteLink
+                inviteLink = group.inviteLink,
+                defaultSplitMode = group.defaultSplitMode
             ))
         } catch (e: Exception) {
             Log.e("EntityServerConverter", "Error converting group member to server model", e)
@@ -189,6 +192,7 @@ class EntityServerConverter(private val context: Context) {
                 updatedAt = serverGroup.updatedAt,
                 inviteLink = serverGroup.inviteLink,
                 defaultCurrency = serverGroup.defaultCurrency,
+                defaultSplitMode = serverGroup.defaultSplitMode,
                 syncStatus = SyncStatus.SYNCED,
             ))
         } catch (e: Exception) {
@@ -817,6 +821,60 @@ class EntityServerConverter(private val context: Context) {
             ))
         } catch (e: Exception) {
             Log.e("EntityServerConverter", "Error converting server device token to local entity", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun convertGroupDefaultSplitToServer(defaultSplit: GroupDefaultSplitEntity): Result<GroupDefaultSplit> {
+        return try {
+            val serverGroupId = ServerIdUtil.getServerId(defaultSplit.groupId, "groups", context)
+                ?: return Result.failure(Exception("No server ID found for group ${defaultSplit.groupId}"))
+
+            val serverUserId = ServerIdUtil.getServerId(defaultSplit.userId, "users", context)
+                ?: return Result.failure(Exception("No server ID found for user ${defaultSplit.userId}"))
+
+            Result.success(GroupDefaultSplit(
+                id = defaultSplit.serverId ?: 0,
+                groupId = serverGroupId,
+                userId = serverUserId,
+                percentage = defaultSplit.percentage,
+                createdAt = defaultSplit.createdAt,
+                updatedAt = defaultSplit.updatedAt
+            ))
+        } catch (e: Exception) {
+            Log.e("EntityServerConverter", "Error converting group default split to server model", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun convertGroupDefaultSplitFromServer(
+        serverSplit: GroupDefaultSplit,
+        existingSplit: GroupDefaultSplitEntity? = null
+    ): Result<GroupDefaultSplitEntity> {
+        return try {
+            // Get local group ID
+            val localGroupId = getLocalId(serverSplit.groupId, "groups", context)
+                ?: existingSplit?.groupId
+                ?: return Result.failure(Exception("Could not resolve local group ID for ${serverSplit.groupId}"))
+
+            // Get local user ID
+            val localUserId = ServerIdUtil.getLocalId(serverSplit.userId, "users", context)
+                ?: existingSplit?.userId
+                ?: return Result.failure(Exception("Could not resolve local user ID for ${serverSplit.userId}"))
+
+            Result.success(GroupDefaultSplitEntity(
+                id = existingSplit?.id ?: 0,
+                serverId = serverSplit.id,
+                groupId = localGroupId,
+                userId = localUserId,
+                percentage = serverSplit.percentage,
+                createdAt = serverSplit.createdAt,
+                updatedAt = serverSplit.updatedAt,
+                removedAt = null,
+                syncStatus = SyncStatus.SYNCED
+            ))
+        } catch (e: Exception) {
+            Log.e("EntityServerConverter", "Error converting server group default split to local entity", e)
             Result.failure(e)
         }
     }

@@ -37,9 +37,10 @@ import com.helgolabs.trego.data.sync.SyncMetadata
         CachedTransactionEntity:: class,
         CurrencyConversionEntity:: class,
         UserGroupArchiveEntity::class,
-        DeviceTokenEntity::class],
+        DeviceTokenEntity::class,
+        GroupDefaultSplitEntity::class],
 
-    version = 62,
+    version = 63,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -59,6 +60,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun currencyConversionDao(): CurrencyConversionDao
     abstract fun userGroupArchivesDao(): UserGroupArchiveDao
     abstract fun deviceTokenDao(): DeviceTokenDao
+    abstract fun groupDefaultSplitDao(): GroupDefaultSplitDao
 
 
 

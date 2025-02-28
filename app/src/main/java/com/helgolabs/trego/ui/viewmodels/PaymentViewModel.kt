@@ -5,6 +5,8 @@ import android.content.Context
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.helgolabs.trego.data.calculators.DefaultSplitCalculator
+import com.helgolabs.trego.data.calculators.SplitCalculator
 import com.helgolabs.trego.data.extensions.toModel
 import com.helgolabs.trego.data.local.dataClasses.PaymentEntityWithSplits
 import com.helgolabs.trego.data.local.entities.GroupEntity
@@ -37,6 +39,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import java.math.BigDecimal
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 
@@ -47,6 +50,7 @@ class PaymentsViewModel(
     private val transactionRepository: TransactionRepository,
     private val institutionRepository: InstitutionRepository,
     private val userRepository: UserRepository,
+    private val splitCalculator: SplitCalculator,
     context: Context
 ) : ViewModel() {
 
@@ -179,6 +183,7 @@ class PaymentsViewModel(
         data class UpdatePaymentDate(val paymentDate: String) : PaymentAction()
         data class UpdateCurrency(val currency: String) : PaymentAction()
         data class UpdateSplitMode(val splitMode: String) : PaymentAction()
+        data class UpdateSplitPercentage(val userId: Int, val percentage: Double) : PaymentAction()
         data class UpdatePaidByUser(val userId: Int) : PaymentAction()
         data class UpdatePaidToUser(val userId: Int) : PaymentAction()
         data class UpdateSplit(val userId: Int, val amount: Double) : PaymentAction()
@@ -194,7 +199,10 @@ class PaymentsViewModel(
     fun processAction(action: PaymentAction) {
         val currentUserId = userId ?: return
         when (action) {
-            is PaymentAction.UpdateAmount -> updateEditablePayment { it.copy(amount = action.amount) }
+            is PaymentAction.UpdateAmount -> {
+                updateEditablePayment { it.copy(amount = action.amount) }
+                    recalculateSplits(currentUserId)
+            }
             is PaymentAction.UpdateDescription -> updateEditablePayment { it.copy(description = action.description) }
             is PaymentAction.UpdateNotes -> updateEditablePayment { it.copy(notes = action.notes) }
             is PaymentAction.UpdatePaymentType -> {
@@ -259,6 +267,7 @@ class PaymentsViewModel(
                 // Recalculate splits based on new selection
                 recalculateSplits(currentUserId)
             }
+            is PaymentAction.UpdateSplitPercentage -> updateSplitPercentage(action.userId, action.percentage)
             is PaymentAction.ToggleExpandedPaidByUserList -> {
                 _paymentScreenState.value = _paymentScreenState.value.copy(
                     expandedPaidByUserList = !_paymentScreenState.value.expandedPaidByUserList
@@ -281,6 +290,17 @@ class PaymentsViewModel(
                 _paymentScreenState.value = _paymentScreenState.value.copy(showDeleteDialog = false)
             }
         }
+    }
+
+    private fun updateSplitPercentage(userId: Int, percentage: Double) {
+        val updatedSplits = _paymentScreenState.value.editableSplits.map { split ->
+            if (split.userId == userId) split.copy(percentage = percentage) else split
+        }
+        _paymentScreenState.value = _paymentScreenState.value.copy(
+            editableSplits = updatedSplits
+        )
+        // Recalculate monetary amounts based on new percentages
+        recalculateSplits(userId ?: 0)
     }
 
     data class TransactionDetails(
@@ -323,7 +343,13 @@ class PaymentsViewModel(
 
                     else -> {
                         initializeNewPayment(groupId, currentUserId)
-                        recalculateSplits(currentUserId)  // Only for new payments
+
+                        // If group default split mode is percentage, load default percentages
+                        if (group?.defaultSplitMode == "percentage") {
+                            loadGroupDefaultSplits(groupId)
+                        } else {
+                            recalculateSplits(currentUserId)
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -394,6 +420,13 @@ class PaymentsViewModel(
         val currentUserId = userId ?: return
         val paymentType = if ((transactionDetails.amount ?: 0.0) > 0) "received" else "spent"
 
+        // Get the group's default split mode
+        val group = _paymentScreenState.value.group
+        val defaultSplitMode = group?.defaultSplitMode ?: "equally"
+
+        Log.d(TAG, "group = $group")
+        Log.d(TAG, "default split mode = $defaultSplitMode")
+
         val newPayment = PaymentEntity(
             id = 0,
             groupId = groupId,
@@ -404,7 +437,7 @@ class PaymentsViewModel(
             notes = "",
             paymentDate = transactionDetails.bookingDateTime ?: DateUtils.getCurrentTimestamp(),
             currency = transactionDetails.currency,
-            splitMode = "equally",
+            splitMode = defaultSplitMode,
             paymentType = paymentType,
             institutionId = transactionDetails.institutionId,
             createdBy = currentUserId,
@@ -428,6 +461,15 @@ class PaymentsViewModel(
 
     //Sort default currency here
     private fun initializeNewPayment(groupId: Int, userId: Int) {
+
+        // Get the group's default split mode
+        val group = _paymentScreenState.value.group
+        val defaultSplitMode = group?.defaultSplitMode ?: "equally"
+
+        Log.d(TAG, "group = $group")
+        Log.d(TAG, "default split mode = $defaultSplitMode")
+
+
         val newPayment = PaymentEntity(
             id = 0,
             groupId = groupId,
@@ -438,7 +480,7 @@ class PaymentsViewModel(
             notes = "",
             paymentDate = DateUtils.getCurrentTimestamp(),
             currency = "GBP",
-            splitMode = "equally",
+            splitMode = defaultSplitMode,
             paymentType = "spent",
             institutionId = null,
             createdBy = userId,
@@ -453,7 +495,7 @@ class PaymentsViewModel(
                 currentState.copy(
                     editablePayment = newPayment,
                     payment = newPayment,
-                    selectedMembers = currentState.groupMembers.toSet()  // Select all members by default
+                    selectedMembers = currentState.groupMembers.toSet()
                 )
             }
             recalculateSplits(userId)
@@ -476,6 +518,108 @@ class PaymentsViewModel(
             Log.e("PaymentsViewModel", "Error loading group members", e)
         }
     }
+
+    // In PaymentsViewModel.kt
+    private fun loadGroupDefaultSplits(groupId: Int) {
+        viewModelScope.launch {
+            try {
+                // Get default percentages from the group
+                val defaultSplitEntities = groupRepository.getGroupDefaultSplits(groupId).first()
+
+                if (defaultSplitEntities.isNotEmpty()) {
+                    Log.d(TAG, "Loaded ${defaultSplitEntities.size} default splits from group")
+
+                    // Get current group members
+                    val currentMembers = _paymentScreenState.value.groupMembers
+
+                    // Create NEW payment splits with percentages from the default splits
+                    val splitEntities = currentMembers.map { member ->
+                        // Find the default percentage for this user, or use equal split
+                        val defaultSplit = defaultSplitEntities.find { it.userId == member.userId }
+                        val percentage = defaultSplit?.percentage ?: (100.0 / currentMembers.size)
+
+                        // Create a payment split with this percentage
+                        PaymentSplitEntity(
+                            id = 0,
+                            paymentId = _paymentScreenState.value.editablePayment?.id ?: 0,
+                            userId = member.userId,
+                            amount = 0.0, // Will be calculated later based on percentage
+                            currency = _paymentScreenState.value.editablePayment?.currency ?: "GBP",
+                            percentage = percentage, // Set the percentage from defaults
+                            createdAt = DateUtils.getCurrentTimestamp(),
+                            updatedAt = DateUtils.getCurrentTimestamp(),
+                            createdBy = userId ?: 0,
+                            updatedBy = userId ?: 0,
+                            deletedAt = null
+                        )
+                    }
+
+                    // Update the state with these new splits
+                    _paymentScreenState.update { currentState ->
+                        currentState.copy(
+                            editableSplits = splitEntities,
+                            selectedMembers = currentMembers.toSet()
+                        )
+                    }
+
+                    // Calculate the actual monetary amounts
+                    calculateSplitAmountsFromPercentages()
+                } else {
+                    Log.d(TAG, "No default splits found for group, using equal splits")
+                    // Fall back to equal percentages
+                    val equalPercentage = 100.0 / _paymentScreenState.value.groupMembers.size
+
+                    val equalSplits = _paymentScreenState.value.groupMembers.map { member ->
+                        PaymentSplitEntity(
+                            id = 0,
+                            paymentId = _paymentScreenState.value.editablePayment?.id ?: 0,
+                            userId = member.userId,
+                            amount = 0.0,
+                            currency = _paymentScreenState.value.editablePayment?.currency ?: "GBP",
+                            percentage = equalPercentage,
+                            createdAt = DateUtils.getCurrentTimestamp(),
+                            updatedAt = DateUtils.getCurrentTimestamp(),
+                            createdBy = userId ?: 0,
+                            updatedBy = userId ?: 0,
+                            deletedAt = null
+                        )
+                    }
+
+                    _paymentScreenState.update { currentState ->
+                        currentState.copy(
+                            editableSplits = equalSplits,
+                            selectedMembers = currentState.groupMembers.toSet()
+                        )
+                    }
+
+                    calculateSplitAmountsFromPercentages()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading group default splits", e)
+                recalculateSplits(userId ?: 0)
+            }
+        }
+    }
+
+    // Make sure this function is implemented correctly
+    private fun calculateSplitAmountsFromPercentages() {
+        val editablePayment = _paymentScreenState.value.editablePayment ?: return
+        val editableSplits = _paymentScreenState.value.editableSplits
+        val totalAmount = editablePayment.amount
+
+        if (editableSplits.isEmpty()) return
+
+        val updatedSplits = editableSplits.map { split ->
+            val percentage = split.percentage ?: 0.0
+            val amount = (totalAmount * percentage / 100.0)
+            split.copy(amount = amount)
+        }
+
+        _paymentScreenState.update { currentState ->
+            currentState.copy(editableSplits = updatedSplits)
+        }
+    }
+
 
     private fun updateEditablePayment(update: (PaymentEntity) -> PaymentEntity) {
         val currentUserId = userId ?: return
@@ -500,6 +644,7 @@ class PaymentsViewModel(
         val editablePayment = _paymentScreenState.value.editablePayment ?: return
         val selectedMembers = _paymentScreenState.value.selectedMembers
         val paidToUser = _paymentScreenState.value.paidToUser
+        val existingSplits = _paymentScreenState.value.editableSplits
 
         Log.d("PaymentsVM", "Recalculating splits")
         Log.d("PaymentsVM", "Payment type: ${editablePayment.paymentType}")
@@ -564,6 +709,69 @@ class PaymentsViewModel(
                         )
                     }
                 }
+            }
+            editablePayment.splitMode == "percentage" -> {
+                // Prepare input splits for the calculator
+                val splitsForCalculation = if (existingSplits.any { it.percentage != null }) {
+                    // Filter existing splits for selected members
+                    val existingSplitsForMembers = existingSplits
+                        .filter { split -> selectedMembers.any { it.userId == split.userId } }
+
+                    // For newly selected members, create splits with default percentage
+                    val existingUserIds = existingSplitsForMembers.map { it.userId }.toSet()
+                    val remainingMembers = selectedMembers.filter { it.userId !in existingUserIds }
+
+                    if (remainingMembers.isNotEmpty()) {
+                        val usedPercentage = existingSplitsForMembers.sumOf { it.percentage ?: 0.0 }
+                        val defaultPercentage = (100.0 - usedPercentage) / remainingMembers.size
+
+                        existingSplitsForMembers + remainingMembers.map { member ->
+                            PaymentSplitEntity(
+                                id = 0,
+                                paymentId = editablePayment.id,
+                                userId = member.userId,
+                                amount = 0.0,  // Will be calculated by the calculator
+                                percentage = defaultPercentage,
+                                currency = editablePayment.currency ?: "GBP",
+                                createdAt = DateUtils.getCurrentTimestamp(),
+                                updatedAt = DateUtils.getCurrentTimestamp(),
+                                createdBy = userId,
+                                updatedBy = userId,
+                                deletedAt = null
+                            )
+                        }
+                    } else {
+                        existingSplitsForMembers
+                    }
+                } else {
+                    // Create new splits with equal percentages
+                    val equalPercentage = 100.0 / selectedMembers.size
+                    selectedMembers.map { member ->
+                        PaymentSplitEntity(
+                            id = 0,
+                            paymentId = editablePayment.id,
+                            userId = member.userId,
+                            amount = 0.0,  // Will be calculated by the calculator
+                            percentage = equalPercentage,
+                            currency = editablePayment.currency ?: "GBP",
+                            createdAt = DateUtils.getCurrentTimestamp(),
+                            updatedAt = DateUtils.getCurrentTimestamp(),
+                            createdBy = userId,
+                            updatedBy = userId,
+                            deletedAt = null
+                        )
+                    }
+                }
+
+                // Use the splitCalculator to calculate the actual amounts
+                splitCalculator.calculateSplits(
+                    payment = editablePayment,
+                    splits = splitsForCalculation,
+                    targetAmount = BigDecimal.valueOf(editablePayment.amount),
+                    targetCurrency = editablePayment.currency ?: "GBP",
+                    userId = userId,
+                    currentTime = DateUtils.getCurrentTimestamp()
+                )
             }
             editablePayment.splitMode == "unequally" -> {
                 _paymentScreenState.value.editableSplits.filter { split ->

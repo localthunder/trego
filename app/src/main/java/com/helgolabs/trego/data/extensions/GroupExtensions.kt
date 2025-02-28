@@ -19,6 +19,7 @@ fun Group.toEntity(syncStatus: SyncStatus = SyncStatus.PENDING_SYNC): GroupEntit
         updatedAt = this.updatedAt,
         inviteLink = this.inviteLink,
         defaultCurrency = this.defaultCurrency,
+        defaultSplitMode = this.defaultSplitMode,
         syncStatus = syncStatus,
     )
 }
@@ -33,6 +34,7 @@ fun GroupEntity.toModel(): Group {
         updatedAt = this.updatedAt,
         inviteLink = this.inviteLink,
         defaultCurrency = this.defaultCurrency,
+        defaultSplitMode = this.defaultSplitMode
         )
 }
 

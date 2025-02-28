@@ -24,6 +24,7 @@ import com.helgolabs.trego.ui.screens.DeepLinkTestScreen
 import com.helgolabs.trego.ui.screens.ForgotPasswordScreen
 import com.helgolabs.trego.ui.screens.GroupBalancesScreen
 import com.helgolabs.trego.ui.screens.GroupDetailsScreen
+import com.helgolabs.trego.ui.screens.GroupSettingsScreen
 import com.helgolabs.trego.ui.screens.GroupTotalsScreen
 import com.helgolabs.trego.ui.screens.HomeScreen
 import com.helgolabs.trego.ui.screens.InstitutionsScreen
@@ -226,6 +227,15 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
         ){backStackEntry ->
             val groupId = backStackEntry.arguments?.getInt("groupId") ?: return@composable
             GroupBalancesScreen(navController, context, groupId)
+        }
+        composable(
+            route = "groupSettings/{groupId}",
+            arguments = listOf(
+                navArgument("groupId") { type = NavType.IntType }
+            )
+        ){backStackEntry ->
+            val groupId = backStackEntry.arguments?.getInt("groupId") ?: return@composable
+            GroupSettingsScreen(navController, groupId)
         }
         composable(
             route = "groupTotals/{groupId}",

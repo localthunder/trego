@@ -23,5 +23,6 @@ data class GroupEntity(
     @ColumnInfo(name = "updated_at") val updatedAt: String,
     @ColumnInfo(name = "invite_link") val inviteLink: String?,
     @ColumnInfo(name = "default_currency") val defaultCurrency: String = "GBP",
+    @ColumnInfo(name = "default_split_mode") val defaultSplitMode: String = "equally",
     @ColumnInfo(name = "sync_status") var syncStatus: SyncStatus = SyncStatus.PENDING_SYNC
 )

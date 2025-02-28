@@ -4,6 +4,7 @@ import android.content.Context
 import com.helgolabs.trego.MyApplication
 import com.helgolabs.trego.data.cache.TransactionCacheManager
 import com.helgolabs.trego.data.calculators.DefaultSplitCalculator
+import com.helgolabs.trego.data.calculators.SplitCalculator
 import com.helgolabs.trego.data.local.AppDatabase
 import com.helgolabs.trego.data.managers.CurrencyConversionManager
 import com.helgolabs.trego.data.network.ApiService
@@ -18,6 +19,7 @@ import com.helgolabs.trego.data.repositories.TransactionRepository
 import com.helgolabs.trego.data.repositories.UserRepository
 import com.helgolabs.trego.data.sync.managers.BankAccountSyncManager
 import com.helgolabs.trego.data.sync.managers.CurrencyConversionSyncManager
+import com.helgolabs.trego.data.sync.managers.GroupDefaultSplitSyncManager
 import com.helgolabs.trego.data.sync.managers.GroupMemberSyncManager
 import com.helgolabs.trego.data.sync.managers.PaymentSyncManager
 import com.helgolabs.trego.data.sync.managers.RequisitionSyncManager
@@ -143,6 +145,16 @@ class SyncManagerProvider(
         )
     }
 
+    val groupDefaultSplitSyncManager by lazy {
+        GroupDefaultSplitSyncManager(
+            groupDefaultSplitDao = database.groupDefaultSplitDao(),
+            userDao = database.userDao(),
+            apiService = apiService,
+            syncMetadataDao = syncMetadataDao,
+            dispatchers = dispatchers,
+            context = context
+        )
+    }
 
     val currencyConversionManager by lazy {
         CurrencyConversionManager(
@@ -176,12 +188,14 @@ class SyncManagerProvider(
         paymentSplitDao = database.paymentSplitDao(),
         syncMetadataDao = syncMetadataDao,
         userGroupArchiveDao = database.userGroupArchivesDao(),
+        groupDefaultSplitDao = database.groupDefaultSplitDao(),
         apiService = apiService,
         context = context,
         dispatchers = dispatchers,
         groupSyncManager = groupSyncManager,
         groupMemberSyncManager = groupMemberSyncManager,
-        userGroupArchiveSyncManager = userGroupArchiveSyncManager
+        userGroupArchiveSyncManager = userGroupArchiveSyncManager,
+        groupDefaultSplitSyncManager = groupDefaultSplitSyncManager
     )
 
     fun provideInstitutionRepository() = InstitutionRepository(
