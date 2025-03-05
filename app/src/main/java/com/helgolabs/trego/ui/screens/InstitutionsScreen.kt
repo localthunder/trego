@@ -8,6 +8,7 @@ import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -100,57 +101,115 @@ fun InstitutionItem(
     institution: Institution,
     returnRoute: String?
 ) {
+    val TAG = "InstitutionItem"
     val context = LocalContext.current
     val myApplication = context.applicationContext as MyApplication
     val institutionViewModel: InstitutionViewModel = viewModel(factory = myApplication.viewModelFactory)
-    var logoFile by remember { mutableStateOf<File?>(null) }
-    var dominantColors by remember { mutableStateOf(listOf<Color>()) }
     var shouldCreateRequisition by remember { mutableStateOf(false) }
 
+    // State for logo and colors
+    var logoFile by remember { mutableStateOf<File?>(null) }
+    var dominantColors by remember { mutableStateOf(listOf<Color>()) }
+    var logoExists by remember { mutableStateOf(false) }
+
+    // First check local storage, then download if needed
     LaunchedEffect(institution.id) {
         if (institution.id != null) {
             val logoFilename = "${institution.id}.png"
-            val logoSaved = isLogoSaved(context, institution.id)
 
-            if (!logoSaved) {
-                val logoUrl = institutionViewModel.getInstitutionLogoUrl(institution.id)
-                logoUrl?.let {
-                    val file = downloadAndSaveImage(context, it.toString(), logoFilename)
-                    file?.let { savedFile ->
-                        logoFile = savedFile
-                        val bitmap = BitmapFactory.decodeFile(savedFile.path)
-                        if (bitmap != null) {
-                            dominantColors = GradientBorderUtils.getDominantColors(bitmap).map { Color(it) }
-                            if (dominantColors.size < 2) {
+            // Check if logo exists locally
+            val file = File(context.filesDir, logoFilename)
+            logoExists = isLogoSaved(context, institution.id)
+            Log.d(TAG, "Local logo check: exists=${file.exists()}, size=${file.length()} bytes for ${institution.id}")
+
+            if (logoExists) {
+                // Logo exists locally, load it
+                logoFile = file
+                Log.d(TAG, "Using local logo from: ${file.absolutePath}")
+
+                try {
+                    val bitmap = BitmapFactory.decodeFile(file.absolutePath)
+                    if (bitmap != null) {
+                        Log.d(TAG, "Loaded local bitmap: ${bitmap.width}x${bitmap.height}")
+
+                        // Extract colors
+                        try {
+                            val colors = GradientBorderUtils.getDominantColors(bitmap).map { Color(it) }
+                            dominantColors = if (colors.size < 2) {
                                 val averageColor = Color(GradientBorderUtils.getAverageColor(bitmap))
-                                dominantColors = listOf(averageColor, averageColor.copy(alpha = 0.7f))
+                                listOf(averageColor, averageColor.copy(alpha = 0.7f))
+                            } else {
+                                colors
                             }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error extracting colors", e)
+                            dominantColors = listOf(Color.Gray, Color.LightGray)
                         }
+                    } else {
+                        Log.e(TAG, "Failed to decode local bitmap, file might be corrupted")
+                        // If we can't decode the bitmap, the file might be corrupted
+                        logoExists = false
                     }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error loading local logo", e)
+                    logoExists = false
                 }
-            } else {
-                logoFile = File(context.filesDir, logoFilename)
-                val bitmap = BitmapFactory.decodeFile(logoFile?.path)
-                if (bitmap != null) {
-                    dominantColors = GradientBorderUtils.getDominantColors(bitmap).map { Color(it) }
-                    if (dominantColors.size < 2) {
-                        val averageColor = Color(GradientBorderUtils.getAverageColor(bitmap))
-                        dominantColors = listOf(averageColor, averageColor.copy(alpha = 0.7f))
+            }
+
+            // If no valid local logo, try to download
+            if (!logoExists) {
+                try {
+                    Log.d(TAG, "No valid local logo, fetching URL for ${institution.id}")
+                    val logoUrl = institutionViewModel.getInstitutionLogoUrl(institution.id)
+
+                    if (logoUrl != null) {
+                        Log.d(TAG, "Got URL: $logoUrl for ${institution.id}")
+                        try {
+                            // Try to download the logo
+                            val downloadedFile = downloadAndSaveImage(context, logoUrl, logoFilename)
+                            if (downloadedFile != null) {
+                                Log.d(TAG, "Downloaded logo to: ${downloadedFile.absolutePath}")
+                                logoFile = downloadedFile
+                                logoExists = true
+
+                                // Extract colors from the downloaded image
+                                try {
+                                    val bitmap = BitmapFactory.decodeFile(downloadedFile.absolutePath)
+                                    if (bitmap != null) {
+                                        val colors = GradientBorderUtils.getDominantColors(bitmap).map { Color(it) }
+                                        dominantColors = if (colors.size < 2) {
+                                            val averageColor = Color(GradientBorderUtils.getAverageColor(bitmap))
+                                            listOf(averageColor, averageColor.copy(alpha = 0.7f))
+                                        } else {
+                                            colors
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Error extracting colors from downloaded image", e)
+                                    dominantColors = listOf(Color.Gray, Color.LightGray)
+                                }
+                            } else {
+                                Log.e(TAG, "Failed to download logo")
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error downloading logo", e)
+                        }
+                    } else {
+                        Log.e(TAG, "No logo URL available")
                     }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error getting logo URL", e)
                 }
             }
         }
     }
 
+    // Requisition handling code
     LaunchedEffect(shouldCreateRequisition) {
         if (shouldCreateRequisition) {
             try {
                 val encodedReturnRoute = Uri.encode(returnRoute ?: "home")
-                // Make sure the return URL matches exactly what GoCardless will use
                 val baseUrl = "trego://bankaccounts"
-
-                Log.d("InstitutionItem", "Creating requisition with baseUrl: $baseUrl")
-                Log.d("InstitutionItem", "Return route: $returnRoute")
 
                 val requisitionRequest = RequisitionRequest(
                     baseUrl = baseUrl,
@@ -161,15 +220,12 @@ fun InstitutionItem(
 
                 val result = institutionViewModel.createRequisition(requisitionRequest)
                 result.onSuccess { response ->
-                    Log.d("InstitutionItem", "Requisition created successfully: $response")
                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(response.link))
                     context.startActivity(intent)
                 }.onFailure { error ->
-                    Log.e("InstitutionItem", "Failed to create requisition", error)
                     Toast.makeText(context, "Failed to create requisition: ${error.message}", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
-                Log.e("InstitutionItem", "Error creating requisition", e)
                 Toast.makeText(context, "Unexpected error: ${e.message}", Toast.LENGTH_SHORT).show()
             }
 
@@ -177,39 +233,62 @@ fun InstitutionItem(
         }
     }
 
-    val logoImage = logoFile?.let {
-        BitmapFactory.decodeFile(it.path)
-    }?.asImageBitmap()
-
-    val borderSize = 2.dp
-    val borderBrush = if (dominantColors.size >= 2) {
-        Brush.linearGradient(dominantColors)
-    } else {
-        Brush.linearGradient(listOf(Color.Gray, Color.LightGray))
+    // Create image bitmap from file
+    val logoImage = remember(logoFile, logoExists) {
+        if (logoExists && logoFile != null) {
+            try {
+                val bitmap = BitmapFactory.decodeFile(logoFile?.absolutePath)
+                bitmap?.asImageBitmap()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error creating bitmap for display", e)
+                null
+            }
+        } else {
+            null
+        }
     }
 
+    // Create card with logo
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
             .clickable { shouldCreateRequisition = true },
-        border = BorderStroke(borderSize, borderBrush)
+        border = BorderStroke(2.dp, Brush.linearGradient(dominantColors.ifEmpty {
+            listOf(Color.Gray, Color.LightGray)
+        }))
     ) {
         Row(
-            modifier = Modifier
-                .padding(16.dp),
+            modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (logoImage != null) {
-                Image(
-                    bitmap = logoImage,
-                    contentDescription = "Institution Logo",
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                )
-            } else {
-                Spacer(modifier = Modifier.size(40.dp))
+            Box(
+                modifier = Modifier.size(40.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                if (logoImage != null) {
+                    Image(
+                        bitmap = logoImage,
+                        contentDescription = "Institution Logo",
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                    )
+                } else {
+                    // Placeholder with institution initial
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(Color.LightGray),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = institution.name.firstOrNull()?.toString() ?: "?",
+                            color = Color.White
+                        )
+                    }
+                }
             }
             Spacer(modifier = Modifier.width(16.dp))
             Text(institution.name)

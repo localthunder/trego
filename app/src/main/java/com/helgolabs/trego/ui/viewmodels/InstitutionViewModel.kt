@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.net.URLEncoder
 
 class InstitutionViewModel(
@@ -46,6 +47,7 @@ class InstitutionViewModel(
 
 
     init {
+        // Use a simpler approach - just fetch the data once on initialization
         fetchInstitutions()
     }
 
@@ -149,14 +151,18 @@ class InstitutionViewModel(
         }
     }
 
-    fun getInstitutionLogoUrl(institutionId: String) {
-        viewModelScope.launch(dispatchers.io) {
+    suspend fun getInstitutionLogoUrl(institutionId: String): String? {
+        Log.d("InstitutionViewModel", "Fetching logo URL for $institutionId")
+        return withContext(dispatchers.io) {
             try {
                 val logoUrl = institutionRepository.getInstitutionLogoUrl(institutionId)
                 _institutionLogoUrl.value = logoUrl
+                Log.d("InstitutionViewModel", "Got logo URL: $logoUrl for $institutionId")
+                logoUrl
             } catch (e: Exception) {
-                _error.value = "Failed to get institution logo URL: ${e.message}"
+                Log.e("InstitutionViewModel", "Failed to get logo URL for $institutionId", e)
                 _institutionLogoUrl.value = null
+                null
             }
         }
     }

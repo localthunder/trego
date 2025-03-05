@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit
 
 object RetrofitClient {
 //    private const val BASE_URL = "http://10.0.2.2:3000/"
-    private const val BASE_URL = "http://192.168.1.137:3000/"
+    private const val BASE_URL = "http://192.168.68.62:3000/"
     private const val TIMEOUT_DURATION = 60L // Set timeout duration in seconds
 
     private fun getClient(context: Context): OkHttpClient {

@@ -29,6 +29,8 @@ import com.helgolabs.trego.data.sync.managers.UserSyncManager
 import com.helgolabs.trego.utils.AppCoroutineDispatchers
 import com.helgolabs.trego.utils.CoroutineDispatchers
 import com.helgolabs.trego.utils.EntityServerConverter
+import com.helgolabs.trego.utils.InstitutionLogoManager
+import kotlin.math.log
 
 class SyncManagerProvider(
     private val context: Context,
@@ -39,6 +41,10 @@ class SyncManagerProvider(
     private val syncMetadataDao = database.syncMetadataDao()
     val transactionCacheManager = TransactionCacheManager(context, database.cachedTransactionDao())
 
+    // Create a single instance of InstitutionLogoManager
+    private val institutionLogoManager by lazy {
+        InstitutionLogoManager(context)
+    }
 
     // Sync Managers
     val bankAccountSyncManager by lazy {
@@ -202,7 +208,8 @@ class SyncManagerProvider(
         institutionDao = database.institutionDao(),
         apiService = apiService,
         dispatchers = dispatchers,
-        context = context
+        context = context,
+        logoManager = institutionLogoManager
     )
     fun providePaymentRepository() = PaymentRepository(
         paymentDao = database.paymentDao(),

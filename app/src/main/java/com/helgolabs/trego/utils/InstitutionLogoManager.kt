@@ -3,10 +3,17 @@ package com.helgolabs.trego.utils
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.drawable.BitmapDrawable
+import android.util.Log
 import android.util.LruCache
 import androidx.compose.ui.graphics.Color
+import coil3.ImageLoader
+import coil3.request.ImageRequest
+import coil3.request.SuccessResult
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 
@@ -79,9 +86,27 @@ class InstitutionLogoManager(private val context: Context) {
         return bitmap
     }
 
-    private suspend fun downloadBitmap(url: String): Bitmap {
-        // Implement your existing bitmap download logic here
-        TODO("Implement bitmap download")
+    private suspend fun downloadBitmap(url: String): Bitmap = withContext(Dispatchers.IO) {
+        try {
+            // Use Coil for image loading
+            val loader = ImageLoader(context)
+            val request = ImageRequest.Builder(context)
+                .data(url)
+                .build()
+
+            val result = loader.execute(request)
+            when (result) {
+                is SuccessResult -> {
+                    val drawable = result.image as? BitmapDrawable
+                        ?: throw IllegalStateException("Failed to get bitmap from result")
+                    drawable.bitmap
+                }
+                else -> throw IllegalStateException("Failed to load image from $url")
+            }
+        } catch (e: Exception) {
+            Log.e("Institution Logo Manager", "Error downloading bitmap: ${e.message}", e)
+            throw e
+        }
     }
 
     fun clearCache() {

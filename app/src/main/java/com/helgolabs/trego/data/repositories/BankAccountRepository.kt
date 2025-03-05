@@ -31,6 +31,8 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import okhttp3.Call
+import java.util.concurrent.ConcurrentHashMap
 
 class BankAccountRepository(
     private val bankAccountDao: BankAccountDao,
@@ -45,6 +47,9 @@ class BankAccountRepository(
 
     override val entityType = "bank_accounts"
     override val syncPriority = 2
+
+    // Add this flag to track if we need to ignore call cancellations
+    private val callsInProgress = ConcurrentHashMap<String, Call>()
 
     val myApplication = context.applicationContext as MyApplication
     val transactionRepository = myApplication.transactionRepository

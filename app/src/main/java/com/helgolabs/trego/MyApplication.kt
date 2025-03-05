@@ -59,6 +59,7 @@ class MyApplication : Application(), Configuration.Provider {
     val apiService: ApiService by lazy { RetrofitClient.getInstance(this).create(ApiService::class.java) }
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val entityServerConverter by lazy { EntityServerConverter(this) }
+    val persistentBackgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     val transactionCacheManager: TransactionCacheManager by lazy {
         TransactionCacheManager(
@@ -86,10 +87,6 @@ class MyApplication : Application(), Configuration.Provider {
     val userRepository: UserRepository by lazy { syncManagerProvider.provideUserRepository() }
     val notificationRepository: NotificationRepository by lazy { syncManagerProvider.provideNotificationRepository() }
     val splitCalculator by lazy { DefaultSplitCalculator() }
-
-    val institutionLogoManager: InstitutionLogoManager by lazy {
-        InstitutionLogoManager(applicationContext)
-    }
 
     val dispatchers = AppCoroutineDispatchers()
 
@@ -153,7 +150,7 @@ class MyApplication : Application(), Configuration.Provider {
             mapOf(
                 GroupViewModel::class.java to { GroupViewModel(groupRepository, userRepository, paymentRepository, this) },
                 AuthViewModel::class.java to { AuthViewModel(userRepository, dispatchers)},
-                BankAccountViewModel::class.java to { BankAccountViewModel(bankAccountRepository, transactionRepository, dispatchers)},
+                BankAccountViewModel::class.java to { BankAccountViewModel(bankAccountRepository, transactionRepository, dispatchers, this)},
                 InstitutionViewModel::class.java to { InstitutionViewModel(institutionRepository, dispatchers)},
                 PaymentsViewModel::class.java to { PaymentsViewModel(paymentRepository, paymentSplitRepository, groupRepository, transactionRepository, institutionRepository, userRepository, splitCalculator,this) },
                 TransactionViewModel::class.java to { TransactionViewModel(transactionRepository, dispatchers, this)},

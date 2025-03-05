@@ -5,7 +5,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.Build
+import android.net.Uri
 import androidx.core.app.NotificationCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
@@ -19,24 +19,23 @@ import kotlinx.coroutines.launch
 
 class FCMService : FirebaseMessagingService() {
     private val scope = CoroutineScope(Dispatchers.IO)
+    val myApplication = applicationContext as MyApplication
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
         // Get repository from your application class
-        val myApplication = applicationContext as MyApplication
-        val repository = myApplication.notificationRepository
+        val notificationRepository = myApplication.notificationRepository
         val userId = getUserIdFromPreferences(applicationContext)
 
         if (userId != null) {
             scope.launch {
-                repository.registerDeviceToken(token, userId)
+                notificationRepository.registerDeviceToken(token, userId)
             }
         }
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
-
         // Create notification channel for Android O and above
         createNotificationChannel()
 
@@ -48,28 +47,24 @@ class FCMService : FirebaseMessagingService() {
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
 
+        // Extract entity information from the deepLink and trigger sync
+        val deepLink = message.data["deepLink"] ?: return
+        handleDeepLinkSync(deepLink)
+
         // Add deep linking if needed
         message.data["deepLink"]?.let { link ->
             val intent = Intent(this, MainActivity::class.java).apply {
-                data = android.net.Uri.parse(link)
+                data = Uri.parse(link)
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
 
-            val pendingIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val pendingIntent =
                 PendingIntent.getActivity(
                     this,
                     0,
                     intent,
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                 )
-            } else {
-                PendingIntent.getActivity(
-                    this,
-                    0,
-                    intent,
-                    PendingIntent.FLAG_UPDATE_CURRENT
-                )
-            }
 
             notificationBuilder.setContentIntent(pendingIntent)
         }
@@ -83,16 +78,51 @@ class FCMService : FirebaseMessagingService() {
     }
 
     private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val name = "Trego Notifications"
-            val descriptionText = "Receive notifications about group activities and expenses"
-            val importance = NotificationManager.IMPORTANCE_DEFAULT
-            val channel = NotificationChannel(CHANNEL_ID, name, importance).apply {
-                description = descriptionText
-            }
+        val name = "Trego Notifications"
+        val descriptionText = "Receive notifications about group activities and expenses"
+        val importance = NotificationManager.IMPORTANCE_DEFAULT
+        val channel = NotificationChannel(CHANNEL_ID, name, importance).apply {
+            description = descriptionText
+        }
 
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.createNotificationChannel(channel)
+    }
+
+    private fun handleDeepLinkSync(deepLink: String) {
+
+        val groupRepository = myApplication.groupRepository
+        val paymentRepository = myApplication.paymentRepository
+
+        // Parse the deepLink to extract entity types and IDs
+        val uri = Uri.parse(deepLink)
+
+        // Skip if URI can't be parsed or doesn't match expected pattern
+        if (uri.scheme != "trego") return
+
+        myApplication.applicationScope.launch {
+            // Always sync group data first, since most we want the most recently updated group on top
+            groupRepository.sync()
+
+            when (uri.host) {
+                "paymentDetails" -> {
+                    // Format: trego://paymentDetails/{groupId}/{paymentId}
+                    paymentRepository.sync()
+                }
+                "groupDetails" -> {
+                    // Format: trego://groupDetails/{groupId}
+                    // Already synced group, so do nothing
+                }
+                "groupSettings" -> {
+                    // Format: trego://groupSettings/{groupId}
+                    // Already synced group, so do nothing
+                }
+                "settleUp" -> {
+                    // Format: trego://settleUp/{groupId}
+                    paymentRepository.sync()
+                }
+                // Add other deepLink types as needed
+            }
         }
     }
 

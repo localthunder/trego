@@ -16,6 +16,10 @@ import com.helgolabs.trego.utils.GradientBorderUtils
 import com.helgolabs.trego.utils.InstitutionLogoManager
 import downloadAndSaveImage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -23,38 +27,62 @@ class InstitutionRepository(
     private val institutionDao: InstitutionDao,
     private val apiService: ApiService,
     private val dispatchers: CoroutineDispatchers,
-    private val context: Context
+    private val context: Context,
+    private val logoManager: InstitutionLogoManager
 ) {
 
     suspend fun insert(institution: Institution) {
         institutionDao.insert(institution.toEntity())
     }
 
-    suspend fun getAllInstitutions(): List<Institution> = withContext(Dispatchers.IO) {
+    /**
+     * Get a flow of institutions that emits local data immediately and refreshes from network
+     */
+    fun getInstitutionsStream(): Flow<List<Institution>> {
+        return institutionDao.getInstitutionsStream()
+            .map { institutions -> institutions.map { it.toModel() } }
+            .onStart { refreshInstitutions("GB") }
+    }
+
+    /**
+     * Get institutions with offline-first approach
+     */
+    suspend fun getAllInstitutions(): List<Institution> = withContext(dispatchers.io) {
         val localInstitutions = institutionDao.getAllInstitutions().map { it.toModel() }
 
-        try {
-            // Fetch institutions from the API
-            val apiInstitutions = apiService.getInstitutions("GB") // Assuming "GB" for United Kingdom, adjust as needed
+        // Trigger a refresh in the background
+        launch {
+            refreshInstitutions("GB")
+        }
 
-            // Update local database with API data
-            apiInstitutions.forEach { apiInstitution ->
-                val localInstitution = institutionDao.getInstitutionById(apiInstitution.id)
-                if (localInstitution == null) {
-                    // Insert new institution
-                    institutionDao.insert(apiInstitution.toEntity())
-                } else {
-                    // Update existing institution
-                    institutionDao.updateInstitution(apiInstitution.toEntity())
+        return@withContext localInstitutions
+    }
+
+    /**
+     * Refresh institutions from the API
+     */
+    suspend fun refreshInstitutions(country: String) {
+        withContext(dispatchers.io) {
+            try {
+                val apiInstitutions = apiService.getInstitutions(country)
+
+                institutionDao.runInTransaction {
+                    apiInstitutions.forEach { apiInstitution ->
+                        val localInstitution = institutionDao.getInstitutionById(apiInstitution.id)
+                        if (localInstitution == null) {
+                            institutionDao.insert(apiInstitution.toEntity())
+                        } else {
+                            val updatedInstitution = apiInstitution.toEntity().copy(
+                                localLogoPath = localInstitution.localLogoPath
+                            )
+                            institutionDao.updateInstitution(updatedInstitution)
+                        }
+                    }
                 }
+            } catch (e: Exception) {
+                Log.e("InstitutionRepository", "Error refreshing institutions from API", e)
+                // The flow will continue to emit the latest local data regardless of this error
             }
-
-            // Return the updated list from the database
-            institutionDao.getAllInstitutions().map { it.toModel() }
-        } catch (e: Exception) {
-            Log.e("InstitutionRepository", "Error fetching institutions from API", e)
-            // If API call fails, return local data
-            localInstitutions
         }
     }
 
@@ -103,26 +131,17 @@ class InstitutionRepository(
     suspend fun downloadAndSaveInstitutionLogo(institutionId: String): Result<InstitutionLogoManager.LogoInfo> = withContext(dispatchers.io) {
         try {
             val logoUrl = getInstitutionLogoUrl(institutionId)
-            if (logoUrl == null) return@withContext Result.failure(Exception("No logo URL available"))
+            if (logoUrl == null) {
+                return@withContext Result.failure(Exception("No logo URL available"))
+            }
 
-            val logoFilename = "${institutionId}.png"
-            val file = downloadAndSaveImage(context, logoUrl, logoFilename)
-                ?: return@withContext Result.failure(Exception("Failed to download logo"))
-
-            val bitmap = BitmapFactory.decodeFile(file.path)
-                ?: return@withContext Result.failure(Exception("Failed to decode logo"))
-
-            val dominantColors = GradientBorderUtils.getDominantColors(bitmap).map { Color(it) }
-            val logoInfo =
-                InstitutionLogoManager.LogoInfo(
-                    file = file,
-                    bitmap = bitmap,
-                    dominantColors = dominantColors
-                )
+            // Use the logo manager to fetch and process the image
+            val logoInfo = logoManager.getOrFetchLogo(institutionId, logoUrl)
+                ?: return@withContext Result.failure(Exception("Failed to fetch logo"))
 
             // Update institution with local logo path
             institutionDao.getInstitutionById(institutionId)?.let { entity ->
-                institutionDao.updateInstitution(entity.copy(localLogoPath = file.absolutePath))
+                institutionDao.updateInstitution(entity.copy(localLogoPath = logoInfo.file.absolutePath))
             }
 
             Result.success(logoInfo)
@@ -132,20 +151,15 @@ class InstitutionRepository(
     }
 
     suspend fun getLocalInstitutionLogo(institutionId: String): InstitutionLogoManager.LogoInfo? = withContext(dispatchers.io) {
-        val institution = institutionDao.getInstitutionById(institutionId) ?: return@withContext null
-        val localPath = institution.localLogoPath ?: return@withContext null
+        try {
+            val institution = institutionDao.getInstitutionById(institutionId) ?: return@withContext null
 
-        val file = File(localPath)
-        if (!file.exists()) return@withContext null
-
-        val bitmap = BitmapFactory.decodeFile(file.path) ?: return@withContext null
-        val dominantColors = GradientBorderUtils.getDominantColors(bitmap).map { Color(it) }
-
-        InstitutionLogoManager.LogoInfo(
-            file = file,
-            bitmap = bitmap,
-            dominantColors = dominantColors
-        )
+            // Use the logo manager to get the logo
+            return@withContext logoManager.getOrFetchLogo(institutionId, null)
+        } catch (e: Exception) {
+            Log.e("InstitutionRepository", "Error getting local logo", e)
+            return@withContext null
+        }
     }
 
     suspend fun syncInstitutions(country: String) = withContext(dispatchers.io) {
@@ -159,7 +173,11 @@ class InstitutionRepository(
                     if (localInstitution == null) {
                         institutionDao.insert(serverInstitution.toEntity())
                     } else {
-                        institutionDao.updateInstitution(serverInstitution.toEntity())
+                        // Preserve local logo path
+                        val updatedInstitution = serverInstitution.toEntity().copy(
+                            localLogoPath = localInstitution.localLogoPath
+                        )
+                        institutionDao.updateInstitution(updatedInstitution)
                     }
                 }
             }

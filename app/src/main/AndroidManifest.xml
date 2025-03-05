@@ -68,13 +68,13 @@
                 <category android:name="android.intent.category.BROWSABLE" />
 
                 <!-- All app scheme hosts in a single filter -->
-                <data android:scheme="splittr" android:host="test" />
-                <data android:scheme="splittr" android:host="bankaccounts" />
-                <data android:scheme="splittr" android:host="invite" />
-                <data android:scheme="splittr" android:host="login" />
-                <data android:scheme="splittr" android:host="register" />
-                <data android:scheme="splittr" android:host="home" />
-                <data android:scheme="splittr" android:host="institutions" />
+                <data android:scheme="trego" android:host="test" />
+                <data android:scheme="trego" android:host="bankaccounts" />
+                <data android:scheme="trego" android:host="invite" />
+                <data android:scheme="trego" android:host="login" />
+                <data android:scheme="trego" android:host="register" />
+                <data android:scheme="trego" android:host="home" />
+                <data android:scheme="trego" android:host="institutions" />
             </intent-filter>
 
             <!-- Web URL scheme -->
@@ -85,7 +85,7 @@
 
                 <data
                     android:scheme="https"
-                    android:host="splittr.app"
+                    android:host="trego.app"
                     android:pathPattern="/invite/.*" />
             </intent-filter>
 

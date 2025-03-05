@@ -21,7 +21,7 @@ object ImageUtils {
     private const val MAX_IMAGE_SIZE = 1024
     private const val JPEG_QUALITY = 85
 //    private const val BASE_URL = "http://10.0.2.2:3000/"
-    private const val BASE_URL = "http://192.168.1.137:3000/"
+    private const val BASE_URL = "http://192.168.68.62:3000/"
     private const val METADATA_SUFFIX = ".meta"
     private const val CACHE_SIZE_BYTES = 50L * 1024 * 1024 // 50MB cache limit
     private const val MAX_RETRY_ATTEMPTS = 3
