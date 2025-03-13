@@ -1,5 +1,7 @@
 package com.helgolabs.trego.utils
 
+import com.helgolabs.trego.utils.CurrencyUtils.currencySymbols
+
 object CurrencyUtils {
     val currencySymbols = mapOf(
         "USD" to "US$",
@@ -147,4 +149,8 @@ object CurrencyUtils {
         "VND" to "Vietnamese Dong",
         "ZMW" to "Zambian Kwacha"
     )
+}
+
+fun getCurrencySymbol(currencyCode: String): String {
+    return currencySymbols[currencyCode] ?: currencyCode
 }

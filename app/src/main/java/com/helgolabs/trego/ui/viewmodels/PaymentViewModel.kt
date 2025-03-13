@@ -116,6 +116,7 @@ class PaymentsViewModel(
         val expandedPaidByUserList: Boolean = false,
         val expandedPaidToUserList: Boolean = false,
         val expandedPaymentTypeList: Boolean = false,
+        val expandedSplitTypeList: Boolean = false,
         val showDeleteDialog: Boolean = false,
         val selectedMembers: Set<GroupMemberEntity> = emptySet(),
         val group: GroupEntity? = null,
@@ -192,6 +193,7 @@ class PaymentsViewModel(
         object ToggleExpandedPaidByUserList : PaymentAction()
         object ToggleExpandedPaidToUserList : PaymentAction()
         object ToggleExpandedPaymentTypeList : PaymentAction()
+        object ToggleExpandedSplitTypeList : PaymentAction()
         object ShowDeleteDialog : PaymentAction()
         object HideDeleteDialog : PaymentAction()
     }
@@ -281,6 +283,11 @@ class PaymentsViewModel(
             is PaymentAction.ToggleExpandedPaymentTypeList -> {
                 _paymentScreenState.value = _paymentScreenState.value.copy(
                     expandedPaymentTypeList = !_paymentScreenState.value.expandedPaymentTypeList
+                )
+            }
+            is PaymentAction.ToggleExpandedSplitTypeList -> {
+                _paymentScreenState.value = _paymentScreenState.value.copy(
+                    expandedSplitTypeList = !_paymentScreenState.value.expandedSplitTypeList
                 )
             }
             is PaymentAction.ShowDeleteDialog -> {

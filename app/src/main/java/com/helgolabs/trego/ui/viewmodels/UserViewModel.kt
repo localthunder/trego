@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.helgolabs.trego.data.extensions.toModel
+import com.helgolabs.trego.data.local.entities.UserEntity
 import com.helgolabs.trego.data.repositories.UserRepository
 import com.helgolabs.trego.data.model.User
 import com.helgolabs.trego.utils.CoroutineDispatchers
@@ -19,11 +20,11 @@ class UserViewModel(
     private val dispatchers: CoroutineDispatchers,
     private val context: Context
 ) : ViewModel() {
-    private val _user = MutableStateFlow<User?>(null)
-    val user: StateFlow<User?> = _user
+    private val _user = MutableStateFlow<UserEntity?>(null)
+    val user: StateFlow<UserEntity?> = _user
 
-    private val _users = MutableStateFlow<List<User>>(emptyList())
-    val users: StateFlow<List<User>> = _users
+    private val _users = MutableStateFlow<List<UserEntity>>(emptyList())
+    val users: StateFlow<List<UserEntity>> = _users
 
     private val _loading = MutableStateFlow<Boolean>(false)
     val loading: StateFlow<Boolean> = _loading
@@ -46,7 +47,7 @@ class UserViewModel(
             try {
                 userRepository.getUserById(userId).collect { userEntity ->
                     userEntity?.let {
-                        _user.value = (it.toModel())
+                        _user.value = (it)
                     }
                 }
             } catch (e: Exception) {
@@ -62,7 +63,7 @@ class UserViewModel(
             _loading.value = (true)
             try {
                 userRepository.getUsersByIds(userIds).collect { userEntities ->
-                    _users.value = (userEntities.map { it.toModel() })
+                    _users.value = (userEntities)
                 }
             } catch (e: Exception) {
                 _error.value = ("Failed to load users: ${e.message}")

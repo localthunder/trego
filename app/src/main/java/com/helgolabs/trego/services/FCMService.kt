@@ -19,7 +19,10 @@ import kotlinx.coroutines.launch
 
 class FCMService : FirebaseMessagingService() {
     private val scope = CoroutineScope(Dispatchers.IO)
-    val myApplication = applicationContext as MyApplication
+
+    private val myApplication by lazy {
+        applicationContext as MyApplication
+    }
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)

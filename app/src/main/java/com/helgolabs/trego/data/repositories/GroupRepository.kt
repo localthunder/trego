@@ -505,26 +505,26 @@ class GroupRepository(
         try {
             // First try to get the invite link from local database
             val localGroup = groupDao.getGroupById(groupId).first()
-            val localInviteLink = localGroup?.inviteLink
+                ?: return@withContext Result.failure(Exception("Group not found"))
 
-            val baseAppUrl = "trego://invite/"  // Your app's deep link scheme
-            val playStoreUrl = "https://play.google.com/store/apps/details?id=com.splitter.splittr"
+            val localInviteLink = localGroup.inviteLink
+
+            // Use direct deep link scheme - this works for sharing between devices with the app
+            val appScheme = "trego://groups/invite/"
+            val playStoreUrl = "https://play.google.com/store/apps/details?id=com.helgolabs.trego"
 
             if (!localInviteLink.isNullOrBlank()) {
-                // Return a deep link with fallback to Play Store
-                return@withContext Result.success(
-                    "https://splittr.app/invite/$localInviteLink?fallback=$playStoreUrl"
-                )
+                return@withContext Result.success(appScheme + localInviteLink)
             }
 
             // Only if we don't have a local invite link and we're online, try to fetch from API
             if (NetworkUtils.isOnline()) {
                 try {
-                    val localGroup = groupDao.getGroupByIdSync(groupId)
-                    val linkMap = localGroup?.serverId?.let {
-                        apiService.getGroupInviteLink(it)
-                    }
-                    val inviteCode = linkMap?.get("inviteLink") ?: ""
+                    val serverGroupId = localGroup.serverId
+                        ?: return@withContext Result.failure(Exception("Group has no server ID"))
+
+                    val linkMap = apiService.getGroupInviteLink(serverGroupId)
+                    val inviteCode = linkMap["inviteLink"] ?: ""
 
                     if (inviteCode.isNotBlank()) {
                         // Update local database with the new invite link
@@ -532,17 +532,20 @@ class GroupRepository(
 
                         // Return formatted URL with deep link and fallback
                         return@withContext Result.success(
-                            "https://splittr.app/invite/$inviteCode?fallback=$playStoreUrl"
+                            "$appScheme$inviteCode?fallback=$playStoreUrl"
                         )
+                    } else {
+                        return@withContext Result.failure(Exception("Server returned empty invite code"))
                     }
-                    Result.success("")
                 } catch (e: Exception) {
-                    Result.success("")
+                    Log.e("GroupRepository", "Error fetching invite link from API", e)
+                    return@withContext Result.failure(Exception("Failed to get invite link: ${e.message}"))
                 }
             } else {
-                Result.success("")
+                return@withContext Result.failure(Exception("No network connection available"))
             }
         } catch (e: Exception) {
+            Log.e("GroupRepository", "Error in getGroupInviteLink", e)
             Result.failure(e)
         }
     }

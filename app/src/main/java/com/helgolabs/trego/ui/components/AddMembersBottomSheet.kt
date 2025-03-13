@@ -178,12 +178,37 @@ fun AddMembersBottomSheet(
                     scope.launch {
                         val inviteLink = groupViewModel.getGroupInviteLink(groupId)
                         inviteLink.onSuccess { link ->
-                            val shareIntent = Intent().apply {
-                                action = Intent.ACTION_SEND
-                                putExtra(Intent.EXTRA_TEXT, "Join my group: $link")
-                                type = "text/plain"
+                            if (link.isNotBlank()) {
+                                // Create a better share message with both the direct deep link
+                                // and a fallback for users without the app
+                                val playStoreUrl = "https://play.google.com/store/apps/details?id=com.helgolabs.trego"
+                                val shareText = """
+                        Join my group on Trego!
+                        
+                        👉 If you have the app: $link
+                        
+                        📱 Don't have the app? Get it here: $playStoreUrl
+                    """.trimIndent()
+
+                                val shareIntent = Intent().apply {
+                                    action = Intent.ACTION_SEND
+                                    putExtra(Intent.EXTRA_TEXT, shareText)
+                                    type = "text/plain"
+                                }
+                                context.startActivity(Intent.createChooser(shareIntent, "Share invite link"))
+                            } else {
+                                Toast.makeText(
+                                    context,
+                                    "Couldn't generate invite link. Please check your connection and try again.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
                             }
-                            context.startActivity(Intent.createChooser(shareIntent, "Share invite link"))
+                        }.onFailure { error ->
+                            Toast.makeText(
+                                context,
+                                "Failed to generate invite link: ${error.message}",
+                                Toast.LENGTH_SHORT
+                            ).show()
                         }
                     }
                 },
