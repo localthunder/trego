@@ -123,7 +123,9 @@ class PaymentsViewModel(
         val originalCurrency: String? = null,
         val conversionId: Int? = null,
         val isConverting: Boolean = false,
-        val conversionError: String? = null
+        val conversionError: String? = null,
+        val editOrderMap: Map<Int, Long> = emptyMap() // Maps userId to timestamp of last edit
+
 
     ) {
         val shouldShowSplitUI: Boolean
@@ -184,11 +186,12 @@ class PaymentsViewModel(
         data class UpdatePaymentDate(val paymentDate: String) : PaymentAction()
         data class UpdateCurrency(val currency: String) : PaymentAction()
         data class UpdateSplitMode(val splitMode: String) : PaymentAction()
-        data class UpdateSplitPercentage(val userId: Int, val percentage: Double) : PaymentAction()
+        data class UpdateSplitPercentage(val userId: Int, val percentage: Double, val isAutoCalculated: Boolean = false) : PaymentAction()
         data class UpdatePaidByUser(val userId: Int) : PaymentAction()
         data class UpdatePaidToUser(val userId: Int) : PaymentAction()
-        data class UpdateSplit(val userId: Int, val amount: Double) : PaymentAction()
+        data class UpdateSplit(val userId: Int, val amount: Double, val isAutoCalculated: Boolean = false) : PaymentAction()
         data class UpdateSelectedMembers(val members: Set<GroupMemberEntity>) : PaymentAction()
+        data class TrackSplitEdit(val userId: Int) : PaymentAction()
 
         object ToggleExpandedPaidByUserList : PaymentAction()
         object ToggleExpandedPaidToUserList : PaymentAction()
@@ -261,7 +264,11 @@ class PaymentsViewModel(
             is PaymentAction.UpdatePaidToUser -> {
                 _paymentScreenState.value = _paymentScreenState.value.copy(paidToUser = action.userId)
             }
-            is PaymentAction.UpdateSplit -> updateSplit(action.userId, action.amount)
+            is PaymentAction.UpdateSplit -> {
+                updateSplit(action.userId, action.amount)
+                // Also track this split as being edited
+                processAction(PaymentAction.TrackSplitEdit(action.userId))
+            }
             is PaymentAction.UpdateSelectedMembers -> {
                 _paymentScreenState.update { currentState ->
                     currentState.copy(selectedMembers = action.members)
@@ -269,7 +276,18 @@ class PaymentsViewModel(
                 // Recalculate splits based on new selection
                 recalculateSplits(currentUserId)
             }
-            is PaymentAction.UpdateSplitPercentage -> updateSplitPercentage(action.userId, action.percentage)
+            is PaymentAction.UpdateSplitPercentage -> {
+                updateSplitPercentage(action.userId, action.percentage)
+                // Also track this split as being edited
+                processAction(PaymentAction.TrackSplitEdit(action.userId))
+            }
+            is PaymentAction.TrackSplitEdit -> {
+                _paymentScreenState.update { currentState ->
+                    val currentTime = System.currentTimeMillis()
+                    val updatedMap = currentState.editOrderMap + (action.userId to currentTime)
+                    currentState.copy(editOrderMap = updatedMap)
+                }
+            }
             is PaymentAction.ToggleExpandedPaidByUserList -> {
                 _paymentScreenState.value = _paymentScreenState.value.copy(
                     expandedPaidByUserList = !_paymentScreenState.value.expandedPaidByUserList

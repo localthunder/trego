@@ -81,7 +81,7 @@ fun GlobalDatePickerDialog(
                 Text(
                     text = "Date",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f)
                 )
                 Text(
                     text = displayText,

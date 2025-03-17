@@ -4,15 +4,19 @@ import android.content.Context
 import android.icu.text.NumberFormat
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -25,21 +29,27 @@ import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.helgolabs.trego.MyApplication
+import com.helgolabs.trego.data.model.GroupMember
 import com.helgolabs.trego.data.model.Transaction
 import com.helgolabs.trego.ui.components.ConvertCurrencyButton
 import com.helgolabs.trego.ui.components.CurrencySelectionBottomSheet
@@ -55,6 +65,7 @@ import com.helgolabs.trego.ui.theme.GlobalTheme
 import com.helgolabs.trego.ui.viewmodels.PaymentsViewModel
 import com.helgolabs.trego.ui.viewmodels.PaymentsViewModel.PaymentAction
 import com.helgolabs.trego.ui.viewmodels.UserViewModel
+import com.helgolabs.trego.utils.ConfigureForNumericInput
 import com.helgolabs.trego.utils.CurrencyUtils
 import com.helgolabs.trego.utils.DateUtils
 import com.helgolabs.trego.utils.getCurrencySymbol
@@ -69,6 +80,8 @@ fun PaymentScreen(
     paymentId: Int,
     context: Context
 ) {
+    ConfigureForNumericInput()
+
     val myApplication = context.applicationContext as MyApplication
     val paymentsViewModel: PaymentsViewModel = viewModel(factory = myApplication.viewModelFactory)
     val userViewModel: UserViewModel = viewModel(factory = myApplication.viewModelFactory)
@@ -90,6 +103,26 @@ fun PaymentScreen(
     val editableSplits = screenState.editableSplits
     val groupMembers = screenState.groupMembers
     val paymentOperationStatus = screenState.paymentOperationStatus
+
+    // For keyboard and scrolling
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val scrollState = rememberScrollState()
+
+    // Track if any field in the split section is focused
+    var isSplitSectionFocused by remember { mutableStateOf(false) }
+
+    // Split section reference for scrolling
+    val splitSectionKey = remember { Any() }
+
+    // When the split section is focused, ensure we scroll to it
+    LaunchedEffect(isSplitSectionFocused) {
+        if (isSplitSectionFocused) {
+            // Add a small delay to ensure keyboard is shown
+            kotlinx.coroutines.delay(300)
+            // Scroll down to see the split section
+            scrollState.animateScrollTo(scrollState.maxValue)
+        }
+    }
 
     // Retrieve transaction details from previous screen
     val transactionDetails = navController.currentBackStackEntry?.arguments?.let { args ->
@@ -236,56 +269,110 @@ fun PaymentScreen(
                 )
             },
             content = { padding ->
-                LazyColumn(
+                // The main scrollable content
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(padding)
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.Top
+                        // Use imePadding to ensure content adjusts for keyboard
+                        .imePadding()
+                        .navigationBarsPadding()
+                        .background(color = MaterialTheme.colorScheme.surface)
                 ) {
-                    item {
-                        Row(
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp)
+                            .verticalScroll(scrollState),
+                        verticalArrangement = Arrangement.spacedBy(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(bottom = 16.dp, end = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .padding(vertical = 24.dp)
                         ) {
-                             CurrencyButton(
-                                 currencyCode = editablePayment?.currency ?: "GBP",
-                                 onClick = { showCurrencySheet = true }
-                             )
+                            Row(
+                                modifier = Modifier
+                                    .align(Alignment.Center)
+                                    .wrapContentWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CurrencyButton(
+                                    currencyCode = editablePayment?.currency ?: "GBP",
+                                    onClick = { showCurrencySheet = true }
+                                )
 
-                            PaymentAmountField(
-                                amount = editablePayment?.amount ?: 0.0,
-                                onAmountChange = { newAmount ->
-                                    paymentsViewModel.processAction(
-                                        PaymentsViewModel.PaymentAction.UpdateAmount(newAmount)
-                                    )
-                                },
-                                enabled = !screenState.shouldLockUI,
-                                focusManager = focusManager
-                            )
+                                PaymentAmountField(
+                                    amount = editablePayment?.amount ?: 0.0,
+                                    onAmountChange = { newAmount ->
+                                        paymentsViewModel.processAction(
+                                            PaymentAction.UpdateAmount(newAmount)
+                                        )
+                                    },
+                                    enabled = !screenState.shouldLockUI,
+                                    focusManager = focusManager
+                                )
+                            }
                         }
-                    }
-                    item {
-                        Row(
+                        Column(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                TextField(
+                                    value = editablePayment?.description ?: "",
+                                    onValueChange = {
+                                        paymentsViewModel.processAction(
+                                            PaymentAction.UpdateDescription(it)
+                                        )
+                                    },
+                                    label = { Text("Description") },
+                                    modifier = Modifier
+                                        .weight(3f)
+                                        .focusRequester(focusRequesterDescription),
+                                    enabled = !screenState.isTransaction,
+                                    keyboardOptions = KeyboardOptions.Default.copy(
+                                        imeAction = ImeAction.Next
+                                    ),
+                                    keyboardActions = KeyboardActions(
+                                        onNext = {
+                                            focusManager.moveFocus(FocusDirection.Next)
+                                        }
+                                    )
+                                )
+
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                GlobalDatePickerDialog(
+                                    date = editablePayment?.paymentDate.toString() ?: "",
+                                    enabled = !screenState.isTransaction,
+                                    onDateChange = { newDate ->
+                                        paymentsViewModel.processAction(
+                                            PaymentAction.UpdatePaymentDate(newDate)
+                                        )
+                                    },
+                                    modifier = Modifier.weight(2f)
+                                )
+                            }
                             TextField(
-                                value = editablePayment?.description ?: "",
+                                value = editablePayment?.notes ?: "",
                                 onValueChange = {
                                     paymentsViewModel.processAction(
-                                        PaymentAction.UpdateDescription(it)
+                                        PaymentAction.UpdateNotes(
+                                            it
+                                        )
                                     )
                                 },
-                                label = { Text("Description") },
-                                modifier = Modifier
-                                    .weight(3f)
-                                    .focusRequester(focusRequesterDescription),
-                                enabled = !screenState.isTransaction,
+                                label = { Text("Notes") },
+                                modifier = Modifier.fillMaxWidth(),
                                 keyboardOptions = KeyboardOptions.Default.copy(
                                     imeAction = ImeAction.Done
                                 ),
@@ -295,81 +382,35 @@ fun PaymentScreen(
                                     }
                                 )
                             )
-
-                            Spacer(modifier = Modifier.width(8.dp))
-
-                            GlobalDatePickerDialog(
-                                date = editablePayment?.paymentDate.toString() ?: "",
-                                enabled = !screenState.isTransaction,
-                                onDateChange = { newDate ->
-                                    paymentsViewModel.processAction(
-                                        PaymentAction.UpdatePaymentDate(newDate)
-                                    )
-                                },
-                                modifier = Modifier.weight(2f)
-                            )
                         }
-                    }
-
-                    item {
-                        TextField(
-                            value = editablePayment?.notes ?: "",
-                            onValueChange = {
-                                paymentsViewModel.processAction(
-                                    PaymentAction.UpdateNotes(
-                                        it
-                                    )
-                                )
-                            },
-                            label = { Text("Notes") },
-                            modifier = Modifier.fillMaxWidth(),
-                            keyboardOptions = KeyboardOptions.Default.copy(
-                                imeAction = ImeAction.Done
-                            ),
-                            keyboardActions = KeyboardActions(
-                                onDone = {
-                                    focusManager.clearFocus()
-                                }
-                            )
-                        )
-                    }
-
-                    item {
-                        Row(
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(bottom = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center // Center content in the Box
                         ) {
-                            if (editablePayment?.paymentType == "transferred") {
-
-                                PaymentTypeDropdown(paymentsViewModel)
-
-                                Text("out of app by")
-
-                                PayerDropdown(paymentsViewModel, userId, users)
-
-                                Text("to")
-
-                                RecipientDropdown(paymentsViewModel, userId, users)
-
-
-                            } else {
-
-                                PaymentTypeDropdown(paymentsViewModel)
-
-                                Text("by")
-
-                                PayerDropdown(paymentsViewModel, userId, users)
-
-                                Text("and split")
-
-                                SplitModeDropdown(paymentsViewModel)
+                            Row(
+                                modifier = Modifier
+                                    .wrapContentWidth(), // Only take needed width instead of filling
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp) // Add consistent spacing
+                            ) {
+                                if (editablePayment?.paymentType == "transferred") {
+                                    PaymentTypeDropdown(paymentsViewModel)
+                                    Text("out of app by")
+                                    PayerDropdown(paymentsViewModel, userId, users)
+                                    Text("to")
+                                    RecipientDropdown(paymentsViewModel, userId, users)
+                                } else {
+                                    PaymentTypeDropdown(paymentsViewModel)
+                                    Text("by")
+                                    PayerDropdown(paymentsViewModel, userId, users)
+                                    Text("and split")
+                                    SplitModeDropdown(paymentsViewModel)
+                                }
                             }
                         }
-                    }
 
-                    item {
                         //Convert currency button
                         if (editablePayment != null && editablePayment.id != 0) {  // Check if this is an existing payment
                             val group = paymentsViewModel.getGroup()
@@ -395,8 +436,6 @@ fun PaymentScreen(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(16.dp))
-
                         if (screenState.hasBeenConverted) {
                             screenState.originalCurrency?.let { currency ->
                                 CurrencyConvertedCard(
@@ -410,13 +449,43 @@ fun PaymentScreen(
                         }
 
                         if (screenState.shouldShowSplitUI) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    // Add focus awareness through entire split section
+                                    .onFocusChanged { focusState ->
+                                        isSplitSectionFocused = focusState.hasFocus
+                                    }
+                            ) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Split With",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        modifier = Modifier.padding(bottom = 8.dp)
+                                    )
 
-                            PaymentSplitSection(
-                                paymentsViewModel,
-                                userViewModel,
-                                context
-                            )
+                                    // Add focus-tracking wrapper around GroupMemberSplits
+                                    WrappedGroupMemberSplits(
+                                        paymentViewModel = paymentsViewModel,
+                                        userViewModel = userViewModel,
+                                        currentUserId = userId,
+                                        onFocusChange = { hasFocus ->
+                                            isSplitSectionFocused = hasFocus
+                                            if (hasFocus) {
+                                                coroutineScope.launch {
+                                                    // Delay to ensure keyboard is shown
+                                                    kotlinx.coroutines.delay(300)
+                                                    // Scroll to bottom
+                                                    scrollState.animateScrollTo(scrollState.maxValue)
+                                                }
+                                            }
+                                        }
+                                    )
+                                }
+                            }
                         }
+                    }
 
                         if (screenState.showDeleteDialog) {
                             AlertDialog(
@@ -448,15 +517,14 @@ fun PaymentScreen(
                             )
                         }
                     }
-                }
-                if (showCurrencySheet) {
-                    CurrencySelectionBottomSheet(
-                        onDismiss = { showCurrencySheet = false },
-                        onCurrencySelected = { selectedCurrency ->
-                            paymentsViewModel.processAction(PaymentAction.UpdateCurrency(selectedCurrency))
-                        }
-                    )
-                }
+                    if (showCurrencySheet) {
+                        CurrencySelectionBottomSheet(
+                            onDismiss = { showCurrencySheet = false },
+                            onCurrencySelected = { selectedCurrency ->
+                                paymentsViewModel.processAction(PaymentAction.UpdateCurrency(selectedCurrency))
+                            }
+                        )
+                    }
             }
         )
     }
@@ -508,9 +576,11 @@ fun CurrencyButton(
     Surface(
         color = MaterialTheme.colorScheme.primaryContainer,
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        shape = RoundedCornerShape(4.dp),
+        shape = RoundedCornerShape(12.dp),
+        shadowElevation = 2.dp, // Add subtle elevation
         modifier = modifier
             .clickable(onClick = onClick)
+            .padding(end = 8.dp) // Add spacing between currency and amount
     ) {
         Text(
             text = getCurrencySymbol(currencyCode),
@@ -527,10 +597,7 @@ fun PaymentAmountField(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     focusManager: FocusManager,
-    textStyle: TextStyle = LocalTextStyle.current.copy(
-        fontSize = 40.sp,
-        fontWeight = FontWeight.Normal
-    )
+    textStyle: TextStyle = MaterialTheme.typography.displayLarge
 ) {
     val focusRequester = remember { FocusRequester() }
     val interactionSource = remember { MutableInteractionSource() }
@@ -538,6 +605,43 @@ fun PaymentAmountField(
 
     // Use TextFieldValue to track both text content and cursor position
     var textFieldValue by remember { mutableStateOf(TextFieldValue()) }
+
+    // Calculate width based on content
+    // Add a baseline minimum width and some padding
+    val textToMeasure = if (textFieldValue.text.isEmpty()) {
+        "0.00"
+    } else {
+        // If the text already has a decimal part, use it as is
+        // Otherwise, append ".00" to calculate proper width
+        if (textFieldValue.text.contains(".")) {
+            val parts = textFieldValue.text.split(".")
+            val integerPart = parts[0]
+            val decimalPart = if (parts.size > 1) parts[1] else ""
+
+            // Ensure we account for both decimal places
+            if (decimalPart.length >= 2) {
+                textFieldValue.text
+            } else if (decimalPart.length == 1) {
+                "$integerPart.$decimalPart" + "0"
+            } else {
+                "$integerPart.00"
+            }
+        } else {
+            // No decimal point, so append ".00"
+            textFieldValue.text + ".00"
+        }
+    }
+    val textMeasurer = rememberTextMeasurer()
+    val textWidth = with(LocalDensity.current) {
+        // Measure the exact width of the text
+        val measuredWidth = textMeasurer.measure(
+            text = AnnotatedString(textToMeasure),
+            style = textStyle
+        ).size.width.toDp()
+
+        // Add just a small amount of padding for the cursor
+        measuredWidth + 8.dp
+    }
 
     // Initialize from provided amount
     LaunchedEffect(amount) {
@@ -651,11 +755,11 @@ fun PaymentAmountField(
         interactionSource = interactionSource,
         enabled = enabled,
         modifier = modifier
-            .fillMaxWidth()
+            .wrapContentWidth()
             .focusRequester(focusRequester),
         decorationBox = { innerTextField ->
             Box(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.width(textWidth),
                 contentAlignment = Alignment.CenterStart
             ) {
                 // Display formatted text based on state
@@ -665,7 +769,7 @@ fun PaymentAmountField(
                         Text(
                             text = "0.00",
                             style = textStyle,
-                            color = if (isFocused) Color.LightGray else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            color = if (isFocused) Color.LightGray else MaterialTheme.colorScheme.onSurface
                         )
                     }
 
@@ -679,8 +783,9 @@ fun PaymentAmountField(
 
                         // Complex layout to properly show placeholders with real input
                         Row(
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.wrapContentSize(),
+                            ) {
                             // Integer part (with commas already included)
                             Text(
                                 text = integerPart,
@@ -729,7 +834,9 @@ fun PaymentAmountField(
                 }
 
                 // The actual invisible input field
-                Box {
+                Box (
+                    modifier = Modifier.wrapContentSize(),
+                    ) {
                     innerTextField()
                 }
             }
@@ -742,29 +849,50 @@ fun PaymentAmountField(
     }
 }
 
+//This includes a wrapper for Group Member Splits that ensures that the whole composable sits above the keyboard when focused
 @Composable
-fun PaymentSplitSection(
-    paymentsViewModel: PaymentsViewModel,
+fun WrappedGroupMemberSplits(
+    paymentViewModel: PaymentsViewModel,
     userViewModel: UserViewModel,
-    context: Context
+    currentUserId: Int?,
+    onFocusChange: (Boolean) -> Unit
 ) {
-    // Get ViewModels and user ID
-    val userId = getUserIdFromPreferences(context)
-    val screenState by paymentsViewModel.paymentScreenState.collectAsState()
+    // Create a state to track internal focus
+    var isAnyChildFocused by remember { mutableStateOf(false) }
 
-    // Only show the splits UI for appropriate payment types
-    if (screenState.shouldShowSplitUI) {
-        Card {
-            Column {
-                Text("Split With")
-
-                // Group member splits component
-                GroupMemberSplits(
-                    paymentViewModel = paymentsViewModel,
-                    userViewModel = userViewModel,
-                    currentUserId = userId
-                )
+    // Set up the touch interceptor for the entire area
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            // This makes the entire area "focusable" to detect touches
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null // No visual indication
+            ) {
+                // When area is touched, signal that it's focused
+                onFocusChange(true)
             }
+            // When actual focus changes within children, report upward
+            .onFocusChanged { focusState ->
+                if (focusState.hasFocus) {
+                    onFocusChange(true)
+                    isAnyChildFocused = true
+                }
+            }
+    ) {
+        // The actual GroupMemberSplits component
+        GroupMemberSplits(
+            paymentViewModel = paymentViewModel,
+            userViewModel = userViewModel,
+            currentUserId = currentUserId
+        )
+    }
+
+    // Report focus upward when this composable enters/leaves composition
+    DisposableEffect(Unit) {
+        onDispose {
+            // Clear focus state when component is removed from composition
+            onFocusChange(false)
         }
     }
 }

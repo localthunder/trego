@@ -74,7 +74,7 @@ fun PaymentTypeDropdown(
     val screenState by viewModel.paymentScreenState.collectAsState()
 
     DropdownMenuButton(
-        label = screenState.editablePayment?.paymentType ?: "",
+        label = screenState.editablePayment?.paymentType?.replaceFirstChar { it.uppercase() } ?: "",
         expanded = screenState.expandedPaymentTypeList,
         onExpandChange = {
             viewModel.processAction(PaymentAction.ToggleExpandedPaymentTypeList)
@@ -85,7 +85,7 @@ fun PaymentTypeDropdown(
         {
             listOf("Spent", "Received", "Transferred").forEach { type ->
                 DropdownMenuItem(
-                    text = { Text(type) },
+                    text = { Text(type.replaceFirstChar { it.uppercase() }) },
                     onClick = {
                         when (type) {
                             "Spent" -> {

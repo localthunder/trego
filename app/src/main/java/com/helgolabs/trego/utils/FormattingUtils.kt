@@ -24,6 +24,12 @@ object FormattingUtils {
 
     fun formatPaymentAmount(amount: String): String {
         val value = abs(amount.toDoubleOrNull() ?: return amount)
+
+        // Handle zero value case explicitly
+        if (value == 0.0) {
+            return "0.00"
+        }
+
         return "${DecimalFormat("#,###.00").format(value)}"
     }
 
