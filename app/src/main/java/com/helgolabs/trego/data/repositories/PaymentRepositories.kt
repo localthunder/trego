@@ -18,6 +18,7 @@ import com.helgolabs.trego.data.local.dataClasses.BatchConversionResult
 import com.helgolabs.trego.data.local.dataClasses.ConversionAttempt
 import com.helgolabs.trego.data.local.dataClasses.CurrencyConversionResult
 import com.helgolabs.trego.data.local.dataClasses.PaymentEntityWithSplits
+import com.helgolabs.trego.data.local.dataClasses.PaymentWithSplits
 import com.helgolabs.trego.data.local.entities.CurrencyConversionEntity
 import com.helgolabs.trego.data.local.entities.PaymentEntity
 import com.helgolabs.trego.data.local.entities.PaymentSplitEntity
@@ -48,6 +49,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -80,6 +82,7 @@ class PaymentRepository(
     val myApplication = context.applicationContext as MyApplication
 
     val currencyConversionManager = myApplication.syncManagerProvider.currencyConversionManager
+    val paymentSplitRepository = myApplication.syncManagerProvider.providePaymentSplitRepository()
 
     private val _payments = MutableStateFlow<List<PaymentEntity>>(emptyList())
     val payments: StateFlow<List<PaymentEntity>> = _payments.asStateFlow()
@@ -101,21 +104,20 @@ class PaymentRepository(
 
         try {
             // First try local ID
-            paymentDao.getPaymentById(paymentId).collect { entity ->
-                if (entity != null) {
-                    Log.d(TAG, "Found payment by local ID: $entity")
-                    emit(entity)
-                    return@collect
-                }
+            val entityByLocalId = paymentDao.getPaymentById(paymentId).firstOrNull()
+            if (entityByLocalId != null) {
+                Log.d(TAG, "Found payment by local ID: $entityByLocalId")
+                emit(entityByLocalId)
+                return@flow  // Exit after emitting
+            }
 
-                // If not found by local ID, try server ID
-                val entityByServerId = paymentDao.getPaymentByServerId(paymentId)
-                if (entityByServerId != null) {
-                    Log.d(TAG, "Found payment by server ID: $entityByServerId")
-                    emit(entityByServerId)
-                } else {
-                    emit(null)
-                }
+            // If not found by local ID, try server ID
+            val entityByServerId = paymentDao.getPaymentByServerId(paymentId)
+            if (entityByServerId != null) {
+                Log.d(TAG, "Found payment by server ID: $entityByServerId")
+                emit(entityByServerId)
+            } else {
+                emit(null)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error getting payment", e)
@@ -814,6 +816,41 @@ class PaymentRepository(
         } catch (e: Exception) {
             Log.e("PaymentRepository", "Failed to restore payment", e)
             Result.failure(e)
+        }
+    }
+
+    suspend fun getPaymentWithSplits(paymentId: Int): PaymentEntityWithSplits? {
+        try {
+            Log.d("PaymentRepo", "Getting payment with ID: $paymentId")
+
+            // Get payment
+            val payment = try {
+                getPaymentById(paymentId).first()
+            } catch (e: Exception) {
+                Log.e("PaymentRepo", "Error fetching payment", e)
+                null
+            }
+
+            if (payment == null) {
+                Log.d("PaymentRepo", "Payment not found with ID: $paymentId")
+                return null
+            }
+
+            Log.d("PaymentRepo", "Found payment: $payment")
+
+            // Get splits
+            val splits = try {
+                paymentSplitRepository.getPaymentSplitsByPayment(paymentId).first()
+            } catch (e: Exception) {
+                Log.e("PaymentRepo", "Error fetching splits", e)
+                emptyList()
+            }
+
+            Log.d("PaymentRepo", "Found ${splits.size} splits for payment $paymentId: $splits")
+            return PaymentEntityWithSplits(payment, splits)
+        } catch (e: Exception) {
+            Log.e("PaymentRepo", "Error in getPaymentWithSplits", e)
+            return null
         }
     }
 

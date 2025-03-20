@@ -15,6 +15,7 @@ import com.helgolabs.trego.data.local.dataClasses.RegisterRequest
 import com.helgolabs.trego.data.local.dataClasses.RequisitionRequest
 import com.helgolabs.trego.data.local.dataClasses.RequisitionResponseWithRedirect
 import com.helgolabs.trego.data.local.dataClasses.UploadResponsed
+import com.helgolabs.trego.data.local.dataClasses.UserBalanceWithCurrency
 import com.helgolabs.trego.data.local.entities.GroupMemberEntity
 import com.helgolabs.trego.data.repositories.TransactionRepository
 import com.helgolabs.trego.data.model.BankAccount
@@ -27,8 +28,6 @@ import com.helgolabs.trego.data.model.Requisition
 import com.helgolabs.trego.data.model.Transaction
 import com.helgolabs.trego.data.model.User
 import com.helgolabs.trego.data.model.*
-import com.helgolabs.trego.ui.screens.UserBalanceWithCurrency
-import com.helgolabs.trego.ui.viewmodels.GroupViewModel
 import okhttp3.MultipartBody
 import retrofit2.Response
 import retrofit2.http.*

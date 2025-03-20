@@ -14,14 +14,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.helgolabs.trego.MyApplication
+import com.helgolabs.trego.data.local.dataClasses.UserBalanceWithCurrency
 import com.helgolabs.trego.ui.components.GlobalTopAppBar
 import com.helgolabs.trego.ui.viewmodels.GroupViewModel
-
-data class UserBalanceWithCurrency(
-    val userId: Int,
-    val username: String,
-    val balances: Map<String, Double> // Currency code to balance
-)
 
 @Composable
 fun GroupBalancesScreen(

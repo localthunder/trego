@@ -9,6 +9,7 @@ import com.helgolabs.trego.data.calculators.DefaultSplitCalculator
 import com.helgolabs.trego.data.calculators.SplitCalculator
 import com.helgolabs.trego.data.extensions.toModel
 import com.helgolabs.trego.data.local.dataClasses.PaymentEntityWithSplits
+import com.helgolabs.trego.data.local.dataClasses.UserInvolvement
 import com.helgolabs.trego.data.local.entities.GroupEntity
 import com.helgolabs.trego.data.local.entities.GroupMemberEntity
 import com.helgolabs.trego.data.local.entities.PaymentEntity
@@ -29,12 +30,14 @@ import com.helgolabs.trego.utils.DateUtils
 import com.helgolabs.trego.utils.InstitutionLogoManager
 import com.helgolabs.trego.utils.getUserIdFromPreferences
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.joinAll
@@ -383,7 +386,7 @@ class PaymentsViewModel(
         }
     }
 
-    private suspend fun loadExistingPayment(paymentId: Int) {
+    suspend fun loadExistingPayment(paymentId: Int) {
         try {
             Log.d("PaymentsViewModel", "Loading existing payment: $paymentId")
 
@@ -1062,6 +1065,102 @@ class PaymentsViewModel(
                     )
                 }
             }
+        }
+    }
+
+    fun getUserInvolvementInPayment(paymentId: Int, userId: Int): Flow<UserInvolvement> = flow {
+        try {
+            Log.d("PaymentsVM", "Checking user involvement for payment $paymentId and user $userId")
+
+            // Use suspend function to get payment with splits
+            val paymentWithSplits = paymentRepository.getPaymentWithSplits(paymentId)
+
+            if (paymentWithSplits != null) {
+                val payment = paymentWithSplits.payment
+                val splits = paymentWithSplits.splits
+
+                Log.d("PaymentsVM", "Found payment: $payment")
+                Log.d("PaymentsVM", "Found splits: $splits")
+                Log.d("PaymentsVM", "Payment type: ${payment.paymentType}")
+                Log.d("PaymentsVM", "Paid by user ID: ${payment.paidByUserId}")
+
+                // Note that in Trego, negative amounts often represent expenses (money going out)
+                // This is important for determining if a user lent or borrowed
+
+                when {
+                    // Case 1: User paid for this expense
+                    payment.paidByUserId == userId -> {
+                        Log.d("PaymentsVM", "User paid for this expense")
+
+                        // Find the user's split (if exists)
+                        val userSplit = splits.find { it.userId == userId }
+                        val userSplitAmount = userSplit?.amount ?: 0.0
+                        val totalAmount = Math.abs(payment.amount)
+
+                        // Calculate how much the user actually lent to others
+                        // For negative amounts (expenses), this is: total amount - user's share
+                        // For positive amounts, this would be the reverse
+                        if (payment.amount < 0) {
+                            // For expenses (negative total amount)
+                            val userPortion = Math.abs(userSplitAmount)
+                            val lentAmount = totalAmount - userPortion
+
+                            Log.d("PaymentsVM", "This is an expense (negative amount)")
+                            Log.d("PaymentsVM", "Total amount: $totalAmount")
+                            Log.d("PaymentsVM", "User's share: $userPortion")
+                            Log.d("PaymentsVM", "Amount actually lent to others: $lentAmount")
+
+                            emit(UserInvolvement.Lent(lentAmount))
+                        } else {
+                            // For income (positive amounts)
+                            Log.d("PaymentsVM", "This is income (positive amount)")
+                            emit(UserInvolvement.Borrowed(totalAmount))
+                        }
+                    }
+
+                    // Case 2: Transfer payment
+                    payment.paymentType == "transferred" -> {
+                        Log.d("PaymentsVM", "This is a transfer payment")
+
+                        // If user is the recipient in a transfer
+                        if (splits.any { it.userId == userId }) {
+                            Log.d("PaymentsVM", "User is recipient of transfer")
+                            emit(UserInvolvement.Borrowed(Math.abs(payment.amount)))
+                        } else {
+                            Log.d("PaymentsVM", "User is not involved in this transfer")
+                            emit(UserInvolvement.NotInvolved)
+                        }
+                    }
+
+                    // Case 3: Regular expense or income with split
+                    else -> {
+                        val userSplit = splits.find { it.userId == userId }
+
+                        if (userSplit != null) {
+                            val splitAmount = userSplit.amount
+                            Log.d("PaymentsVM", "User has a split in this payment with amount: $splitAmount")
+
+                            // In Trego, negative split amounts indicate the user owes money
+                            if (splitAmount < 0) {
+                                Log.d("PaymentsVM", "User borrowed (owes money)")
+                                emit(UserInvolvement.Borrowed(Math.abs(splitAmount)))
+                            } else {
+                                Log.d("PaymentsVM", "User lent (is owed money)")
+                                emit(UserInvolvement.Lent(Math.abs(splitAmount)))
+                            }
+                        } else {
+                            Log.d("PaymentsVM", "User is not involved in this payment")
+                            emit(UserInvolvement.NotInvolved)
+                        }
+                    }
+                }
+            } else {
+                Log.d("PaymentsVM", "Payment with splits not found")
+                emit(UserInvolvement.NotInvolved)
+            }
+        } catch (e: Exception) {
+            Log.e("PaymentsVM", "Error determining user involvement", e)
+            emit(UserInvolvement.NotInvolved)
         }
     }
 

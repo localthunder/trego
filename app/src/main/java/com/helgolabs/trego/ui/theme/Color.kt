@@ -218,7 +218,32 @@ val surfaceContainerDarkHighContrast = Color(0xFF1D2024)
 val surfaceContainerHighDarkHighContrast = Color(0xFF282A2F)
 val surfaceContainerHighestDarkHighContrast = Color(0xFF33353A)
 
+// Color sets derived from Material 3 colors used for User Avatars etc
+// Primary colors are for start of gradients
+val colorPrimarySets = listOf(
+    Color(0xFF6750A4), // Primary
+    Color(0xFF7F67BE), // Primary Light
+    Color(0xFF4F378B), // Primary Dark
+    Color(0xFFB58392), // Secondary
+    Color(0xFF7D5260), // Secondary Dark
+    Color(0xFF984061), // Tertiary
+    Color(0xFF75485E), // Tertiary Dark
+    Color(0xFF6F4E37), // Neutral Dark
+    Color(0xFF655F71), // Neutral Variant
+)
 
+// Secondary colors are for end of gradients
+val colorSecondarySets = listOf(
+    Color(0xFFCFBCFF), // Primary Lightest
+    Color(0xFFEADDFF), // Primary Lighter
+    Color(0xFF9A82DB), // Primary Medium
+    Color(0xFFFFB2C9), // Secondary Lightest
+    Color(0xFFD29DAC), // Secondary Medium
+    Color(0xFFFFB2C6), // Tertiary Lightest
+    Color(0xFFAC8E9B), // Tertiary Medium
+    Color(0xFFCBC2DB), // Neutral Variant Light
+    Color(0xFF90899C), // Neutral Variant Medium
+)
 
 
 

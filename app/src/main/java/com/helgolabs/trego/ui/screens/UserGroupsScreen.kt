@@ -1,10 +1,12 @@
 package com.helgolabs.trego.ui.screens
 
 import android.util.Log
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -16,7 +18,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -28,8 +34,10 @@ import com.helgolabs.trego.ui.components.GlobalFAB
 import com.helgolabs.trego.ui.components.GlobalTopAppBar
 import com.helgolabs.trego.ui.theme.GlobalTheme
 import com.helgolabs.trego.ui.viewmodels.GroupViewModel
+import com.helgolabs.trego.utils.FormattingUtils.formatAsCurrency
 import com.helgolabs.trego.utils.ImageUtils
 import com.helgolabs.trego.utils.getUserIdFromPreferences
+import kotlin.math.abs
 
 @Composable
 fun UserGroupsScreen(navController: NavController) {
@@ -76,7 +84,8 @@ fun UserGroupsScreen(navController: NavController) {
                         ) {
                             Icon(
                                 imageVector = Icons.Default.AccountCircle,
-                                contentDescription = "Profile"
+                                contentDescription = "Profile",
+                                tint = MaterialTheme.colorScheme.onPrimary
                             )
                         }
                 })
@@ -93,18 +102,12 @@ fun UserGroupsScreen(navController: NavController) {
                 modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp),
+                .padding(16.dp)
+                .background(MaterialTheme.colorScheme.surface),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.Top
             ){
                 // Active Groups section
-                item {
-                    Text(
-                        "Active Groups",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(vertical = 8.dp)
-                    )
-                }
                 items(groupItems) { groupItem ->
                     GroupListItem(groupItem, navController)
                 }
@@ -139,6 +142,7 @@ fun UserGroupsScreen(navController: NavController) {
                             Text(
                                 "No archived groups",
                                 style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.padding(start = 32.dp)
                             )
                         }
@@ -168,13 +172,17 @@ fun GroupListItem(
             .fillMaxWidth()
             .padding(vertical = 8.dp)
             .clickable { navController.navigate("groupDetails/${groupItem.id}") }
-            .alpha(if (isArchived) 0.7f else 1f)
+            .alpha(if (isArchived) 0.7f else 1f),
+        colors = CardDefaults.cardColors(
+            containerColor = Color.Transparent
+        )
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .height(96.dp)
+                .padding(4.dp),
+            verticalAlignment = Alignment.Top
         ) {
             AsyncImage(
                 model = when {
@@ -182,31 +190,76 @@ fun GroupListItem(
                     else -> ImageUtils.getFullImageUrl(groupItem.groupImg)
                 },
                 contentDescription = null,
+                contentScale = ContentScale.Crop,
                 modifier = Modifier
-                    .size(40.dp)
-                    .padding(end = 8.dp)
+                    .size(96.dp)
+                    .clip(RoundedCornerShape(8.dp))
             )
-            Column(modifier = Modifier.weight(1f)) {
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.SpaceEvenly
+            ) {
                 Text(
                     groupItem.name,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                groupItem.description?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+
+                //Display user balance
+                groupItem.userBalance?.let { userBalance ->
+                    if (userBalance.balances.isEmpty() || userBalance.balances.all { abs(it.value) < 0.01 }) {
+                        // When user has no balances or all balances are effectively zero
+                        Text(
+                            text = "You're even in this group",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    } else {
+                        // Get the first currency and balance
+                        val firstEntry = userBalance.balances.entries.firstOrNull()
+
+                        firstEntry?.let { (currency, amount) ->
+                            if (abs(amount) < 0.01) {
+                                // This specific currency is even
+                                Text(
+                                    text = "You're even in this group",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                            } else {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = if (amount < 0) {
+                                            "You owe: ${(-amount).formatAsCurrency(currency)}"
+                                        } else {
+                                            "You are owed: ${amount.formatAsCurrency(currency)}"
+                                        },
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = if (amount < 0)
+                                            MaterialTheme.colorScheme.error
+                                        else
+                                            MaterialTheme.colorScheme.primary
+                                    )
+
+                                    // Add indicator for multiple currencies
+                                    if (userBalance.balances.size > 1) {
+                                        Text(
+                                            text = "& ...",
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(start = 4.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-            }
-            if (isArchived) {
-                Text(
-                    "Archived",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 8.dp)
-                )
             }
         }
     }

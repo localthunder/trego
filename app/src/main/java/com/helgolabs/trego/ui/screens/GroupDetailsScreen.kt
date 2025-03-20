@@ -13,6 +13,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.*
@@ -43,9 +44,11 @@ import com.helgolabs.trego.data.local.entities.GroupMemberEntity
 import com.helgolabs.trego.ui.components.GlobalFAB
 import com.helgolabs.trego.ui.components.GlobalTopAppBar
 import com.helgolabs.trego.ui.components.AddMembersBottomSheet
+import com.helgolabs.trego.ui.components.AddPeopleAvatar
 import com.helgolabs.trego.ui.components.BatchCurrencyConversionButton
 import com.helgolabs.trego.ui.components.PaymentItem
 import com.helgolabs.trego.ui.components.SettleUpButton
+import com.helgolabs.trego.ui.components.UserAvatar
 import com.helgolabs.trego.ui.theme.GlobalTheme
 import com.helgolabs.trego.ui.viewmodels.GroupViewModel
 import com.helgolabs.trego.ui.viewmodels.UserViewModel
@@ -186,52 +189,90 @@ fun GroupDetailsScreen(
                                 }
                             }
                             item {
-                                SettleUpButton(
-                                    groupId = groupId,
-                                    balances = groupBalances,
-                                    onSettleUpClick = { navController.navigate("settleUp/$groupId") }
-                                )
-                            }
-                            item {
                                 GroupMembersSection(
                                     groupMembers = groupDetailsState.groupMembers,
-                                    usernames = groupDetailsState.usernames
+                                    usernames = groupDetailsState.usernames,
+                                    onAddPeopleClick = { showAddMembersBottomSheet = true }
                                 )
                             }
                             item {
                                 GroupActionButtons(
-                                    onAddMembersClick = { showAddMembersBottomSheet = true },
+                                    onSettleUpClick = { navController.navigate("settleUp/$groupId") },
                                     onBalancesClick = { navController.navigate("groupBalances/$groupId") },
                                     onTotalsClick = { navController.navigate("groupTotals/$groupId") }
                                 )
                             }
 
+                            // Title section for Payments
                             item {
                                 Text(
                                     "Payments",
                                     style = MaterialTheme.typography.titleLarge,
                                     color = MaterialTheme.colorScheme.onBackground,
-                                    modifier = Modifier.padding(16.dp)
+                                    modifier = Modifier.padding(
+                                        start = 16.dp,
+                                        end = 16.dp,
+                                        top = 24.dp,
+                                        bottom = 8.dp
+                                    )
                                 )
                             }
+
+                            // Conditional Currency Conversion Button
                             item {
-                                BatchCurrencyConversionButton(
-                                    paymentsCount = groupDetailsState.payments
-                                        .filter {
-                                            it.currency != groupDetailsState.group?.defaultCurrency &&
-                                                    it.currency != null
-                                        }.size,
-                                    targetCurrency = groupDetailsState.group?.defaultCurrency
-                                        ?: "GBP",
-                                    isConverting = groupDetailsState.isConverting,
-                                    conversionError = groupDetailsState.conversionError,
-                                    onConvertClicked = {
-                                        groupDetailsState.group?.id?.let { groupId ->
-                                            groupViewModel.batchConvertCurrencies(groupId)
-                                        }
+                                val nonDefaultCurrencyPayments = groupDetailsState.payments
+                                    .filter {
+                                        it.currency != groupDetailsState.group?.defaultCurrency &&
+                                                it.currency != null
                                     }
-                                )
+
+                                val paymentsCount = nonDefaultCurrencyPayments.size
+
+                                // Only show the button when there are payments in different currencies
+                                if (paymentsCount > 0) {
+                                    BatchCurrencyConversionButton(
+                                        paymentsCount = paymentsCount,
+                                        targetCurrency = groupDetailsState.group?.defaultCurrency ?: "GBP",
+                                        isConverting = groupDetailsState.isConverting,
+                                        conversionError = groupDetailsState.conversionError,
+                                        onConvertClicked = {
+                                            groupDetailsState.group?.id?.let { groupId ->
+                                                groupViewModel.batchConvertCurrencies(groupId)
+                                            }
+                                        },
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                    )
+                                }
                             }
+
+                            // Empty state message when there are no payments
+                            item {
+                                if (groupDetailsState.payments.isEmpty()) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(32.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Text(
+                                            "No payments yet",
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            textAlign = TextAlign.Center
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            "Click the + button below to add your first expense",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                }
+                            }
+
+                            // List of all payments, sorted by date
                             items(
                                 groupDetailsState.payments
                                     .sortedByDescending { payment ->
@@ -241,8 +282,7 @@ fun GroupDetailsScreen(
                                                 payment.updatedAt.toLongOrNull() != null -> payment.updatedAt.toLong()
                                                 else -> {
                                                     // Try parsing ISO format
-                                                    val instant =
-                                                        java.time.Instant.parse(payment.updatedAt)
+                                                    val instant = java.time.Instant.parse(payment.updatedAt)
                                                     instant.toEpochMilli()
                                                 }
                                             }
@@ -256,7 +296,15 @@ fun GroupDetailsScreen(
                                     PaymentItem(
                                         payment = payment,
                                         context = context,
-                                        onClick = { navController.navigate("paymentDetails/$groupId/${payment.id}") }
+                                        onClick = { navController.navigate("paymentDetails/$groupId/${payment.id}") },
+                                    )
+                                }
+
+                                // Add a divider between payment items for better visual separation
+                                if (groupDetailsState.payments.indexOf(payment) < groupDetailsState.payments.size - 1) {
+                                    Divider(
+                                        modifier = Modifier.padding(horizontal = 16.dp),
+                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                                     )
                                 }
                             }
@@ -625,26 +673,64 @@ fun GroupImageSection(
 @Composable
 fun GroupMembersSection(
     groupMembers: List<GroupMemberEntity>,
-    usernames: Map<Int, String>
+    usernames: Map<Int, String>,
+    onAddPeopleClick: () -> Unit = {},
+    modifier: Modifier = Modifier
 ) {
-    Column {
+    Column(modifier = modifier.padding(16.dp)) {
         Text(
             "Members",
             style = MaterialTheme.typography.titleLarge,
             color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.padding(vertical = 8.dp)
+            modifier = Modifier.padding(bottom = 12.dp)
         )
-        Row(
+
+        LazyRow(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(horizontal = 8.dp)
         ) {
-            groupMembers.forEach { member ->
-                val username = usernames[member.userId] ?: "Loading..."
-                Text(
-                    username,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
+            // Add People Circle - always first item
+            item {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.width(64.dp)
+                ) {
+                    AddPeopleAvatar(
+                        onClick = onAddPeopleClick,
+                        modifier = Modifier.size(56.dp)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Add",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1
+                    )
+                }
+            }
+
+            // Member Avatars
+            items(groupMembers) { member ->
+                val username = usernames[member.userId] ?: "?"
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.width(64.dp)
+                ) {
+                    UserAvatar(
+                        username = username,
+                        modifier = Modifier.size(56.dp)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = username,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1
+                    )
+                }
             }
         }
     }
@@ -652,7 +738,7 @@ fun GroupMembersSection(
 
 @Composable
 fun GroupActionButtons(
-    onAddMembersClick: () -> Unit,
+    onSettleUpClick: () -> Unit,
     onBalancesClick: () -> Unit,
     onTotalsClick: () -> Unit
 ) {
@@ -662,14 +748,33 @@ fun GroupActionButtons(
             .padding(vertical = 16.dp),
         horizontalArrangement = Arrangement.SpaceEvenly
     ) {
-        Button(onClick = onAddMembersClick) {
-            Text("Add People")
-        }
-        Button(onClick = onBalancesClick) {
+        // Secondary color buttons first
+        Button(
+            onClick = onBalancesClick,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.tertiary
+            )
+        ) {
             Text("Balances")
         }
-        Button(onClick = onTotalsClick) {
+
+        Button(
+            onClick = onTotalsClick,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.tertiary
+            )
+        ) {
             Text("Totals")
+        }
+
+        // Primary color Settle Up button last
+        Button(
+            onClick = onSettleUpClick,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary
+            )
+        ) {
+            Text("Settle Up")
         }
     }
 }

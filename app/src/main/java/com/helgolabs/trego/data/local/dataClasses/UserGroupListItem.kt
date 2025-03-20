@@ -5,5 +5,6 @@ data class UserGroupListItem(
     val name: String,
     val description: String?,
     val groupImg: String?,
-    val isArchived: Boolean = false
+    val isArchived: Boolean = false,
+    val userBalance: UserBalanceWithCurrency? = null
 )

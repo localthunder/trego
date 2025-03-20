@@ -128,8 +128,18 @@ class UserRepository(
                     refreshUser(authResponse.userId)
 
                     // Save the new access token in encrypted SharedPreferences
-                    authResponse.token?.let { storeLoginState(context, it) }
+                    authResponse.token?.let { TokenManager.saveAccessToken(context, it) }
                     authResponse.refreshToken?.let { TokenManager.saveRefreshToken(context, it) }
+
+                    // Add debug logging
+                    Log.d("AuthRepository", "Login successful. Access token: ${authResponse.token?.take(15)}...")
+                    Log.d("AuthRepository", "Refresh token saved: ${authResponse.refreshToken?.take(15) ?: "NULL"}...")
+
+                    // Verify tokens are saved correctly
+                    val savedAccessToken = TokenManager.getAccessToken(context)
+                    val savedRefreshToken = TokenManager.getRefreshToken(context)
+                    Log.d("AuthRepository", "Verified access token saved: ${savedAccessToken != null}")
+                    Log.d("AuthRepository", "Verified refresh token saved: ${savedRefreshToken != null}")
 
                     // Optionally refresh the token immediately after login
                     val refreshToken = TokenManager.getRefreshToken(context)

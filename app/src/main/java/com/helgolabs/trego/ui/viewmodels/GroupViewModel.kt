@@ -12,6 +12,7 @@ import com.helgolabs.trego.data.extensions.toModel
 import com.helgolabs.trego.data.local.dataClasses.BatchConversionResult
 import com.helgolabs.trego.data.local.dataClasses.CurrencySettlingInstructions
 import com.helgolabs.trego.data.local.dataClasses.SettlingInstruction
+import com.helgolabs.trego.data.local.dataClasses.UserBalanceWithCurrency
 import com.helgolabs.trego.data.local.dataClasses.UserGroupListItem
 import com.helgolabs.trego.data.local.entities.GroupDefaultSplitEntity
 import com.helgolabs.trego.data.local.entities.GroupEntity
@@ -21,14 +22,11 @@ import com.helgolabs.trego.data.local.entities.UserEntity
 import com.helgolabs.trego.data.repositories.GroupRepository
 import com.helgolabs.trego.data.repositories.PaymentRepository
 import com.helgolabs.trego.data.repositories.UserRepository
-import com.helgolabs.trego.data.model.Group
-import com.helgolabs.trego.data.model.GroupMember
-import com.helgolabs.trego.data.model.Payment
-import com.helgolabs.trego.ui.screens.UserBalanceWithCurrency
 import com.helgolabs.trego.utils.ImageUtils
 import com.helgolabs.trego.utils.getUserIdFromPreferences
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -356,21 +354,77 @@ class GroupViewModel(
                 _loading.value = true
                 _error.value = null
                 try {
-                    // Use combine to collect both streams together
-                    combine(
+                    // Use combine to collect both streams together for group lists
+                    val groupsFlow = combine(
                         groupRepository.getNonArchivedGroupsByUserId(userId),
                         groupRepository.getArchivedGroupsByUserId(userId)
                     ) { nonArchived, archived ->
-                        _userGroupItems.value = nonArchived
-                        _archivedGroupItems.value = archived
-                        Log.d(
-                            "GroupViewModel",
-                            "Collected ${nonArchived.size} non-archived and ${archived.size} archived groups"
-                        )
-                    }.collect {
-                        _loading.value = false
-                        hasLoadedGroups = true
+                        Pair(nonArchived, archived)
                     }
+
+                    // Collect the groups first
+                    val (nonArchived, archived) = groupsFlow.first()
+
+                    // Create lists to hold the final items with balances
+                    val nonArchivedWithBalances = mutableListOf<UserGroupListItem>()
+                    val archivedWithBalances = mutableListOf<UserGroupListItem>()
+
+                    // Process each group to get its balance
+                    coroutineScope {
+                        // Process non-archived groups
+                        val nonArchivedJobs = nonArchived.map { group ->
+                            async {
+                                try {
+                                    // Calculate balances for this group
+                                    val balances = groupRepository.calculateGroupBalances(group.id).getOrNull()
+
+                                    // Find the current user's balance
+                                    val userBalance = balances?.find { it.userId == userId }
+
+                                    // Create a new UserGroupListItem with the balance
+                                    group.copy(userBalance = userBalance)
+                                } catch (e: Exception) {
+                                    Log.e("GroupViewModel", "Error calculating balances for group ${group.id}", e)
+                                    group // Return original if there's an error
+                                }
+                            }
+                        }
+
+                        // Process archived groups
+                        val archivedJobs = archived.map { group ->
+                            async {
+                                try {
+                                    // Calculate balances for this group
+                                    val balances = groupRepository.calculateGroupBalances(group.id).getOrNull()
+
+                                    // Find the current user's balance
+                                    val userBalance = balances?.find { it.userId == userId }
+
+                                    // Create a new UserGroupListItem with the balance
+                                    group.copy(userBalance = userBalance)
+                                } catch (e: Exception) {
+                                    Log.e("GroupViewModel", "Error calculating balances for group ${group.id}", e)
+                                    group // Return original if there's an error
+                                }
+                            }
+                        }
+
+                        // Await all jobs and collect results
+                        nonArchivedWithBalances.addAll(nonArchivedJobs.awaitAll())
+                        archivedWithBalances.addAll(archivedJobs.awaitAll())
+                    }
+
+                    // Update the state flows with the enriched data
+                    _userGroupItems.value = nonArchivedWithBalances
+                    _archivedGroupItems.value = archivedWithBalances
+
+                    Log.d(
+                        "GroupViewModel",
+                        "Collected ${nonArchivedWithBalances.size} non-archived and ${archivedWithBalances.size} archived groups with balances"
+                    )
+
+                    _loading.value = false
+                    hasLoadedGroups = true
                 } catch (e: Exception) {
                     Log.e("GroupViewModel", "Error loading groups", e)
                     _error.value = e.message

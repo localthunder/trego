@@ -7,7 +7,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.helgolabs.trego.ui.screens.UserBalanceWithCurrency
+import com.helgolabs.trego.data.local.dataClasses.UserBalanceWithCurrency
 import kotlin.math.abs
 
 @Composable

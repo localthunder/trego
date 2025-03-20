@@ -1,5 +1,6 @@
 package com.helgolabs.trego.ui.components
 
+import android.icu.text.DecimalFormat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -25,6 +26,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.helgolabs.trego.data.local.dataClasses.UserInvolvement
 import com.helgolabs.trego.utils.CurrencyUtils.currencySymbols
 import com.helgolabs.trego.utils.DateUtils
 import com.helgolabs.trego.utils.InstitutionLogoManager
@@ -40,13 +42,15 @@ fun PaymentAndTransactionCard(
     borderBrush: Brush = Brush.linearGradient(listOf(Color.Gray, Color.LightGray)),
     paidByUser: String? = null,
     currency: String,
+    userInvolvement: UserInvolvement? = null,
+    isPaidByCurrentUser: Boolean = false,
     onClick: () -> Unit = {}
 ) {
     val currencySymbol = currencySymbols[currency]
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
+            .padding(vertical = 4.dp, horizontal = 16.dp)
             .clickable(onClick = onClick),
         border = BorderStroke(borderSize, borderBrush)
     ) {
@@ -75,7 +79,9 @@ fun PaymentAndTransactionCard(
                 modifier = Modifier.weight(1f)
             ) {
                 Text(
-                    text = nameToShow,
+                    text = nameToShow.split(" ").joinToString(" ") { word ->
+                        word.lowercase().replaceFirstChar { it.uppercase() }
+                    },
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onBackground
                 )
@@ -88,20 +94,24 @@ fun PaymentAndTransactionCard(
                     )
                 }
 
-                Text(
-                    text = "You owe ${currencySymbol}${amount}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFFFFA726)
+                // Display user involvement with the dedicated component
+                UserInvolvementDisplay(
+                    involvement = userInvolvement,
+                    currency = currency
                 )
             }
 
             Column(
                 horizontalAlignment = Alignment.End
             ) {
+                // Create a decimal format with exactly 2 decimal places
+                val decimalFormat = DecimalFormat("0.00")
+
+                // Format the amount with consistent 2 decimal places
                 val formattedAmount = if (amount < 0) {
-                    "${currencySymbol}${-amount}"
+                    "${currencySymbol}${decimalFormat.format(-amount)}"
                 } else {
-                    "+${currencySymbol}$amount"
+                    "+${currencySymbol}${decimalFormat.format(amount)}"
                 }
                 val amountColor = if (amount < 0) Color.Black else Color.Green
 

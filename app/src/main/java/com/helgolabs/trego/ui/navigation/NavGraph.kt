@@ -26,8 +26,9 @@ import com.helgolabs.trego.ui.screens.GroupBalancesScreen
 import com.helgolabs.trego.ui.screens.GroupDetailsScreen
 import com.helgolabs.trego.ui.screens.GroupSettingsScreen
 import com.helgolabs.trego.ui.screens.GroupTotalsScreen
+import com.helgolabs.trego.ui.screens.GroupedInstitutionsScreen
 import com.helgolabs.trego.ui.screens.HomeScreen
-import com.helgolabs.trego.ui.screens.InstitutionsScreen
+import com.helgolabs.trego.ui.screens.InstitutionSelectionScreen
 import com.helgolabs.trego.ui.screens.InviteMembersScreen
 import com.helgolabs.trego.ui.screens.LoginScreen
 import com.helgolabs.trego.ui.screens.PaymentScreen
@@ -99,11 +100,7 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
         composable(route = "home") {
             HomeScreen(navController, context)
         }
-        composable(route = "institutions") {
-            InstitutionsScreen(navController, context)
-        }
-        composable(
-            route = "institutions?returnRoute={returnRoute}",
+        composable("institutions?returnRoute={returnRoute}",
             arguments = listOf(
                 navArgument("returnRoute") {
                     type = NavType.StringType
@@ -113,9 +110,32 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
             )
         ) { backStackEntry ->
             val returnRoute = backStackEntry.arguments?.getString("returnRoute")
-            InstitutionsScreen(
+            GroupedInstitutionsScreen(
                 navController = navController,
                 context = context,
+                returnRoute = returnRoute
+            )
+        }
+
+        // Institution selection screen after user taps a bank group
+        composable("institution_selection/{bankName}?returnRoute={returnRoute}",
+            arguments = listOf(
+                navArgument("bankName") {
+                    type = NavType.StringType
+                },
+                navArgument("returnRoute") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStackEntry ->
+            val bankName = backStackEntry.arguments?.getString("bankName") ?: ""
+            val returnRoute = backStackEntry.arguments?.getString("returnRoute")
+            InstitutionSelectionScreen(
+                navController = navController,
+                context = context,
+                bankName = bankName,
                 returnRoute = returnRoute
             )
         }

@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,6 +25,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -31,59 +34,78 @@ import com.helgolabs.trego.MyApplication
 import com.helgolabs.trego.data.local.dataClasses.RequisitionRequest
 import com.helgolabs.trego.data.model.Institution
 import com.helgolabs.trego.ui.viewmodels.InstitutionViewModel
-import com.helgolabs.trego.utils.GradientBorderUtils
 import downloadAndSaveImage
 import isLogoSaved
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun InstitutionsScreen(
+fun InstitutionSelectionScreen(
     navController: NavController,
     context: Context,
-    returnRoute: String? = null
+    bankName: String,
+    returnRoute: String?
 ) {
     val myApplication = context.applicationContext as MyApplication
     val institutionViewModel: InstitutionViewModel = viewModel(factory = myApplication.viewModelFactory)
     val institutions by institutionViewModel.institutions.collectAsStateWithLifecycle()
-    val loading by institutionViewModel.loading.collectAsStateWithLifecycle()
-    val error by institutionViewModel.error.collectAsStateWithLifecycle()
-    var searchQuery by remember { mutableStateOf("") }
 
-    // Filter institutions based on the search query
-    val filteredInstitutions = institutions.filter {
-        it.name.contains(searchQuery, ignoreCase = true)
+    // Filter institutions by the bank name
+    val filteredInstitutions = remember(institutions, bankName) {
+        institutions.filter { institution ->
+            // Match institutions with the provided bank name
+            if (bankName == "HSBC" && institution.name.contains("HSBC", ignoreCase = true)) {
+                true
+            } else if (bankName == "Virgin Money" && institution.name.contains("Virgin Money", ignoreCase = true)) {
+                true
+            } else if (bankName == "Allied Irish Banks" && institution.name.contains("Allied Irish Banks", ignoreCase = true)) {
+                true
+            } else if (bankName == "Barclaycard" && institution.name.contains("Barclaycard", ignoreCase = true)) {
+                true
+            } else {
+                val normalizedBankName = institution.name
+                    .replace(Regex("(?i)\\s+(Personal|Business|Corporate|Commercial|Retail|Private|Online|Bankline|ClearSpend|net|Kinetic|Wealth)$"), "")
+                    .replace(Regex("(?i)\\s+-\\s+sort\\s+code\\s+starts\\s+with.*$"), "")
+                    .trim()
+
+                normalizedBankName.equals(bankName, ignoreCase = true)
+            }
+        }.sortedBy { it.name } // Sort alphabetically
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Top
-    ) {
-        if (loading) {
-            CircularProgressIndicator()
-        } else if (error != null) {
-            Text(error!!, color = MaterialTheme.colorScheme.error)
-        } else {
-            Text("Available Institutions", style = MaterialTheme.typography.displaySmall)
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Search Bar
-            TextField(
-                value = searchQuery,
-                onValueChange = { newQuery -> searchQuery = newQuery },
-                placeholder = { Text("Search institutions") },
-                modifier = Modifier.fillMaxWidth(),
-                colors = TextFieldDefaults.colors(
-                    focusedIndicatorColor = MaterialTheme.colorScheme.primary,
-                    unfocusedIndicatorColor = Color.Transparent
-                )
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        text = bankName,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "Go back"
+                        )
+                    }
+                }
+            )
+        }
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(16.dp),
+        ) {
+            Text(
+                text = "Select Account Type",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(bottom = 16.dp)
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
-            // Display filtered institutions
             LazyColumn {
                 items(filteredInstitutions) { institution ->
                     InstitutionItem(
@@ -96,6 +118,7 @@ fun InstitutionsScreen(
     }
 }
 
+// Reuse the existing InstitutionItem with minor modifications
 @Composable
 fun InstitutionItem(
     institution: Institution,
@@ -134,9 +157,9 @@ fun InstitutionItem(
 
                         // Extract colors
                         try {
-                            val colors = GradientBorderUtils.getDominantColors(bitmap).map { Color(it) }
+                            val colors = com.helgolabs.trego.utils.GradientBorderUtils.getDominantColors(bitmap).map { Color(it) }
                             dominantColors = if (colors.size < 2) {
-                                val averageColor = Color(GradientBorderUtils.getAverageColor(bitmap))
+                                val averageColor = Color(com.helgolabs.trego.utils.GradientBorderUtils.getAverageColor(bitmap))
                                 listOf(averageColor, averageColor.copy(alpha = 0.7f))
                             } else {
                                 colors
@@ -176,9 +199,9 @@ fun InstitutionItem(
                                 try {
                                     val bitmap = BitmapFactory.decodeFile(downloadedFile.absolutePath)
                                     if (bitmap != null) {
-                                        val colors = GradientBorderUtils.getDominantColors(bitmap).map { Color(it) }
+                                        val colors = com.helgolabs.trego.utils.GradientBorderUtils.getDominantColors(bitmap).map { Color(it) }
                                         dominantColors = if (colors.size < 2) {
-                                            val averageColor = Color(GradientBorderUtils.getAverageColor(bitmap))
+                                            val averageColor = Color(com.helgolabs.trego.utils.GradientBorderUtils.getAverageColor(bitmap))
                                             listOf(averageColor, averageColor.copy(alpha = 0.7f))
                                         } else {
                                             colors
@@ -291,7 +314,67 @@ fun InstitutionItem(
                 }
             }
             Spacer(modifier = Modifier.width(16.dp))
-            Text(institution.name)
+
+            // Display just the account type (Personal, Business, etc.) or distinctive qualifier
+            val displayName = remember(institution.name) {
+                // For Virgin Money with sort code details, keep that part
+                if (institution.name.contains("sort code starts with", ignoreCase = true)) {
+                    institution.name.substringAfter("Virgin Money").trim()
+                }
+                // For Allied Irish Banks (NI), keep the NI part
+                else if (institution.name.contains("Allied Irish Banks (NI)", ignoreCase = true)) {
+                    "(NI)"
+                }
+                // For Allied Irish Banks variants with suffixes
+                else if (institution.name.contains("Allied Irish Banks", ignoreCase = true) &&
+                    !institution.name.equals("Allied Irish Banks", ignoreCase = true)) {
+                    val regex = Regex("(?i)(Personal|Business|Corporate|Commercial|Retail|Private|Online|Bankline|ClearSpend|Kinetic)$")
+                    val match = regex.find(institution.name)
+                    if (match != null) {
+                        match.value.trim()
+                    } else {
+                        institution.name.substringAfter("Allied Irish Banks").trim()
+                    }
+                }
+                // For Barclaycard variants
+                else if (institution.name.contains("Barclaycard", ignoreCase = true) &&
+                    !institution.name.equals("Barclaycard", ignoreCase = true)) {
+                    if (institution.name.contains("Commercial Payments", ignoreCase = true)) {
+                        "Commercial Payments"
+                    } else if (institution.name.contains("UK", ignoreCase = true)) {
+                        "UK"
+                    } else {
+                        institution.name.substringAfter("Barclaycard").trim()
+                    }
+                }
+                // For HSBCnet or other HSBC variants, extract the specific name
+                else if (institution.name.contains("HSBC", ignoreCase = true) &&
+                    !institution.name.equals("HSBC", ignoreCase = true)) {
+                    if (institution.name.contains("net", ignoreCase = true)) {
+                        "HSBCnet"
+                    } else {
+                        val regex = Regex("(?i)(Personal|Business|Corporate|Commercial|Retail|Private|Online|Bankline|ClearSpend|Kinetic)$")
+                        val match = regex.find(institution.name)
+                        if (match != null) {
+                            "HSBC ${match.value.trim()}"
+                        } else {
+                            institution.name
+                        }
+                    }
+                }
+                // Normal handling for most institutions
+                else {
+                    val regex = Regex("(?i)(Personal|Business|Corporate|Commercial|Retail|Private|Online|Bankline|ClearSpend)$")
+                    val match = regex.find(institution.name)
+                    if (match != null) {
+                        match.value.trim()
+                    } else {
+                        institution.name
+                    }
+                }
+            }
+
+            Text(displayName)
         }
     }
 }

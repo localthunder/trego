@@ -41,6 +41,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -135,6 +136,10 @@ fun PaymentScreen(
             bookingDateTime = args.getString("bookingDateTime"),
             institutionId = args.getString("institutionId")
         )
+    }
+
+    LaunchedEffect(editablePayment) {
+        Log.d("PaymentScreen", "Payment amount updated: ${editablePayment?.amount}")
     }
 
     LaunchedEffect(paymentId) {
@@ -340,6 +345,7 @@ fun PaymentScreen(
                                         .focusRequester(focusRequesterDescription),
                                     enabled = !screenState.isTransaction,
                                     keyboardOptions = KeyboardOptions.Default.copy(
+                                        capitalization = KeyboardCapitalization.Sentences,
                                         imeAction = ImeAction.Next
                                     ),
                                     keyboardActions = KeyboardActions(
@@ -606,6 +612,11 @@ fun PaymentAmountField(
     // Use TextFieldValue to track both text content and cursor position
     var textFieldValue by remember { mutableStateOf(TextFieldValue()) }
 
+    // Add this key to force recomposition when amount changes
+    var lastProcessedAmount by remember { mutableStateOf(0.0) }
+
+    val isNewPayment = amount > 0.0
+
     // Calculate width based on content
     // Add a baseline minimum width and some padding
     val textToMeasure = if (textFieldValue.text.isEmpty()) {
@@ -645,21 +656,27 @@ fun PaymentAmountField(
 
     // Initialize from provided amount
     LaunchedEffect(amount) {
-        if (!isFocused) {
-            // Only update when not focused to prevent cursor jumping
-            if (amount != 0.0) {
-                // Format with 2 decimal places and include commas
-                val formattedText = NumberFormat.getNumberInstance(Locale.US).apply {
-                    maximumFractionDigits = 2
-                    minimumFractionDigits = 2
-                }.format(amount)
+        // Only update when amount has actually changed
+        if (amount != lastProcessedAmount) {
+            lastProcessedAmount = amount
 
-                textFieldValue = TextFieldValue(
-                    text = formattedText,
-                    selection = TextRange(formattedText.length) // Place cursor at end
-                )
-            } else {
-                textFieldValue = TextFieldValue(text = "")
+            // Only update when not focused to prevent cursor jumping
+            if (!isFocused && amount != 0.0) {
+                val absAmount = kotlin.math.abs(amount)
+                if (absAmount > 0.0) {
+                    // Format with 2 decimal places and include commas
+                    val formattedText = NumberFormat.getNumberInstance(Locale.US).apply {
+                        maximumFractionDigits = 2
+                        minimumFractionDigits = 2
+                    }.format(absAmount)  // Use absolute value here
+
+                    textFieldValue = TextFieldValue(
+                        text = formattedText,
+                        selection = TextRange(formattedText.length) // Place cursor at end
+                    )
+                } else if (!isFocused && amount == 0.0) {
+                    textFieldValue = TextFieldValue(text = "")
+                }
             }
         }
     }
@@ -843,9 +860,11 @@ fun PaymentAmountField(
         }
     )
 
-    // Request focus on initial display
+    // Request focus on initial display ONLY for new payments
     LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
+        if (isNewPayment) {
+            focusRequester.requestFocus()
+        }
     }
 }
 

@@ -21,6 +21,7 @@ import com.helgolabs.trego.data.local.dao.UserGroupArchiveDao
 import com.helgolabs.trego.data.local.dataClasses.CurrencySettlingInstructions
 import com.helgolabs.trego.data.local.dataClasses.GroupImageUploadResult
 import com.helgolabs.trego.data.local.dataClasses.SettlingInstruction
+import com.helgolabs.trego.data.local.dataClasses.UserBalanceWithCurrency
 import com.helgolabs.trego.data.local.entities.GroupDefaultSplitEntity
 import com.helgolabs.trego.data.local.entities.GroupEntity
 import com.helgolabs.trego.data.local.entities.GroupMemberEntity
@@ -35,7 +36,6 @@ import com.helgolabs.trego.data.sync.SyncableRepository
 import com.helgolabs.trego.data.sync.managers.GroupDefaultSplitSyncManager
 import com.helgolabs.trego.data.sync.managers.GroupMemberSyncManager
 import com.helgolabs.trego.data.sync.managers.UserGroupArchiveSyncManager
-import com.helgolabs.trego.ui.screens.UserBalanceWithCurrency
 import com.helgolabs.trego.utils.CoroutineDispatchers
 import com.helgolabs.trego.utils.DateUtils
 import com.helgolabs.trego.utils.ImageUtils
