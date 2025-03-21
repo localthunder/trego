@@ -41,7 +41,6 @@ import com.helgolabs.trego.ui.screens.UserGroupsScreen
 import com.helgolabs.trego.ui.viewmodels.GroupViewModel
 import com.helgolabs.trego.ui.viewmodels.PaymentsViewModel
 import com.helgolabs.trego.ui.viewmodels.UserViewModel
-import com.helgolabs.trego.utils.AppCoroutineDispatchers
 import com.helgolabs.trego.utils.getUserIdFromPreferences
 
 @Composable
@@ -284,8 +283,10 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
         ) { backStackEntry ->
             val inviteCode = backStackEntry.arguments?.getString("inviteCode")
             val context = LocalContext.current
-            val groupViewModel = backStackEntry.sharedViewModel<GroupViewModel>(navController, viewModelFactory)
-            val userViewModel = backStackEntry.sharedViewModel<UserViewModel>(navController, viewModelFactory)
+            val groupViewModel =
+                backStackEntry.sharedViewModel<GroupViewModel>(navController, viewModelFactory)
+            val userViewModel =
+                backStackEntry.sharedViewModel<UserViewModel>(navController, viewModelFactory)
 
             LaunchedEffect(inviteCode) {
                 if (inviteCode != null) {

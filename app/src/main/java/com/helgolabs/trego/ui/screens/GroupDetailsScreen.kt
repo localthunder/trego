@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.net.Uri
 import android.os.Environment
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -15,14 +16,20 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.*
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material3.pulltorefresh.pullToRefresh
@@ -30,6 +37,7 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -39,6 +47,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
 import com.helgolabs.trego.MyApplication
 import com.helgolabs.trego.data.local.entities.GroupMemberEntity
 import com.helgolabs.trego.ui.components.GlobalFAB
@@ -55,6 +64,8 @@ import com.helgolabs.trego.ui.viewmodels.UserViewModel
 import com.helgolabs.trego.utils.DateUtils
 import com.helgolabs.trego.utils.FormattingUtils.formatAsCurrency
 import com.helgolabs.trego.utils.ImageUtils
+import com.helgolabs.trego.utils.PlaceholderImageGenerator
+import kotlinx.coroutines.launch
 import java.io.File
 import kotlin.math.absoluteValue
 
@@ -76,10 +87,10 @@ fun GroupDetailsScreen(
     val groupDetailsState by groupViewModel.groupDetailsState.collectAsState()
     var showAddMembersBottomSheet by remember { mutableStateOf(false) }
     var showLeaveGroupDialog by remember { mutableStateOf(false) }
+    var showImageOptionsBottomSheet by remember { mutableStateOf(false) }
     val paymentUpdateTrigger by groupViewModel.paymentsUpdateTrigger.collectAsState()
-
-
-
+    var tempImageUri by remember { mutableStateOf<Uri?>(null) }
+    val coroutineScope = rememberCoroutineScope()
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -87,12 +98,57 @@ fun GroupDetailsScreen(
         uri?.let { groupViewModel.uploadGroupImage(groupId, it) }
     }
 
+    val cameraLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { success ->
+        // Debug log the success status
+        Log.d("CameraCapture", "Camera returned with success: $success")
+
+        if (success) {
+            // Debug log the URI
+            Log.d("CameraCapture", "Captured image URI: $tempImageUri")
+
+            tempImageUri?.let { uri ->
+                // Close the bottom sheet first
+                showImageOptionsBottomSheet = false
+
+                // Upload the image with the captured URI
+                Log.d("CameraCapture", "Calling uploadGroupImage with URI: $uri")
+                groupViewModel.uploadGroupImage(groupId, uri)
+
+                // Also show a Toast for user feedback
+                Toast.makeText(context, "Uploading image...", Toast.LENGTH_SHORT).show()
+            } ?: run {
+                Log.e("CameraCapture", "Error: tempImageUri is null after camera capture")
+                Toast.makeText(context, "Failed to save image", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted: Boolean ->
+        if (isGranted) {
+            // Create file and launch camera
+            createImageFileAndLaunchCamera(context) { uri ->
+                tempImageUri = uri
+                cameraLauncher.launch(uri)
+            }
+        } else {
+            Toast.makeText(context, "Camera permission is required to take photos", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     LaunchedEffect(groupId) {
         groupViewModel.initializeGroupDetails(groupId)
     }
 
     LaunchedEffect(groupDetailsState.payments) {
-        groupViewModel.checkCurrentUserBalance()
+        groupViewModel.checkCurrentUserBalance(groupId)
+    }
+
+    LaunchedEffect(groupDetailsState.groupImage) {
+        groupViewModel.loadGroupDetails(groupId)
     }
 
     val refreshing = groupDetailsState.isLoading
@@ -159,13 +215,14 @@ fun GroupDetailsScreen(
                     else -> {
                         LazyColumn {
                             item {
-                                GroupImageSection(
-                                    groupImage = groupDetailsState.groupImage,
+                                GroupImageFullWidth(
                                     uploadStatus = groupDetailsState.uploadStatus,
                                     imageLoadingState = groupDetailsState.imageLoadingState,
-                                    onImageClick = { launcher.launch("image/*") },
+                                    isPlaceholderImage = groupDetailsState.isPlaceholderImage,
+                                    onEditClick = { showImageOptionsBottomSheet = true },
                                     viewModel = groupViewModel,
-                                    groupId = groupId
+                                    groupId = groupId,
+                                    context = context
                                 )
                             }
                             item {
@@ -320,6 +377,35 @@ fun GroupDetailsScreen(
                 onDismissRequest = {
                     showAddMembersBottomSheet = false
                     groupViewModel.loadGroupDetails(groupId) // Reload group details when sheet is dismissed
+                }
+            )
+        }
+
+        // Image Options Bottom Sheet
+        if (showImageOptionsBottomSheet) {
+            ImageOptionsBottomSheet(
+                onDismissRequest = { showImageOptionsBottomSheet = false },
+                onCameraClick = {
+                    showImageOptionsBottomSheet = false
+
+                    // Create a file and get the URI before launching camera
+                    createImageFileAndLaunchCamera(context) { uri ->
+                        Log.d("CameraCapture", "Created file for camera with URI: $uri")
+                        tempImageUri = uri
+                        cameraLauncher.launch(uri)
+                    }
+                },
+                onGalleryClick = {
+                    showImageOptionsBottomSheet = false
+                    launcher.launch("image/*")
+                },
+                onRegenerateClick = {
+                    showImageOptionsBottomSheet = false
+                    coroutineScope.launch {
+                        Log.d("onRegenerateClick", "Regenerating image for groupId: $groupId")
+                        // Just call the ViewModel method - don't generate an image yourself
+                        groupViewModel.regeneratePlaceholderImage(groupId)
+                    }
                 }
             )
         }
@@ -491,90 +577,85 @@ fun GroupDetailsScreen(
 }
 
 @Composable
-fun GroupImageSection(
-    groupImage: String?,
+fun GroupImageFullWidth(
     uploadStatus: GroupViewModel.UploadStatus,
     imageLoadingState: GroupViewModel.ImageLoadingState,
+    isPlaceholderImage: Boolean,
+    onEditClick: () -> Unit,
+    viewModel: GroupViewModel,
     groupId: Int,
-    onImageClick: () -> Unit,
     modifier: Modifier = Modifier,
-    viewModel: GroupViewModel
+    context: Context
 ) {
-    val context = LocalContext.current
-    var showImageSourceDialog by remember { mutableStateOf(false) }
+    // Use a unique key for forcing recomposition if needed
+    val uniqueKey = remember { System.currentTimeMillis() }
 
-    // Store temporary file URI for camera capture
-    var tempImageUri by remember { mutableStateOf<Uri?>(null) }
+    val groupDetailsState by viewModel.groupDetailsState.collectAsState()
+    val groupImage = groupDetailsState.groupImage
 
-    // Camera launcher - declare this before the permission launcher
-    val cameraLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.TakePicture()
-    ) { success ->
-        if (success) {
-            tempImageUri?.let { uri ->
-                viewModel.uploadGroupImage(groupId, uri)
+    // Keep track of whether we've processed the image path yet
+    var processedImagePath by remember { mutableStateOf<String?>(null) }
+
+    // Process the image path in a LaunchedEffect
+    LaunchedEffect(groupImage, uniqueKey) {
+        if (groupImage == null) {
+            processedImagePath = null
+            return@LaunchedEffect
+        }
+
+        processedImagePath = when {
+            // If it's a placeholder reference (starts with placeholder://)
+            groupImage.startsWith("placeholder://") -> {
+                val localPath = PlaceholderImageGenerator.getImageForPath(context, groupImage)
+                Log.d("GroupImage", "Generated local path for placeholder: $localPath")
+                "file://$localPath"
+            }
+
+            // If it's already a local file path
+            groupImage.startsWith("/data/") || groupImage.contains("/files/placeholder_images/") -> {
+                Log.d("GroupImage", "Using direct file path: $groupImage")
+                "file://$groupImage"
+            }
+
+            // Otherwise treat as a server URL
+            else -> {
+                val url = ImageUtils.getFullImageUrl(groupImage)
+                Log.d("GroupImage", "Using server URL: $url")
+                url
             }
         }
     }
 
-    // Permission state for camera
-    val cameraPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted: Boolean ->
-        if (isGranted) {
-            // Create file and launch camera
-            createImageFileAndLaunchCamera(context) { uri ->
-                tempImageUri = uri
-                cameraLauncher.launch(uri)
-            }
-        }
-    }
-
-    // Gallery launcher
-    val galleryLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        uri?.let { viewModel.uploadGroupImage(groupId, it) }
-    }
-
-    val imageSource = remember(groupImage) {
-        when {
-            groupImage == null -> null
-            groupImage.startsWith("/") -> "file://$groupImage" // Local path
-            else -> ImageUtils.getFullImageUrl(groupImage) // Server URL
-        }
-    }
-
-    // Effect to handle initial image loading
-    LaunchedEffect(groupImage) {
-        if (groupImage != null && imageLoadingState == GroupViewModel.ImageLoadingState.Idle) {
-            viewModel.reloadGroupImage()
-        }
-    }
-
-    Surface(
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(200.dp)
-            .padding(16.dp)
-            .clickable { showImageSourceDialog = true },
-        shape = MaterialTheme.shapes.medium,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+            .height(220.dp)
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            when (imageLoadingState) {
-                is GroupViewModel.ImageLoadingState.Loading -> {
+        when (imageLoadingState) {
+            is GroupViewModel.ImageLoadingState.Loading -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center
+                ) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(48.dp),
                         color = MaterialTheme.colorScheme.primary
                     )
                 }
-                is GroupViewModel.ImageLoadingState.Error -> {
+            }
+            is GroupViewModel.ImageLoadingState.Error -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable { viewModel.reloadGroupImage() },
+                    contentAlignment = Alignment.Center
+                ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier
-                            .padding(16.dp)
-                            .clickable { viewModel.reloadGroupImage() }
+                        modifier = Modifier.padding(16.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Error,
@@ -590,83 +671,166 @@ fun GroupImageSection(
                         )
                     }
                 }
-                else -> {
-                    if (imageSource != null) {
-                        AsyncImage(
-                            model = imageSource,
-                            contentDescription = "Group Image",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AddAPhoto,
-                                contentDescription = "Add Photo",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(48.dp)
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "Add Group Photo",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                }
             }
+            else -> {
+                // If we have a processed image path, display the image
+                if (processedImagePath != null) {
+                    Log.d("GroupImage", "Loading image with path: $processedImagePath")
 
-            if (uploadStatus is GroupViewModel.UploadStatus.Loading) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator()
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(processedImagePath)
+                            .build(),
+                        contentDescription = "Group Image",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                        onSuccess = { Log.d("GroupImage", "Successfully loaded image: $processedImagePath") },
+                        onError = { error ->
+                            Log.e("GroupImage", "Error loading image: $processedImagePath")
+                        }
+                    )
+                } else {
+                    // No image placeholder
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AddAPhoto,
+                            contentDescription = "Add Photo",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(64.dp)
+                        )
+                    }
                 }
             }
         }
-    }
 
-    if (showImageSourceDialog) {
-        AlertDialog(
-            onDismissRequest = { showImageSourceDialog = false },
-            title = { Text("Select Image Source") },
-            text = {
-                Column {
-                    TextButton(
-                        onClick = {
-                            showImageSourceDialog = false
-                            galleryLauncher.launch("image/*")
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Choose from Gallery")
-                    }
-                    TextButton(
-                        onClick = {
-                            showImageSourceDialog = false
-                            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Take Photo")
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = { showImageSourceDialog = false }) {
-                    Text("Cancel")
-                }
+        // Edit button overlay (always visible)
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(8.dp)
+        ) {
+            IconButton(
+                onClick = onEditClick,
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                        shape = CircleShape
+                    )
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = "Edit Image",
+                    tint = MaterialTheme.colorScheme.primary
+                )
             }
+        }
+
+        // Upload status overlay
+        if (uploadStatus is GroupViewModel.UploadStatus.Loading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ImageOptionsBottomSheet(
+    onDismissRequest: () -> Unit,
+    onCameraClick: () -> Unit,
+    onGalleryClick: () -> Unit,
+    onRegenerateClick: () -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismissRequest,
+        containerColor = MaterialTheme.colorScheme.surface
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Text(
+                text = "Change Group Image",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+
+            // Option 1: Camera
+            BottomSheetOption(
+                icon = Icons.Default.CameraAlt,
+                title = "Camera",
+                subtitle = "Take a new photo",
+                onClick = onCameraClick
+            )
+
+            // Option 2: Gallery
+            BottomSheetOption(
+                icon = Icons.Default.PhotoLibrary,
+                title = "Gallery",
+                subtitle = "Choose from your photos",
+                onClick = onGalleryClick
+            )
+
+            // Option 4: Regenerate
+            BottomSheetOption(
+                icon = Icons.Default.Refresh,
+                title = "Random Pattern",
+                subtitle = "Generate a new random image",
+                onClick = onRegenerateClick
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+    }
+}
+
+@Composable
+fun BottomSheetOption(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .size(48.dp)
+                .padding(end = 16.dp)
         )
+        Column {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 
@@ -786,19 +950,27 @@ private fun createImageFileAndLaunchCamera(context: Context, onUriCreated: (Uri)
         val imageFileName = "JPEG_${timeStamp}_"
         val storageDir = context.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
 
+        Log.d("CameraCapture", "Creating temp file in $storageDir")
+
         val tempFile = File.createTempFile(
             imageFileName,
             ".jpg",
             storageDir
         )
 
+        Log.d("CameraCapture", "Created temp file: ${tempFile.absolutePath}")
+
         val uri = FileProvider.getUriForFile(
             context,
             "${context.packageName}.fileprovider",
             tempFile
         )
+
+        Log.d("CameraCapture", "FileProvider URI: $uri")
         onUriCreated(uri)
     } catch (e: Exception) {
+        Log.e("CameraCapture", "Error creating image file", e)
         e.printStackTrace()
+        Toast.makeText(context, "Could not create image file", Toast.LENGTH_SHORT).show()
     }
 }

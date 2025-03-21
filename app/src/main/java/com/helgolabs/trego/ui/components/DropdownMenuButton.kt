@@ -148,8 +148,7 @@ fun PayerDropdown(
         ) {
             Text(
                 text = if (editablePayment?.paidByUserId == currentUserId) "me" else
-                    users.find { it.userId == editablePayment?.paidByUserId }?.username ?: "",
-                style = MaterialTheme.typography.bodyLarge
+                    users.find { it.userId == editablePayment?.paidByUserId }?.username ?: ""
             )
         }
 

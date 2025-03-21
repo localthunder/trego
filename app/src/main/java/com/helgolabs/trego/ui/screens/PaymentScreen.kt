@@ -258,8 +258,7 @@ fun PaymentScreen(
                             IconButton(onClick = { paymentsViewModel.processAction(PaymentAction.ShowDeleteDialog) }) {
                                 Icon(
                                     imageVector = Icons.Filled.Delete,
-                                    contentDescription = "Archive Payment",
-                                    tint = MaterialTheme.colorScheme.onPrimary
+                                    contentDescription = "Archive Payment"
                                 )
                             }
                         }

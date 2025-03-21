@@ -74,7 +74,14 @@ object ImageUtils {
     fun getFullImageUrl(path: String?): String? {
         if (path == null) return null
 
-        // Strip any absolute paths that might have been saved
+        // Check if this is a placeholder reference
+        if (PlaceholderImageGenerator.isPlaceholderImage(path)) {
+            // Don't try to convert placeholder references to URLs
+            Log.d(TAG, "Path is a placeholder reference: $path")
+            return null
+        }
+
+        // Handle regular image paths as before
         val relativePath = path.split("uploads/").lastOrNull()?.let { "uploads/$it" }
             ?: path.split("group_images/").lastOrNull()?.let { "uploads/group_images/$it" }
             ?: path

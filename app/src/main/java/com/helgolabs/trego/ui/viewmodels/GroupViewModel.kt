@@ -8,6 +8,9 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import coil3.imageLoader
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
 import com.helgolabs.trego.data.extensions.toModel
 import com.helgolabs.trego.data.local.dataClasses.BatchConversionResult
 import com.helgolabs.trego.data.local.dataClasses.CurrencySettlingInstructions
@@ -22,8 +25,12 @@ import com.helgolabs.trego.data.local.entities.UserEntity
 import com.helgolabs.trego.data.repositories.GroupRepository
 import com.helgolabs.trego.data.repositories.PaymentRepository
 import com.helgolabs.trego.data.repositories.UserRepository
+import com.helgolabs.trego.data.sync.SyncStatus
+import com.helgolabs.trego.utils.DateUtils
 import com.helgolabs.trego.utils.ImageUtils
+import com.helgolabs.trego.utils.PlaceholderImageGenerator
 import com.helgolabs.trego.utils.getUserIdFromPreferences
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -36,12 +43,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.File
 
 class GroupViewModel(
     private val groupRepository: GroupRepository,
@@ -64,6 +73,8 @@ class GroupViewModel(
         val isDownloadingImage: Boolean = false,
         val isArchived: Boolean = false,
         val isConverting: Boolean = false,
+        val isPlaceholderImage: Boolean = false,
+        val imageUpdateTimestamp: Long = System.currentTimeMillis(),
         val conversionResult: BatchConversionResult? = null,
         val conversionError: String? = null,
         val generatedInviteLink: String? = null,
@@ -179,6 +190,9 @@ class GroupViewModel(
     private val _defaultSplitOperationState = MutableStateFlow<OperationState>(OperationState.Idle)
     val defaultSplitOperationState: StateFlow<OperationState> = _defaultSplitOperationState.asStateFlow()
 
+    private val _imageUpdateEvent = MutableStateFlow(0L)
+    val imageUpdateEvent: StateFlow<Long> = _imageUpdateEvent.asStateFlow()
+
     init {
         viewModelScope.launch {
             groupRepository.ensureGroupImagesDownloaded()
@@ -205,12 +219,24 @@ class GroupViewModel(
         }
     }
 
-    fun loadGroupDetails(groupId: Int) {
+    fun loadGroupDetails(groupId: Int, forceRefresh: Boolean = false) {
         currentLoadJob?.cancel()
         currentLoadJob = viewModelScope.launch {
             _groupDetailsState.update { it.copy(isLoading = true, error = null) }
 
             try {
+                // Force refresh from server if requested
+                if (forceRefresh) {
+                    try {
+                        val refreshResult = groupRepository.forceRefreshGroup(groupId)
+                        if (refreshResult.isFailure) {
+                            Log.e("GroupViewModel", "Failed to force refresh: ${refreshResult.exceptionOrNull()?.message}")
+                        }
+                    } catch (e: Exception) {
+                        Log.e("GroupViewModel", "Error during force refresh", e)
+                    }
+                }
+
                 // Launch the existing loading functions
                 launch {
                     try {
@@ -271,16 +297,35 @@ class GroupViewModel(
                 // Return a pair of the group and archive status
                 group to isArchived
             }.collect { (group, isArchived) ->
+                // Check if this is a placeholder image from the server
+                val groupImage = group?.groupImg
+                val isPlaceholder = PlaceholderImageGenerator.isPlaceholderImage(groupImage)
+
+                // If it's a placeholder, ensure we have a local file for it
+                val localPath = if (isPlaceholder && groupImage != null) {
+                    try {
+                        // This will either retrieve or generate the placeholder image
+                        val path = PlaceholderImageGenerator.getImageForPath(context, groupImage)
+                        Log.d(TAG, "Generated/retrieved placeholder image at: $path for reference: $groupImage")
+                        path
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to generate placeholder image", e)
+                        null
+                    }
+                } else null
+
                 // Update state with the combined data
                 _groupDetailsState.update { currentState ->
                     currentState.copy(
                         group = group ?: currentState.group,
-                        groupImage = group?.groupImg,
+                        groupImage = groupImage,
                         isArchived = isArchived,
+                        localImagePath = localPath,
+                        isPlaceholderImage = isPlaceholder,
                         error = if (group == null && currentState.group == null)
                             "Unable to load group" else null,
                         imageLoadingState = when {
-                            group?.groupImg != null -> ImageLoadingState.Success
+                            groupImage != null -> ImageLoadingState.Success
                             else -> ImageLoadingState.Idle
                         }
                     )
@@ -760,6 +805,136 @@ class GroupViewModel(
         }
     }
 
+    fun setGroupImageFromLocalPath(groupId: Int, localPath: String) {
+        viewModelScope.launch {
+            try {
+                _groupDetailsState.update { it.copy(imageLoadingState = ImageLoadingState.Loading) }
+
+                // Create a URI from the local path
+                val imageFile = File(localPath)
+                val imageUri = Uri.fromFile(imageFile)
+
+                // Upload the image using existing method
+                uploadGroupImage(groupId, imageUri)
+            } catch (e: Exception) {
+                _groupDetailsState.update {
+                    it.copy(
+                        imageLoadingState = ImageLoadingState.Error(e.message ?: "Failed to set image"),
+                        error = e.message
+                    )
+                }
+            }
+        }
+    }
+
+    // Add this method to detect placeholder images
+    private fun isPlaceholderImage(imagePath: String?): Boolean {
+        return PlaceholderImageGenerator.isPlaceholderImage(imagePath ?: "")
+    }
+
+    fun regeneratePlaceholderImage(groupId: Int) {
+        viewModelScope.launch {
+            try {
+                // First, get the latest group data from the repository to ensure we have the most current image path
+                val latestGroup = groupRepository.getGroupById(groupId).firstOrNull()
+                    ?: throw Exception("Group not found")
+
+                Log.d("GroupViewModel", "Starting placeholder regeneration for groupId: $groupId")
+                Log.d("GroupViewModel", "Initial group details state: ${groupDetailsState.value}")
+
+                _groupDetailsState.update { it.copy(
+                    uploadStatus = UploadStatus.Loading,
+                    imageLoadingState = ImageLoadingState.Loading
+                ) }
+
+                // Always generate a new seed and pattern for regeneration
+                // This will create a completely different image than before
+                val placeholderReference = PlaceholderImageGenerator.generatePlaceholderReference(
+                    groupId = groupId,
+                    groupName = latestGroup.name,
+                    useTimestamp = true  // This forces a new seed
+                )
+
+                // Verify it's in the correct format before proceeding
+                if (!placeholderReference.startsWith("placeholder://")) {
+                    Log.e("GroupViewModel", "Generated reference is not in the expected format: $placeholderReference")
+                    throw IllegalStateException("Invalid placeholder reference generated")
+                }
+
+                Log.d("GroupViewModel", "Generated new reference: $placeholderReference")
+
+                // Generate a local image for immediate display
+                val localPath = PlaceholderImageGenerator.getImageForPath(context, placeholderReference)
+                Log.d("GroupViewModel", "Local image path: $localPath")
+
+                // First, update the database entry (this will be synced to the server later)
+                val result = groupRepository.updateGroup(
+                    latestGroup.copy(
+                        groupImg = placeholderReference,
+                        localImagePath = localPath,
+                        imageLastModified = DateUtils.getCurrentTimestamp(),
+                        updatedAt = DateUtils.getCurrentTimestamp(),
+                        syncStatus = SyncStatus.PENDING_SYNC
+                    )
+                )
+                Log.d("GroupViewModel", "Resulting group: $result")
+
+                result.fold(
+                    onSuccess = {
+                        Log.d("GroupViewModel", "Group image updated on server: $placeholderReference")
+                        Log.d("GroupViewModel", "Successfully set placeholder image: $placeholderReference")
+
+                        // Update the state to reflect the new image
+                        _groupDetailsState.update { currentState ->
+                            currentState.copy(
+                                uploadStatus = UploadStatus.Success(
+                                    imagePath = placeholderReference,
+                                    message = "Generated new image"
+                                ),
+                                groupImage = placeholderReference,  // Use the placeholder reference directly
+                                imageLoadingState = ImageLoadingState.Success,
+                                isPlaceholderImage = true,
+                                imageUpdateTimestamp = System.currentTimeMillis(), // Force recomposition
+                                group = currentState.group?.copy(
+                                    groupImg = placeholderReference,
+                                    localImagePath = localPath,
+                                    imageLastModified = DateUtils.getCurrentTimestamp(),
+                                    updatedAt = DateUtils.getCurrentTimestamp(),
+                                    syncStatus = SyncStatus.PENDING_SYNC
+                                )
+                            )
+                        }
+
+                        // Force a full reload of group details with force refresh
+                        loadGroupDetails(groupId, forceRefresh = true)
+
+                        Log.d("GroupViewModel", "Final group details state: ${groupDetailsState.value}")
+
+                        // Notify any listeners that the image has been updated
+                        _imageUpdateEvent.value = System.currentTimeMillis()
+                    },
+                    onFailure = { error ->
+                        Log.e("GroupViewModel", "Failed to set placeholder image", error)
+                        _groupDetailsState.update {
+                            it.copy(
+                                uploadStatus = UploadStatus.Error(error.message ?: "Failed to set placeholder image"),
+                                imageLoadingState = ImageLoadingState.Error(error.message ?: "Failed to set placeholder image")
+                            )
+                        }
+                    }
+                )
+            } catch (e: Exception) {
+                Log.e("GroupViewModel", "Error generating placeholder image", e)
+                _groupDetailsState.update {
+                    it.copy(
+                        uploadStatus = UploadStatus.Error(e.message ?: "Unknown error"),
+                        imageLoadingState = ImageLoadingState.Error(e.message ?: "Unknown error")
+                    )
+                }
+            }
+        }
+    }
+
     fun updateImageLoadingState(newState: ImageLoadingState) {
         _groupDetailsState.update {
             it.copy(imageLoadingState = newState)
@@ -938,19 +1113,21 @@ class GroupViewModel(
         return groupMembers.value.find { it.userId == currentUserId }?.id
     }
 
-    fun checkCurrentUserBalance() {
+    fun checkCurrentUserBalance(groupId: Int? = null) {
         viewModelScope.launch {
             Log.d("GroupViewModel", "Starting checkCurrentUserBalance")
-            val groupId = groupDetailsState.value.group?.id
-            Log.d("GroupViewModel", "Current groupId: $groupId")
 
-            if (groupId == null) {
+            // Use the provided groupId parameter, or fall back to the one in the state
+            val effectiveGroupId = groupId ?: groupDetailsState.value.group?.id
+            Log.d("GroupViewModel", "Current groupId: $effectiveGroupId")
+
+            if (effectiveGroupId == null) {
                 Log.e("GroupViewModel", "No groupId found, returning early")
                 return@launch
             }
 
             // Load balances first
-            groupRepository.calculateGroupBalances(groupId)
+            groupRepository.calculateGroupBalances(effectiveGroupId)
                 .onSuccess { balances ->
                     Log.d("GroupViewModel", "Successfully loaded balances: $balances")
                     _groupBalances.value = balances

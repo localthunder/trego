@@ -28,6 +28,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
 import com.helgolabs.trego.MyApplication
 import com.helgolabs.trego.data.local.dataClasses.UserGroupListItem
 import com.helgolabs.trego.ui.components.GlobalFAB
@@ -36,6 +37,7 @@ import com.helgolabs.trego.ui.theme.GlobalTheme
 import com.helgolabs.trego.ui.viewmodels.GroupViewModel
 import com.helgolabs.trego.utils.FormattingUtils.formatAsCurrency
 import com.helgolabs.trego.utils.ImageUtils
+import com.helgolabs.trego.utils.PlaceholderImageGenerator
 import com.helgolabs.trego.utils.getUserIdFromPreferences
 import kotlin.math.abs
 
@@ -53,14 +55,17 @@ fun UserGroupsScreen(navController: NavController) {
     val archivedGroupItems by groupViewModel.archivedGroupItems.collectAsStateWithLifecycle()
     val loading by groupViewModel.loading.collectAsStateWithLifecycle()
     val error by groupViewModel.error.collectAsStateWithLifecycle()
+    val imageUpdateEvent by groupViewModel.imageUpdateEvent.collectAsStateWithLifecycle()
 
-    LaunchedEffect(Unit) {
-        Log.d("UserGroupsScreen", "LaunchedEffect triggered")
+    LaunchedEffect(Unit, imageUpdateEvent) {
         if (userId > 0) {
-            Log.d("UserGroupsScreen", "Loading groups for user: $userId")
             groupViewModel.loadUserGroupsList(userId)
-        } else {
-            Log.e("UserGroupsScreen", "Invalid userId: $userId")
+        }
+    }
+
+    LaunchedEffect(groupItems) {
+        if (userId > 0) {
+            groupViewModel.loadUserGroupsList(userId)
         }
     }
 
@@ -84,8 +89,7 @@ fun UserGroupsScreen(navController: NavController) {
                         ) {
                             Icon(
                                 imageVector = Icons.Default.AccountCircle,
-                                contentDescription = "Profile",
-                                tint = MaterialTheme.colorScheme.onPrimary
+                                contentDescription = "Profile"
                             )
                         }
                 })
@@ -184,11 +188,32 @@ fun GroupListItem(
                 .padding(4.dp),
             verticalAlignment = Alignment.Top
         ) {
+            // Generate a unique key for this image to prevent caching issues
+            val imageKey = remember(groupItem.groupImg) {
+                "${groupItem.groupImg}_${System.currentTimeMillis()}"
+            }
+
+            val context = LocalContext.current
+            val isPlaceholder = PlaceholderImageGenerator.isPlaceholderImage(groupItem.groupImg)
+
+            // Determine the correct image source
+            val imageSource = when {
+                groupItem.groupImg == null -> null
+                isPlaceholder -> {
+                    // Always use PlaceholderImageGenerator to get the correct local path
+                    val localPath = PlaceholderImageGenerator.getImageForPath(context, groupItem.groupImg)
+                    "file://$localPath"
+                }
+                groupItem.groupImg.startsWith("/") -> "file://${groupItem.groupImg}"
+                else -> ImageUtils.getFullImageUrl(groupItem.groupImg)
+            }
+
             AsyncImage(
-                model = when {
-                    groupItem.groupImg?.startsWith("/") == true -> "file://${groupItem.groupImg}"
-                    else -> ImageUtils.getFullImageUrl(groupItem.groupImg)
-                },
+                model = ImageRequest.Builder(context)
+                    .data(imageSource)
+                    .diskCacheKey(imageKey)  // Force unique cache key
+                    .memoryCacheKey(imageKey)  // Force unique memory key
+                    .build(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
@@ -199,7 +224,7 @@ fun GroupListItem(
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(12.dp),
+                    .padding(horizontal = 12.dp),
                 verticalArrangement = Arrangement.SpaceEvenly
             ) {
                 Text(
@@ -208,52 +233,62 @@ fun GroupListItem(
                     color = MaterialTheme.colorScheme.onSurface
                 )
 
-                //Display user balance
-                groupItem.userBalance?.let { userBalance ->
-                    if (userBalance.balances.isEmpty() || userBalance.balances.all { abs(it.value) < 0.01 }) {
-                        // When user has no balances or all balances are effectively zero
-                        Text(
-                            text = "You're even in this group",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.secondary
-                        )
-                    } else {
-                        // Get the first currency and balance
-                        val firstEntry = userBalance.balances.entries.firstOrNull()
+                // Display user balance or no expenses message
+                if (groupItem.userBalance == null) {
+                    // When userBalance is null, it means there are no expenses yet
+                    Text(
+                        text = "No expenses in this group yet",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                } else {
+                    // Handle the case when userBalance exists
+                    groupItem.userBalance.let { userBalance ->
+                        if (userBalance.balances.isEmpty() || userBalance.balances.all { abs(it.value) < 0.01 }) {
+                            // When user has no balances or all balances are effectively zero
+                            Text(
+                                text = "You're even in this group",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        } else {
+                            // Get the first currency and balance
+                            val firstEntry = userBalance.balances.entries.firstOrNull()
 
-                        firstEntry?.let { (currency, amount) ->
-                            if (abs(amount) < 0.01) {
-                                // This specific currency is even
-                                Text(
-                                    text = "You're even in this group",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.secondary
-                                )
-                            } else {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
+                            firstEntry?.let { (currency, amount) ->
+                                if (abs(amount) < 0.01) {
+                                    // This specific currency is even
                                     Text(
-                                        text = if (amount < 0) {
-                                            "You owe: ${(-amount).formatAsCurrency(currency)}"
-                                        } else {
-                                            "You are owed: ${amount.formatAsCurrency(currency)}"
-                                        },
+                                        text = "You're even in this group",
                                         style = MaterialTheme.typography.bodyLarge,
-                                        color = if (amount < 0)
-                                            MaterialTheme.colorScheme.error
-                                        else
-                                            MaterialTheme.colorScheme.primary
+                                        color = MaterialTheme.colorScheme.secondary
                                     )
-
-                                    // Add indicator for multiple currencies
-                                    if (userBalance.balances.size > 1) {
+                                } else {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
                                         Text(
-                                            text = "& ...",
+                                            text = if (amount < 0) {
+                                                "You owe: ${(-amount).formatAsCurrency(currency)}"
+                                            } else {
+                                                "You are owed: ${amount.formatAsCurrency(currency)}"
+                                            },
                                             style = MaterialTheme.typography.bodyLarge,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.padding(start = 4.dp)
+                                            color = if (amount < 0)
+                                                MaterialTheme.colorScheme.error
+                                            else
+                                                MaterialTheme.colorScheme.primary
                                         )
+
+                                        // Add indicator for multiple currencies
+                                        if (userBalance.balances.size > 1) {
+                                            Text(
+                                                text = "& ...",
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.padding(start = 4.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
