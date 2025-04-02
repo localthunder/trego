@@ -4,5 +4,6 @@ enum class SyncStatus {
     SYNCED,
     PENDING_SYNC,
     SYNC_FAILED,
-    LOCALLY_DELETED
+    LOCALLY_DELETED,
+    LOCAL_ONLY
 }

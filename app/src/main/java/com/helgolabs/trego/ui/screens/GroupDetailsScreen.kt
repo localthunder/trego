@@ -2,6 +2,7 @@ package com.helgolabs.trego.ui.screens
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.Context
 import android.net.Uri
 import android.os.Environment
@@ -37,17 +38,22 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import coil3.Bitmap
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
+import coil3.request.crossfade
 import com.helgolabs.trego.MyApplication
 import com.helgolabs.trego.data.local.entities.GroupMemberEntity
 import com.helgolabs.trego.ui.components.GlobalFAB
@@ -65,6 +71,7 @@ import com.helgolabs.trego.utils.DateUtils
 import com.helgolabs.trego.utils.FormattingUtils.formatAsCurrency
 import com.helgolabs.trego.utils.ImageUtils
 import com.helgolabs.trego.utils.PlaceholderImageGenerator
+import com.helgolabs.trego.utils.StatusBarHelper
 import kotlinx.coroutines.launch
 import java.io.File
 import kotlin.math.absoluteValue
@@ -155,30 +162,57 @@ fun GroupDetailsScreen(
     val pullToRefreshState = rememberPullToRefreshState()
 
 
-    GlobalTheme {
-        Scaffold(modifier = Modifier.pullToRefresh(
-            isRefreshing = refreshing,
-            state = pullToRefreshState,
-            enabled = !refreshing,
-            onRefresh = { groupViewModel.loadGroupDetails(groupId)}
+    // Get Window instance and control system bars
+    val activity = LocalContext.current as Activity
+    val windowInsets = WindowInsets.systemBars
 
-        ),
-            topBar = {
-                GlobalTopAppBar(
-                    title = { Text(groupDetailsState.group?.name ?: "Group Details") },
-                    actions = {
-                        IconButton(onClick = {
-                            // Navigate to settings page
-                            navController.navigate("groupSettings/${groupId}")
-                        }) {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = "Group Settings"
-                            )
-                        }
-                    }
-                )
-            },
+    // This is important for edge-to-edge
+    DisposableEffect(Unit) {
+        WindowCompat.setDecorFitsSystemWindows(activity.window, false) // Enable edge-to-edge
+        val insetsController = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
+        insetsController.isAppearanceLightStatusBars = true // Dark icons for status bar (for light background)
+
+        onDispose {
+            // Reset when leaving this screen
+            WindowCompat.setDecorFitsSystemWindows(activity.window, true)
+        }
+    }
+
+    GlobalTheme {
+        val activity = LocalContext.current as Activity
+
+        SideEffect {
+            WindowCompat.setDecorFitsSystemWindows(activity.window, false) // Allow edge-to-edge
+            val insetsController = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
+            insetsController.isAppearanceLightStatusBars = true // Dark icons on light background
+        }
+
+        Scaffold(
+            modifier = Modifier.pullToRefresh(
+                isRefreshing = refreshing,
+                state = pullToRefreshState,
+                enabled = !refreshing,
+                onRefresh = { groupViewModel.loadGroupDetails(groupId) }
+            ),
+            containerColor = Color.Transparent, // Allow content behind status bar
+            contentWindowInsets = WindowInsets(0, 0, 0, 0), // No insets for content - critical for edge-to-edge
+
+//            topBar = {
+//                GlobalTopAppBar(
+//                    title = {}, // Remove title
+//                    actions = {
+//                        IconButton(onClick = {
+//                            navController.navigate("groupSettings/${groupId}")
+//                        }) {
+//                            Icon(
+//                                imageVector = Icons.Default.Settings,
+//                                contentDescription = "Group Settings"
+//                            )
+//                        }
+//                    },
+//                    isTransparent = true
+//                )
+//            },
             floatingActionButton = {
                 GlobalFAB(
                     onClick = { navController.navigate("addExpense/$groupId") },
@@ -222,7 +256,10 @@ fun GroupDetailsScreen(
                                     onEditClick = { showImageOptionsBottomSheet = true },
                                     viewModel = groupViewModel,
                                     groupId = groupId,
-                                    context = context
+                                    context = context,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .wrapContentHeight() // Allows image to reach top
                                 )
                             }
                             item {
@@ -587,16 +624,18 @@ fun GroupImageFullWidth(
     modifier: Modifier = Modifier,
     context: Context
 ) {
-    // Use a unique key for forcing recomposition if needed
     val uniqueKey = remember { System.currentTimeMillis() }
+    val activity = LocalContext.current as? Activity
+    val coroutineScope = rememberCoroutineScope()
 
     val groupDetailsState by viewModel.groupDetailsState.collectAsState()
     val groupImage = groupDetailsState.groupImage
-
-    // Keep track of whether we've processed the image path yet
     var processedImagePath by remember { mutableStateOf<String?>(null) }
 
-    // Process the image path in a LaunchedEffect
+    // Collect status bar information from ViewModel
+    val statusBarShouldBeDark by viewModel.statusBarShouldBeDark.collectAsState()
+
+    // Process the image path and trigger analysis in ViewModel
     LaunchedEffect(groupImage, uniqueKey) {
         if (groupImage == null) {
             processedImagePath = null
@@ -604,25 +643,34 @@ fun GroupImageFullWidth(
         }
 
         processedImagePath = when {
-            // If it's a placeholder reference (starts with placeholder://)
+            // Process image path as before...
             groupImage.startsWith("placeholder://") -> {
                 val localPath = PlaceholderImageGenerator.getImageForPath(context, groupImage)
-                Log.d("GroupImage", "Generated local path for placeholder: $localPath")
                 "file://$localPath"
             }
-
-            // If it's already a local file path
             groupImage.startsWith("/data/") || groupImage.contains("/files/placeholder_images/") -> {
-                Log.d("GroupImage", "Using direct file path: $groupImage")
                 "file://$groupImage"
             }
-
-            // Otherwise treat as a server URL
             else -> {
-                val url = ImageUtils.getFullImageUrl(groupImage)
-                Log.d("GroupImage", "Using server URL: $url")
-                url
+                ImageUtils.getFullImageUrl(groupImage)
             }
+        }
+
+        // Trigger analysis in the ViewModel
+        processedImagePath?.let { path ->
+            viewModel.analyzeImageForStatusBar(path)
+        }
+    }
+
+    // Update status bar based on viewModel analysis
+    LaunchedEffect(statusBarShouldBeDark) {
+        if (activity != null) {
+            val insetsController = WindowCompat.getInsetsController(
+                activity.window, activity.window.decorView
+            )
+            // statusBarShouldBeDark = true means we want light icons (dark background)
+            // statusBarShouldBeDark = false means we want dark icons (light background)
+            insetsController.isAppearanceLightStatusBars = !statusBarShouldBeDark
         }
     }
 
@@ -633,6 +681,7 @@ fun GroupImageFullWidth(
     ) {
         when (imageLoadingState) {
             is GroupViewModel.ImageLoadingState.Loading -> {
+                // Loading UI...
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -646,6 +695,7 @@ fun GroupImageFullWidth(
                 }
             }
             is GroupViewModel.ImageLoadingState.Error -> {
+                // Error UI with retry click handler
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -675,16 +725,17 @@ fun GroupImageFullWidth(
             else -> {
                 // If we have a processed image path, display the image
                 if (processedImagePath != null) {
-                    Log.d("GroupImage", "Loading image with path: $processedImagePath")
-
                     AsyncImage(
                         model = ImageRequest.Builder(context)
                             .data(processedImagePath)
+                            .crossfade(true)
                             .build(),
                         contentDescription = "Group Image",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
-                        onSuccess = { Log.d("GroupImage", "Successfully loaded image: $processedImagePath") },
+                        onSuccess = {
+                            Log.d("GroupImage", "Successfully loaded image: $processedImagePath")
+                        },
                         onError = { error ->
                             Log.e("GroupImage", "Error loading image: $processedImagePath")
                         }
@@ -713,6 +764,7 @@ fun GroupImageFullWidth(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(8.dp)
+                .padding(top = 40.dp) // Extra padding for status bar
         ) {
             IconButton(
                 onClick = onEditClick,

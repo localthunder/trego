@@ -19,7 +19,8 @@ class SyncWorker(
     private val paymentSplitRepository: PaymentSplitRepository,
     private val institutionRepository: InstitutionRepository,
     private val requisitionRepository: RequisitionRepository,
-    private val transactionRepository: TransactionRepository
+    private val transactionRepository: TransactionRepository,
+    private val userPreferencesRepository: UserPreferencesRepository
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result = coroutineScope {
@@ -49,6 +50,7 @@ class SyncWorker(
                 // Core data syncs first
                 syncRepository("Users", userRepository::sync)
                 syncRepository("Groups", groupRepository::sync)
+                syncRepository("User Preferences", userPreferencesRepository::sync)
 
                 // Account-related syncs
                 syncRepository("Requisitions", requisitionRepository::sync)
@@ -121,7 +123,8 @@ class SyncWorkerFactory(
     private val paymentSplitRepository: PaymentSplitRepository,
     private val institutionRepository: InstitutionRepository,
     private val requisitionRepository: RequisitionRepository,
-    private val transactionRepository: TransactionRepository
+    private val transactionRepository: TransactionRepository,
+    private val userPreferencesRepository: UserPreferencesRepository
 ) : WorkerFactory() {
 
     override fun createWorker(
@@ -141,7 +144,8 @@ class SyncWorkerFactory(
                     paymentSplitRepository,
                     institutionRepository,
                     requisitionRepository,
-                    transactionRepository
+                    transactionRepository,
+                    userPreferencesRepository
                 )
             else -> null
         }

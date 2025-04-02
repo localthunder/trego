@@ -20,28 +20,22 @@ import com.helgolabs.trego.data.network.ApiService
 import com.helgolabs.trego.data.network.RetrofitClient
 import com.helgolabs.trego.data.repositories.NotificationRepository
 import com.helgolabs.trego.data.repositories.PaymentSplitRepository
-import com.helgolabs.trego.data.sync.GroupSyncManager
+import com.helgolabs.trego.data.repositories.UserPreferencesRepository
 import com.helgolabs.trego.data.sync.SyncManagerProvider
 import com.helgolabs.trego.data.sync.SyncWorker
 import com.helgolabs.trego.data.sync.SyncWorkerFactory
-import com.helgolabs.trego.data.sync.managers.BankAccountSyncManager
-import com.helgolabs.trego.data.sync.managers.GroupMemberSyncManager
-import com.helgolabs.trego.data.sync.managers.RequisitionSyncManager
-import com.helgolabs.trego.data.sync.managers.TransactionSyncManager
-import com.helgolabs.trego.data.sync.managers.UserSyncManager
 import com.helgolabs.trego.ui.viewmodels.AppViewModelFactory
 import com.helgolabs.trego.ui.viewmodels.AuthViewModel
 import com.helgolabs.trego.ui.viewmodels.GroupViewModel
 import com.helgolabs.trego.ui.viewmodels.InstitutionViewModel
 import com.helgolabs.trego.ui.viewmodels.PaymentsViewModel
 import com.helgolabs.trego.ui.viewmodels.TransactionViewModel
+import com.helgolabs.trego.ui.viewmodels.UserPreferencesViewModel
 import com.helgolabs.trego.ui.viewmodels.UserViewModel
 import com.helgolabs.trego.utils.AppCoroutineDispatchers
 import com.helgolabs.trego.utils.EntityServerConverter
-import com.helgolabs.trego.utils.InstitutionLogoManager
 import com.helgolabs.trego.utils.NetworkUtils
 import com.helgolabs.trego.utils.NetworkUtils.hasNetworkCapabilities
-import com.helgolabs.trego.utils.NetworkUtils.isOnline
 import com.helgolabs.trego.utils.PlayStoreReviewManager
 import com.helgolabs.trego.utils.SyncUtils
 import com.helgolabs.trego.utils.getUserIdFromPreferences
@@ -86,6 +80,7 @@ class MyApplication : Application(), Configuration.Provider {
     val transactionRepository: TransactionRepository by lazy { syncManagerProvider.provideTransactionRepository() }
     val userRepository: UserRepository by lazy { syncManagerProvider.provideUserRepository() }
     val notificationRepository: NotificationRepository by lazy { syncManagerProvider.provideNotificationRepository() }
+    val userPreferencesRepository: UserPreferencesRepository by lazy { syncManagerProvider.provideUserPreferencesRepository() }
     val splitCalculator by lazy { DefaultSplitCalculator() }
 
     val dispatchers = AppCoroutineDispatchers()
@@ -108,6 +103,7 @@ class MyApplication : Application(), Configuration.Provider {
             institutionRepository,
             requisitionRepository,
             transactionRepository,
+            userPreferencesRepository
         )
 
         NetworkUtils.initialize(this, apiService)
@@ -154,7 +150,8 @@ class MyApplication : Application(), Configuration.Provider {
                 InstitutionViewModel::class.java to { InstitutionViewModel(institutionRepository, dispatchers)},
                 PaymentsViewModel::class.java to { PaymentsViewModel(paymentRepository, paymentSplitRepository, groupRepository, transactionRepository, institutionRepository, userRepository, splitCalculator,this) },
                 TransactionViewModel::class.java to { TransactionViewModel(transactionRepository, dispatchers, this)},
-                UserViewModel::class.java to { UserViewModel(userRepository, dispatchers, this)}
+                UserViewModel::class.java to { UserViewModel(userRepository, dispatchers, this)},
+                UserPreferencesViewModel::class.java to { UserPreferencesViewModel(userPreferencesRepository, dispatchers, this)}
             )
         )
     }

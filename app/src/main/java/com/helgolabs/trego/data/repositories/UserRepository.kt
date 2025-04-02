@@ -23,6 +23,7 @@ import com.helgolabs.trego.data.model.GroupMember
 import com.helgolabs.trego.data.model.User
 import com.helgolabs.trego.data.sync.SyncStatus
 import com.helgolabs.trego.data.sync.SyncableRepository
+import com.helgolabs.trego.data.sync.managers.UserPreferencesSyncManager
 import com.helgolabs.trego.data.sync.managers.UserSyncManager
 import com.helgolabs.trego.utils.AuthUtils.getLoginState
 import com.helgolabs.trego.utils.AuthUtils.storeLoginState

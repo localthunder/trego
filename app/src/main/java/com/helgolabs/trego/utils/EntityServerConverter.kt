@@ -17,6 +17,7 @@ import com.helgolabs.trego.data.local.entities.RequisitionEntity
 import com.helgolabs.trego.data.local.entities.TransactionEntity
 import com.helgolabs.trego.data.local.entities.UserEntity
 import com.helgolabs.trego.data.local.entities.UserGroupArchiveEntity
+import com.helgolabs.trego.data.local.entities.UserPreferenceEntity
 import com.helgolabs.trego.data.model.BankAccount
 import com.helgolabs.trego.data.model.CreditorAccount
 import com.helgolabs.trego.data.model.CurrencyConversion
@@ -30,6 +31,7 @@ import com.helgolabs.trego.data.model.Requisition
 import com.helgolabs.trego.data.model.Transaction
 import com.helgolabs.trego.data.model.TransactionAmount
 import com.helgolabs.trego.data.model.User
+import com.helgolabs.trego.data.model.UserPreference
 import com.helgolabs.trego.data.sync.SyncStatus
 import com.helgolabs.trego.utils.ServerIdUtil.getLocalId
 
@@ -875,6 +877,51 @@ class EntityServerConverter(private val context: Context) {
             ))
         } catch (e: Exception) {
             Log.e("EntityServerConverter", "Error converting server group default split to local entity", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun convertUserPreferenceToServer(preference: UserPreferenceEntity): Result<UserPreference> {
+        return try {
+            val serverUserId = ServerIdUtil.getServerId(preference.userId, "users", context)
+                ?: return Result.failure(Exception("No server ID found for user ${preference.userId}"))
+
+            Result.success(
+                UserPreference(
+                    id = preference.serverId,
+                    userId = serverUserId,
+                    preferenceKey = preference.preferenceKey,
+                    preferenceValue = preference.preferenceValue,
+                    updatedAt = preference.updatedAt
+                )
+            )
+        } catch (e: Exception) {
+            Log.e("EntityServerConverter", "Error converting user preference to server model", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun convertUserPreferenceFromServer(
+        serverPreference: UserPreference,
+        existingPreference: UserPreferenceEntity? = null
+    ): Result<UserPreferenceEntity> {
+        return try {
+            // Get local user ID
+            val localUserId = getLocalId(serverPreference.userId, "users", context)
+                ?: existingPreference?.userId
+                ?: return Result.failure(Exception("Could not resolve local user ID for ${serverPreference.userId}"))
+
+            Result.success(UserPreferenceEntity(
+                id = existingPreference?.id ?: 0,
+                serverId = serverPreference.id,
+                userId = localUserId,
+                preferenceKey = serverPreference.preferenceKey,
+                preferenceValue = serverPreference.preferenceValue,
+                updatedAt = serverPreference.updatedAt ?: DateUtils.getCurrentTimestamp(),
+                syncStatus = SyncStatus.SYNCED
+            ))
+        } catch (e: Exception) {
+            Log.e("EntityServerConverter", "Error converting server user preference to local entity", e)
             Result.failure(e)
         }
     }

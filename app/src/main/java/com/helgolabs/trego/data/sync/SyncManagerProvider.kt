@@ -16,6 +16,7 @@ import com.helgolabs.trego.data.repositories.PaymentRepository
 import com.helgolabs.trego.data.repositories.PaymentSplitRepository
 import com.helgolabs.trego.data.repositories.RequisitionRepository
 import com.helgolabs.trego.data.repositories.TransactionRepository
+import com.helgolabs.trego.data.repositories.UserPreferencesRepository
 import com.helgolabs.trego.data.repositories.UserRepository
 import com.helgolabs.trego.data.sync.managers.BankAccountSyncManager
 import com.helgolabs.trego.data.sync.managers.CurrencyConversionSyncManager
@@ -25,6 +26,7 @@ import com.helgolabs.trego.data.sync.managers.PaymentSyncManager
 import com.helgolabs.trego.data.sync.managers.RequisitionSyncManager
 import com.helgolabs.trego.data.sync.managers.TransactionSyncManager
 import com.helgolabs.trego.data.sync.managers.UserGroupArchiveSyncManager
+import com.helgolabs.trego.data.sync.managers.UserPreferencesSyncManager
 import com.helgolabs.trego.data.sync.managers.UserSyncManager
 import com.helgolabs.trego.utils.AppCoroutineDispatchers
 import com.helgolabs.trego.utils.CoroutineDispatchers
@@ -174,6 +176,16 @@ class SyncManagerProvider(
         )
     }
 
+    val userPreferencesSyncManager by lazy {
+        UserPreferencesSyncManager(
+            userPreferenceDao = database.userPreferenceDao(),
+            apiService = apiService,
+            syncMetadataDao = database.syncMetadataDao(),
+            dispatchers = dispatchers,
+            context = context
+        )
+    }
+
     // Repository Providers
     fun provideBankAccountRepository() = BankAccountRepository(
         bankAccountDao = database.bankAccountDao(),
@@ -275,5 +287,14 @@ class SyncManagerProvider(
         apiService = apiService,
         dispatchers = dispatchers,
         context = context
+    )
+
+    fun provideUserPreferencesRepository() = UserPreferencesRepository(
+        userPreferenceDao = database.userPreferenceDao(),
+        apiService = apiService,
+        dispatchers = dispatchers,
+        context = context,
+        userPreferencesSyncManager = userPreferencesSyncManager,
+        syncMetadataDao = syncMetadataDao
     )
 }

@@ -39,6 +39,7 @@ import com.helgolabs.trego.data.local.dataClasses.InstitutionGroup
 import com.helgolabs.trego.data.local.dataClasses.RequisitionRequest
 import com.helgolabs.trego.ui.components.GlobalFAB
 import com.helgolabs.trego.ui.components.GlobalTopAppBar
+import com.helgolabs.trego.ui.components.SectionHeader
 import com.helgolabs.trego.ui.theme.GlobalTheme
 import com.helgolabs.trego.ui.viewmodels.PaymentsViewModel.PaymentAction
 import isLogoSaved
@@ -198,16 +199,6 @@ fun GroupedInstitutionsScreen(
             }
         )
     }
-}
-
-@Composable
-fun SectionHeader(title: String) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.titleLarge,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(vertical = 8.dp)
-    )
 }
 
 @Composable

@@ -357,4 +357,28 @@ interface ApiService {
 
     @DELETE("api/groups/{groupId}/default-splits/{splitId}")
     suspend fun deleteGroupDefaultSplit(@Path("groupId") groupId: Int, @Path("splitId") splitId: Int): Response<Unit>
+
+    @GET("api/users/{userId}/preferences")
+    suspend fun getUserPreferences(@Path("userId") userId: Int): ApiResponse<List<UserPreference>>
+
+    @GET("api/users/{userId}/preferences/{key}")
+    suspend fun getUserPreference(@Path("userId") userId: Int, @Path("key") key: String): ApiResponse<UserPreference>
+
+    @PUT("api/users/{userId}/preferences/{key}")
+    suspend fun updateUserPreference(@Path("userId") userId: Int, @Path("key") key: String, @Body value: Map<String, String>): Response<ApiResponse<Unit>>
+
+    @DELETE("api/users/{userId}/preferences/{key}")
+    suspend fun deleteUserPreference(@Path("userId") userId: Int, @Path("key") key: String): Response<ApiResponse<Unit>>
+
+    @DELETE("api/users/{userId}/preferences")
+    suspend fun deleteAllUserPreferences(@Path("userId") userId: Int): Response<ApiResponse<Unit>>
+
+    @POST("api/users/{userId}/preferences/batch")
+    suspend fun batchUpdatePreferences(@Path("userId") userId: Int, @Body preferences: List<UserPreference>): Response<ApiResponse<Unit>>
+
+    @GET("api/users/{userId}/preferences/since")
+    suspend fun getUserPreferencesSince(@Path("userId") userId: Int, @Query("timestamp") timestamp: Long): ApiResponse<List<UserPreference>>
+
+    @POST("api/users/{userId}/preferences")
+    suspend fun createUserPreference(@Path("userId") userId: Int, @Body preference: UserPreference): Response<ApiResponse<Map<String, Any>>>
 }

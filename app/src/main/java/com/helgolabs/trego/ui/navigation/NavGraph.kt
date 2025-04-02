@@ -35,6 +35,7 @@ import com.helgolabs.trego.ui.screens.PaymentScreen
 import com.helgolabs.trego.ui.screens.ProfileScreen
 import com.helgolabs.trego.ui.screens.RegisterScreen
 import com.helgolabs.trego.ui.screens.ResetPasswordScreen
+import com.helgolabs.trego.ui.screens.SettingsScreen
 import com.helgolabs.trego.ui.screens.SettleUpScreen
 import com.helgolabs.trego.ui.screens.TransactionsScreen
 import com.helgolabs.trego.ui.screens.UserGroupsScreen
@@ -157,6 +158,13 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
                 navController = navController,
                 userViewModel = viewModel(factory = viewModelFactory),
                 bankAccountViewModel = viewModel(factory = viewModelFactory),
+                userPreferencesViewModel = viewModel(factory = viewModelFactory),
+                userId = userId
+            )
+        }
+        composable(route = "settings") {
+            SettingsScreen(
+                navController = navController,
                 userId = userId
             )
         }

@@ -272,7 +272,7 @@ private fun ActionButtons(
 }
 
 @Composable
-private fun ActionButton(
+fun ActionButton(
     icon: ImageVector,
     text: String,
     onClick: () -> Unit
