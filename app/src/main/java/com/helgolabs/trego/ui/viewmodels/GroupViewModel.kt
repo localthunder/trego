@@ -2,12 +2,15 @@ package com.helgolabs.trego.ui.viewmodels
 
 import android.content.ContentValues.TAG
 import android.content.Context
+import android.graphics.BitmapFactory
+import android.graphics.Color
 import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import coil3.Bitmap
 import coil3.imageLoader
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
@@ -51,6 +54,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 
 class GroupViewModel(
     private val groupRepository: GroupRepository,
@@ -192,6 +197,9 @@ class GroupViewModel(
 
     private val _imageUpdateEvent = MutableStateFlow(0L)
     val imageUpdateEvent: StateFlow<Long> = _imageUpdateEvent.asStateFlow()
+
+    private val _statusBarShouldBeDark = MutableStateFlow(false)
+    val statusBarShouldBeDark: StateFlow<Boolean> = _statusBarShouldBeDark
 
     init {
         viewModelScope.launch {
@@ -1340,5 +1348,78 @@ class GroupViewModel(
     // Reset operation state
     fun resetDefaultSplitOperationState() {
         _defaultSplitOperationState.value = OperationState.Idle
+    }
+
+    fun analyzeImageForStatusBar(imagePath: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val bitmap = when {
+                    imagePath.startsWith("file://") -> {
+                        // Load local file
+                        val filePath = imagePath.substring(7) // Remove "file://" prefix
+                        BitmapFactory.decodeFile(filePath)
+                    }
+                    imagePath.startsWith("http") -> {
+                        // Download from URL
+                        val url = URL(imagePath)
+                        val connection = url.openConnection() as HttpURLConnection
+                        connection.doInput = true
+                        connection.connect()
+                        val input = connection.inputStream
+                        BitmapFactory.decodeStream(input)
+                    }
+                    else -> null
+                }
+
+                if (bitmap != null) {
+                    // Analyze top portion of image
+                    val topHeight = (bitmap.height * 0.15).toInt().coerceAtMost(bitmap.height)
+                    val topSection = Bitmap.createBitmap(
+                        bitmap,
+                        0, 0,
+                        bitmap.width,
+                        topHeight
+                    )
+
+                    // Analyze brightness
+                    var pixelCount = 0
+                    var brightnesSum = 0.0
+
+                    val sampleEvery = if (topSection.width * topSection.height > 50000) 5 else 2
+
+                    for (x in 0 until topSection.width step sampleEvery) {
+                        for (y in 0 until topSection.height step sampleEvery) {
+                            val pixel = topSection.getPixel(x, y)
+                            val red = android.graphics.Color.red(pixel) / 255.0
+                            val green = android.graphics.Color.green(pixel) / 255.0
+                            val blue = android.graphics.Color.blue(pixel) / 255.0
+
+                            // Calculate perceived brightness
+                            val luminance = 0.299 * red + 0.587 * green + 0.114 * blue
+                            brightnesSum += luminance
+                            pixelCount++
+                        }
+                    }
+
+                    val averageBrightness = if (pixelCount > 0) brightnesSum / pixelCount else 0.5
+
+                    // Dark status bar icons for light image tops, light icons for dark tops
+                    _statusBarShouldBeDark.value = averageBrightness < 0.5
+
+                    // Clean up
+                    if (topSection != bitmap) {
+                        topSection.recycle()
+                    }
+                    bitmap.recycle()
+                } else {
+                    // Default for no bitmap
+                    _statusBarShouldBeDark.value = false
+                }
+            } catch (e: Exception) {
+                Log.e("GroupViewModel", "Error analyzing image", e)
+                // Default to dark icons
+                _statusBarShouldBeDark.value = false
+            }
+        }
     }
 }

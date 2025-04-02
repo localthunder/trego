@@ -1,7 +1,5 @@
 package com.helgolabs.trego.ui.screens
 
-import android.Manifest
-import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.net.Uri
@@ -10,7 +8,6 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -18,28 +15,24 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.*
-import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddAPhoto
-import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material3.pulltorefresh.pullToRefresh
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -50,19 +43,16 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import coil3.Bitmap
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.helgolabs.trego.MyApplication
 import com.helgolabs.trego.data.local.entities.GroupMemberEntity
 import com.helgolabs.trego.ui.components.GlobalFAB
-import com.helgolabs.trego.ui.components.GlobalTopAppBar
 import com.helgolabs.trego.ui.components.AddMembersBottomSheet
 import com.helgolabs.trego.ui.components.AddPeopleAvatar
 import com.helgolabs.trego.ui.components.BatchCurrencyConversionButton
 import com.helgolabs.trego.ui.components.PaymentItem
-import com.helgolabs.trego.ui.components.SettleUpButton
 import com.helgolabs.trego.ui.components.UserAvatar
 import com.helgolabs.trego.ui.theme.GlobalTheme
 import com.helgolabs.trego.ui.viewmodels.GroupViewModel
@@ -71,7 +61,7 @@ import com.helgolabs.trego.utils.DateUtils
 import com.helgolabs.trego.utils.FormattingUtils.formatAsCurrency
 import com.helgolabs.trego.utils.ImageUtils
 import com.helgolabs.trego.utils.PlaceholderImageGenerator
-import com.helgolabs.trego.utils.StatusBarHelper
+import com.helgolabs.trego.utils.StatusBarHelper.StatusBarProtection
 import kotlinx.coroutines.launch
 import java.io.File
 import kotlin.math.absoluteValue
@@ -264,19 +254,43 @@ fun GroupDetailsScreen(
                             }
                             item {
                                 groupDetailsState.group?.let { group ->
-                                    Column(modifier = Modifier.padding(16.dp)) {
-                                        Text(
-                                            group.name,
-                                            style = MaterialTheme.typography.headlineMedium,
-                                            color = MaterialTheme.colorScheme.onBackground
-                                        )
-                                        group.description?.let {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 24.dp, start = 16.dp, end = 16.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.Top
+                                    ) {
+                                        // Title and description in a column
+                                        Column(
+                                            modifier = Modifier.weight(1f)
+                                        ) {
                                             Text(
-                                                it,
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                color = MaterialTheme.colorScheme.onBackground.copy(
-                                                    alpha = 0.7f
+                                                group.name,
+                                                style = MaterialTheme.typography.headlineMedium,
+                                                color = MaterialTheme.colorScheme.onBackground
+                                            )
+                                            group.description?.let {
+                                                Text(
+                                                    it,
+                                                    style = MaterialTheme.typography.bodyLarge,
+                                                    color = MaterialTheme.colorScheme.onBackground.copy(
+                                                        alpha = 0.7f
+                                                    )
                                                 )
+                                            }
+                                        }
+
+                                        // Settings button
+                                        IconButton(
+                                            onClick = { navController.navigate("groupSettings/${groupId}") },
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Settings,
+                                                contentDescription = "Group Settings",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
                                     }
@@ -664,12 +678,8 @@ fun GroupImageFullWidth(
 
     // Update status bar based on viewModel analysis
     LaunchedEffect(statusBarShouldBeDark) {
-        if (activity != null) {
-            val insetsController = WindowCompat.getInsetsController(
-                activity.window, activity.window.decorView
-            )
-            // statusBarShouldBeDark = true means we want light icons (dark background)
-            // statusBarShouldBeDark = false means we want dark icons (light background)
+        activity?.window?.let { window ->
+            val insetsController = WindowCompat.getInsetsController(window, window.decorView)
             insetsController.isAppearanceLightStatusBars = !statusBarShouldBeDark
         }
     }
@@ -677,7 +687,7 @@ fun GroupImageFullWidth(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(220.dp)
+            .height(320.dp)
     ) {
         when (imageLoadingState) {
             is GroupViewModel.ImageLoadingState.Loading -> {
@@ -762,26 +772,35 @@ fun GroupImageFullWidth(
         // Edit button overlay (always visible)
         Box(
             modifier = Modifier
-                .align(Alignment.TopEnd)
+                .align(Alignment.BottomEnd)
                 .padding(8.dp)
-                .padding(top = 40.dp) // Extra padding for status bar
         ) {
             IconButton(
                 onClick = onEditClick,
                 modifier = Modifier
-                    .size(40.dp)
                     .background(
                         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
-                        shape = CircleShape
+                        shape = RoundedCornerShape(24.dp)
                     )
+                    .size(40.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Default.Edit,
+                    imageVector = Icons.Default.MoreVert,
                     contentDescription = "Edit Image",
                     tint = MaterialTheme.colorScheme.primary
                 )
             }
         }
+
+        StatusBarProtection(
+            color = if (statusBarShouldBeDark) {
+                // For dark image tops, use darker protection
+                Color.Black.copy(alpha = 0.4f)
+            } else {
+                // For light image tops, use lighter protection
+                MaterialTheme.colorScheme.surface.copy(alpha = 0.4f)
+            }
+        )
 
         // Upload status overlay
         if (uploadStatus is GroupViewModel.UploadStatus.Loading) {

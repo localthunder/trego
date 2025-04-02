@@ -4,6 +4,16 @@ import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.util.Log
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalDensity
 import androidx.core.view.WindowCompat
 import androidx.palette.graphics.Palette
 import kotlinx.coroutines.Dispatchers
@@ -122,5 +132,36 @@ object StatusBarHelper {
         val insetsController = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
         // Light system bars = dark icons, so we use !isLight
         insetsController.isAppearanceLightStatusBars = !isLight
+    }
+
+    @Composable
+    fun StatusBarProtection(
+        color: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.7f),
+        heightProvider: () -> Float = calculateGradientHeight(),
+    ) {
+        Canvas(Modifier.fillMaxSize()) {
+            val calculatedHeight = heightProvider()
+            val gradient = Brush.verticalGradient(
+                colors = listOf(
+                    color.copy(alpha = 0.8f),
+                    color.copy(alpha = 0.6f),
+                    color.copy(alpha = 0.4f),
+                    androidx.compose.ui.graphics.Color.Transparent
+                ),
+                startY = 0f,
+                endY = calculatedHeight
+            )
+            drawRect(
+                brush = gradient,
+                size = Size(size.width, calculatedHeight),
+            )
+        }
+    }
+
+    @Composable
+    fun calculateGradientHeight(): () -> Float {
+        val statusBars = WindowInsets.statusBars
+        val density = LocalDensity.current
+        return { statusBars.getTop(density).times(1.5f) }
     }
 }
