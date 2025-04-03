@@ -38,6 +38,8 @@ import androidx.navigation.NavController
 import com.helgolabs.trego.data.local.dataClasses.PreferenceKeys
 import com.helgolabs.trego.data.model.BankAccount
 import com.helgolabs.trego.ui.components.DropdownMenuButton
+import com.helgolabs.trego.ui.components.EditableField
+import com.helgolabs.trego.ui.components.PasswordField
 import com.helgolabs.trego.ui.components.SectionHeader
 import com.helgolabs.trego.ui.viewmodels.UserPreferencesViewModel
 import com.helgolabs.trego.ui.viewmodels.UserViewModel
@@ -181,128 +183,154 @@ fun ProfileScreen(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     // Username field
-                    BasicTextField(
-                        value = if (isEditingUsername) editedUsername else user?.username ?: "",
-                        onValueChange = {
-                            if (isEditingUsername) {
-                                editedUsername = it
-                            }
-                        },
-                        enabled = isEditingUsername,
-                        readOnly = !isEditingUsername,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(enabled = !isEditingUsername) {
-                                editedUsername = user?.username ?: ""
-                                isEditingUsername = true
-                            }
-                            .then(if (isEditingUsername) Modifier.focusRequester(focusRequester) else Modifier),
-                        textStyle = MaterialTheme.typography.bodyLarge.copy(
-                            color = if (isEditingUsername)
-                                MaterialTheme.colorScheme.onSurface
-                            else
-                                MaterialTheme.colorScheme.onSurface
-                        ),
-                        decorationBox = { innerTextField ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "Username",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+//                    BasicTextField(
+//                        value = if (isEditingUsername) editedUsername else user?.username ?: "",
+//                        onValueChange = {
+//                            if (isEditingUsername) {
+//                                editedUsername = it
+//                            }
+//                        },
+//                        enabled = isEditingUsername,
+//                        readOnly = !isEditingUsername,
+//                        modifier = Modifier
+//                            .fillMaxWidth()
+//                            .clickable(enabled = !isEditingUsername) {
+//                                editedUsername = user?.username ?: ""
+//                                isEditingUsername = true
+//                            }
+//                            .then(if (isEditingUsername) Modifier.focusRequester(focusRequester) else Modifier),
+//                        textStyle = MaterialTheme.typography.bodyLarge.copy(
+//                            color = if (isEditingUsername)
+//                                MaterialTheme.colorScheme.onSurface
+//                            else
+//                                MaterialTheme.colorScheme.onSurface
+//                        ),
+//                        decorationBox = { innerTextField ->
+//                            Row(
+//                                modifier = Modifier.fillMaxWidth(),
+//                                verticalAlignment = Alignment.CenterVertically
+//                            ) {
+//                                Column(modifier = Modifier.weight(1f)) {
+//                                    Text(
+//                                        text = "Username",
+//                                        style = MaterialTheme.typography.bodySmall,
+//                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+//                                    )
+//
+//                                    Box(modifier = Modifier.padding(top = 8.dp)) {
+//                                        innerTextField()
+//                                    }
+//                                }
+//
+//                                // Trailing icon
+//                                if (isEditingUsername) {
+//                                    IconButton(
+//                                        onClick = {
+//                                            userViewModel.updateUsername(editedUsername)
+//                                            isEditingUsername = false
+//                                        }
+//                                    ) {
+//                                        Icon(
+//                                            imageVector = Icons.Default.Check,
+//                                            contentDescription = "Save username"
+//                                        )
+//                                    }
+//                                } else {
+//                                    IconButton(
+//                                        onClick = {
+//                                            editedUsername = user?.username ?: ""
+//                                            isEditingUsername = true
+//                                        }
+//                                    ) {
+//                                        Icon(
+//                                            imageVector = Icons.Default.Edit,
+//                                            contentDescription = "Edit username"
+//                                        )
+//                                    }
+//                                }
+//                            }
+//                        },
+//                        keyboardOptions = KeyboardOptions.Default.copy(
+//                            imeAction = ImeAction.Done
+//                        ),
+//                        keyboardActions = KeyboardActions(
+//                            onDone = {
+//                                userViewModel.updateUsername(editedUsername)
+//                                isEditingUsername = false
+//                            }
+//                        ),
+//                    )
 
-                                    Box(modifier = Modifier.padding(top = 8.dp)) {
-                                        innerTextField()
-                                    }
-                                }
-
-                                // Trailing icon
-                                if (isEditingUsername) {
-                                    IconButton(
-                                        onClick = {
-                                            userViewModel.updateUsername(editedUsername)
-                                            isEditingUsername = false
-                                        }
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Check,
-                                            contentDescription = "Save username"
-                                        )
-                                    }
-                                } else {
-                                    IconButton(
-                                        onClick = {
-                                            editedUsername = user?.username ?: ""
-                                            isEditingUsername = true
-                                        }
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Edit,
-                                            contentDescription = "Edit username"
-                                        )
-                                    }
-                                }
-                            }
+                    EditableField(
+                        label = "Username",
+                        value = user?.username ?: "",
+                        isEditing = isEditingUsername,
+                        editedValue = editedUsername,
+                        onEditStart = {
+                            editedUsername = user?.username ?: ""
+                            isEditingUsername = true
                         },
-                        keyboardOptions = KeyboardOptions.Default.copy(
-                            imeAction = ImeAction.Done
-                        ),
-                        keyboardActions = KeyboardActions(
-                            onDone = {
-                                userViewModel.updateUsername(editedUsername)
-                                isEditingUsername = false
-                            }
-                        ),
+                        onValueChange = { editedUsername = it },
+                        onSave = {
+                            userViewModel.updateUsername(editedUsername)
+                            isEditingUsername = false
+                        },
+                        onCancel = { isEditingUsername = false }
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
 
                     // Password field (masked)
-                    BasicTextField(
-                        value = "••••••••••", // Placeholder for password
-                        onValueChange = { /* Read-only */ },
-                        enabled = false,
-                        readOnly = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        textStyle = MaterialTheme.typography.bodyLarge.copy(
-                            color = MaterialTheme.colorScheme.onSurface
-                        ),
-                        visualTransformation = PasswordVisualTransformation(),
-                        decorationBox = { innerTextField ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "Password",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+//                    BasicTextField(
+//                        value = "••••••••••", // Placeholder for password
+//                        onValueChange = { /* Read-only */ },
+//                        enabled = false,
+//                        readOnly = true,
+//                        modifier = Modifier.fillMaxWidth(),
+//                        textStyle = MaterialTheme.typography.bodyLarge.copy(
+//                            color = MaterialTheme.colorScheme.onSurface
+//                        ),
+//                        visualTransformation = PasswordVisualTransformation(),
+//                        decorationBox = { innerTextField ->
+//                            Row(
+//                                modifier = Modifier.fillMaxWidth(),
+//                                verticalAlignment = Alignment.CenterVertically
+//                            ) {
+//                                Column(modifier = Modifier.weight(1f)) {
+//                                    Text(
+//                                        text = "Password",
+//                                        style = MaterialTheme.typography.bodySmall,
+//                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+//                                    )
+//
+//                                    Box(modifier = Modifier.padding(top = 8.dp)) {
+//                                        innerTextField()
+//                                    }
+//                                }
+//
+//                                // Trailing icon
+//                                IconButton(
+//                                    onClick = {
+//                                        // Launch password change flow
+//                                        scope.launch {
+//                                            userViewModel.initiatePasswordChange()
+//                                        }
+//                                    }
+//                                ) {
+//                                    Icon(
+//                                        imageVector = Icons.Default.Edit,
+//                                        contentDescription = "Change Password"
+//                                    )
+//                                }
+//                            }
+//                        }
+//                    )
 
-                                    Box(modifier = Modifier.padding(top = 8.dp)) {
-                                        innerTextField()
-                                    }
-                                }
-
-                                // Trailing icon
-                                IconButton(
-                                    onClick = {
-                                        // Launch password change flow
-                                        scope.launch {
-                                            userViewModel.initiatePasswordChange()
-                                        }
-                                    }
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Edit,
-                                        contentDescription = "Change Password"
-                                    )
-                                }
+                    PasswordField(
+                        label = "Password",
+                        onEditClick = {
+                            scope.launch {
+                                userViewModel.initiatePasswordChange()
                             }
                         }
                     )

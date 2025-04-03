@@ -41,8 +41,8 @@ fun GlobalTopAppBar(
     }
 
     // Define colors dynamically
-    val backgroundColor = if (isTransparent) Color.Transparent else MaterialTheme.colorScheme.surfaceVariant
-    val contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val backgroundColor = if (isTransparent) Color.Transparent else MaterialTheme.colorScheme.surface
+    val contentColor = MaterialTheme.colorScheme.onSurface
 
     // Update status bar appearance
     SideEffect {

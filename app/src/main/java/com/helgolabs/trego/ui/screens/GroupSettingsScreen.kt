@@ -1,6 +1,7 @@
 package com.helgolabs.trego.ui.screens
 
 import android.util.Log
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -38,7 +39,10 @@ import com.helgolabs.trego.data.local.entities.GroupDefaultSplitEntity
 import com.helgolabs.trego.data.local.entities.GroupEntity
 import com.helgolabs.trego.ui.components.AddMembersBottomSheet
 import com.helgolabs.trego.ui.components.CurrencySelectionBottomSheet
+import com.helgolabs.trego.ui.components.EditableField
 import com.helgolabs.trego.ui.components.GlobalTopAppBar
+import com.helgolabs.trego.ui.components.SectionHeader
+import com.helgolabs.trego.ui.components.SelectableField
 import com.helgolabs.trego.ui.viewmodels.GroupViewModel
 import com.helgolabs.trego.utils.CurrencyUtils
 import com.helgolabs.trego.utils.DateUtils
@@ -57,7 +61,6 @@ fun GroupSettingsScreen(
     val groupViewModel: GroupViewModel = viewModel(factory = myApplication.viewModelFactory)
     val scope = rememberCoroutineScope()
     val userId = getUserIdFromPreferences(context)
-    val groupDao = myApplication.database.groupDao()
 
     // Observe group details state
     val groupDetailsState by groupViewModel.groupDetailsState.collectAsState()
@@ -81,6 +84,10 @@ fun GroupSettingsScreen(
     var showLeaveGroupDialog by remember { mutableStateOf(false) }
     var expandedSplitSection by remember { mutableStateOf(false) }
 
+    // Toast state
+    var toastMessage by remember { mutableStateOf<String?>(null) }
+    var showToast by remember { mutableStateOf(false) }
+
     // State for selected currency and split mode
     var selectedCurrency by remember(group) { mutableStateOf(group?.defaultCurrency ?: "GBP") }
     var selectedSplitMode by remember(group) { mutableStateOf(group?.defaultSplitMode ?: "equally") }
@@ -88,6 +95,14 @@ fun GroupSettingsScreen(
 
     // State for percentage splits
     val memberPercentages = remember { mutableStateMapOf<Int, String>() }
+
+    LaunchedEffect(group) {
+        group?.let {
+            groupName = it.name
+            selectedCurrency = it.defaultCurrency
+            selectedSplitMode = it.defaultSplitMode
+        }
+    }
 
     // Initialize data
     LaunchedEffect(groupId) {
@@ -129,6 +144,22 @@ fun GroupSettingsScreen(
         }
     }
 
+    // Toast handling
+    LaunchedEffect(showToast) {
+        if (showToast && toastMessage != null) {
+            Toast.makeText(context, toastMessage, Toast.LENGTH_SHORT).show()
+            delay(2000)
+            showToast = false
+            toastMessage = null
+        }
+    }
+
+    // Function to show toast
+    fun showToast(message: String) {
+        toastMessage = message
+        showToast = true
+    }
+
     // Save group name
     fun saveGroupName() {
         if (group == null || groupName.isBlank()) return
@@ -149,31 +180,36 @@ fun GroupSettingsScreen(
             defaultSplitMode = selectedSplitMode,
             updatedAt = DateUtils.getCurrentTimestamp()
         )
-        groupViewModel.updateGroup(updatedGroup)
+        scope.launch {
+            groupViewModel.updateGroup(updatedGroup)
+            showToast("Split mode updated")
 
-        // If percentage mode, save all percentages
-        if (selectedSplitMode == "percentage") {
-            val currentTime = DateUtils.getCurrentTimestamp()
-            val splits = members.mapNotNull { member ->
-                val percentageStr = memberPercentages[member.userId] ?: return@mapNotNull null
-                val percentage = percentageStr.toDoubleOrNull() ?: return@mapNotNull null
+            // If percentage mode, save all percentages
+            if (selectedSplitMode == "percentage") {
+                val currentTime = DateUtils.getCurrentTimestamp()
+                val splits = members.mapNotNull { member ->
+                    val percentageStr = memberPercentages[member.userId] ?: return@mapNotNull null
+                    val percentage = percentageStr.toDoubleOrNull() ?: return@mapNotNull null
 
-                val existingSplit = defaultSplits.find { it.userId == member.userId }
+                    val existingSplit = defaultSplits.find { it.userId == member.userId }
 
-                GroupDefaultSplitEntity(
-                    id = existingSplit?.id ?: 0,
-                    serverId = existingSplit?.serverId,
-                    groupId = groupId,
-                    userId = member.userId,
-                    percentage = percentage,
-                    createdAt = existingSplit?.createdAt ?: currentTime,
-                    updatedAt = currentTime
-                )
+                    GroupDefaultSplitEntity(
+                        id = existingSplit?.id ?: 0,
+                        serverId = existingSplit?.serverId,
+                        groupId = groupId,
+                        userId = member.userId,
+                        percentage = percentage,
+                        createdAt = existingSplit?.createdAt ?: currentTime,
+                        updatedAt = currentTime
+                    )
+                }
+
+                groupViewModel.updateGroupDefaultSplits(groupId, splits)
+                showToast("Percentage splits updated")
+            } else if (defaultSplits.isNotEmpty()) {
+                groupViewModel.deleteAllGroupDefaultSplits(groupId)
+                showToast("Percentage splits removed")
             }
-
-            groupViewModel.updateGroupDefaultSplits(groupId, splits)
-        } else if (defaultSplits.isNotEmpty()) {
-            groupViewModel.deleteAllGroupDefaultSplits(groupId)
         }
     }
 
@@ -185,18 +221,24 @@ fun GroupSettingsScreen(
             defaultCurrency = selectedCurrency,
             updatedAt = DateUtils.getCurrentTimestamp()
         )
-        groupViewModel.updateGroup(updatedGroup)
+        scope.launch {
+            groupViewModel.updateGroup(updatedGroup)
+            showToast("Currency updated to $selectedCurrency")
+        }
     }
 
     // Delete all splits
     fun deleteAllSplits() {
-        groupViewModel.deleteAllGroupDefaultSplits(groupId)
-        showDeleteConfirmation = false
+        scope.launch {
+            groupViewModel.deleteAllGroupDefaultSplits(groupId)
+            showDeleteConfirmation = false
+            showToast("Splits reset to equal values")
 
-        // Reset percentages to equal
-        val equalPercentage = if (members.isNotEmpty()) (100.0 / members.size) else 0.0
-        members.forEach { member ->
-            memberPercentages[member.userId] = String.format("%.1f", equalPercentage)
+            // Reset percentages to equal
+            val equalPercentage = if (members.isNotEmpty()) (100.0 / members.size) else 0.0
+            members.forEach { member ->
+                memberPercentages[member.userId] = String.format("%.1f", equalPercentage)
+            }
         }
     }
 
@@ -215,188 +257,107 @@ fun GroupSettingsScreen(
                 .padding(padding)
         ) {
             // Show success message at the top
-            AnimatedVisibility(
-                visible = showSuccessMessage,
-                enter = fadeIn() + expandVertically(),
-                exit = fadeOut() + shrinkVertically(),
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-            ) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                    modifier = Modifier.padding(top = 8.dp)
-                ) {
-                    Text(
-                        text = "Settings saved successfully!",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        textAlign = TextAlign.Center,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                }
-            }
+//            AnimatedVisibility(
+//                visible = showSuccessMessage,
+//                enter = fadeIn() + expandVertically(),
+//                exit = fadeOut() + shrinkVertically(),
+//                modifier = Modifier
+//                    .align(Alignment.TopCenter)
+//                    .fillMaxWidth()
+//                    .padding(horizontal = 16.dp)
+//            ) {
+//                Surface(
+//                    color = MaterialTheme.colorScheme.primaryContainer,
+//                    modifier = Modifier.padding(top = 8.dp)
+//                ) {
+//                    Text(
+//                        text = "Settings saved successfully!",
+//                        modifier = Modifier
+//                            .fillMaxWidth()
+//                            .padding(16.dp),
+//                        textAlign = TextAlign.Center,
+//                        color = MaterialTheme.colorScheme.onPrimaryContainer
+//                    )
+//                }
+//            }
 
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
                 // Group Name Section
                 item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        SectionHeader("Group details")
+
+                        // Group name with inline editing
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(
-                                    text = "Group Information",
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-
-                                if (editingGroupName) {
-                                    IconButton(onClick = { saveGroupName() }) {
-                                        Icon(
-                                            imageVector = Icons.Default.Check,
-                                            contentDescription = "Save",
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
-                                }
-                            }
-
-                            Divider(modifier = Modifier.padding(vertical = 8.dp))
-
-                            // Group name with inline editing
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                if (editingGroupName) {
-                                    OutlinedTextField(
-                                        value = groupName,
-                                        onValueChange = { groupName = it },
-                                        label = { Text("Group Name") },
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .padding(end = 8.dp),
-                                        singleLine = true,
-                                        trailingIcon = {
-                                            IconButton(onClick = { editingGroupName = false }) {
-                                                Icon(Icons.Default.Close, "Cancel")
-                                            }
-                                        }
-                                    )
-                                } else {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = "Name",
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        Text(
-                                            text = group?.name ?: "Loading...",
-                                            style = MaterialTheme.typography.bodyLarge
-                                        )
-                                    }
-
-                                    IconButton(onClick = {
-                                        editingGroupName = true
-                                        groupName = group?.name ?: ""
-                                    }) {
-                                        Icon(
-                                            imageVector = Icons.Default.Edit,
-                                            contentDescription = "Edit",
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
-                                }
-                            }
-
-                            // Currency selector
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "Default Currency",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-
-                                    val symbol = CurrencyUtils.currencySymbols[selectedCurrency] ?: selectedCurrency
-                                    Text(
-                                        text = "$selectedCurrency ($symbol)",
-                                        style = MaterialTheme.typography.bodyLarge
-                                    )
-                                }
-
-                                Button(
-                                    onClick = { showCurrencySheet = true },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                    )
-                                ) {
-                                    Text("Change")
-                                }
-                            }
+                            EditableField(
+                                label = "Name",
+                                value = group?.name ?: "Loading...",
+                                isEditing = editingGroupName,
+                                editedValue = groupName,
+                                onEditStart = {
+                                    editingGroupName = true
+                                    groupName = group?.name ?: ""
+                                },
+                                onValueChange = { groupName = it },
+                                onSave = { saveGroupName() },
+                                onCancel = { editingGroupName = false }
+                            )
                         }
+
+                        val symbol = CurrencyUtils.currencySymbols[selectedCurrency] ?: selectedCurrency
+
+                        // Currency selector
+                        SelectableField(
+                            label = "Default Currency",
+                            value = "$selectedCurrency ($symbol)",
+                            onSelectClick = { showCurrencySheet = true },
+                            icon = Icons.Default.Edit,  // You can use different icons
+                        )
                     }
                 }
 
                 // Members section
                 item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                modifier = Modifier.fillMaxWidth()
+                            SectionHeader("Members (${members.size})")
+
+                            IconButton(
+                                onClick = { showAddMembersSheet = true }
                             ) {
-                                Text(
-                                    text = "Members (${members.size})",
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.SemiBold
+                                Icon(
+                                    imageVector = Icons.Default.PersonAdd,
+                                    contentDescription = "Add Member",
+                                    tint = MaterialTheme.colorScheme.primary
                                 )
-
-                                IconButton(
-                                    onClick = { showAddMembersSheet = true }
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.PersonAdd,
-                                        contentDescription = "Add Member",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
                             }
+                        }
 
-                            Divider(modifier = Modifier.padding(vertical = 4.dp))
-
-                            // Member cards with avatars
+                        // Member cards with avatars
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                             members.forEach { member ->
                                 val memberName = when {
                                     member.userId == userId -> "Me"
@@ -410,8 +371,7 @@ fun GroupSettingsScreen(
 
                                 Surface(
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp),
+                                        .fillMaxWidth(),
                                     color = MaterialTheme.colorScheme.surface,
                                     tonalElevation = 1.dp,
                                     shape = RoundedCornerShape(8.dp)
@@ -445,38 +405,22 @@ fun GroupSettingsScreen(
                                             modifier = Modifier.weight(1f)
                                         )
 
-                                        // Don't show remove button for current user
-                                        if (member.userId != userId) {
-                                            IconButton(
-                                                onClick = {
-                                                    // Show confirmation dialog
-                                                }
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.PersonRemove,
-                                                    contentDescription = "Remove Member",
-                                                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
-                                                )
-                                            }
-                                        }
+//                                        // Don't show remove button for current user
+//                                        if (member.userId != userId) {
+//                                            IconButton(
+//                                                onClick = {
+//                                                    // Show confirmation dialog
+//                                                }
+//                                            ) {
+//                                                Icon(
+//                                                    imageVector = Icons.Default.PersonRemove,
+//                                                    contentDescription = "Remove Member",
+//                                                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
+//                                                )
+//                                            }
+//                                        }
                                     }
                                 }
-                            }
-
-                            Button(
-                                onClick = { showAddMembersSheet = true },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.primary,
-                                    contentColor = MaterialTheme.colorScheme.onPrimary
-                                )
-                            ) {
-                                Icon(
-                                    Icons.Default.Add,
-                                    contentDescription = null,
-                                    modifier = Modifier.padding(end = 8.dp)
-                                )
-                                Text("Add New Member")
                             }
                         }
                     }
@@ -484,247 +428,235 @@ fun GroupSettingsScreen(
 
                 // Default Split Settings section
                 item {
-                    Card(
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
+                            SectionHeader("Default Split Settings")
+
+                            IconButton(onClick = { expandedSplitSection = !expandedSplitSection }) {
+                                Icon(
+                                    imageVector = if (expandedSplitSection) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = if (expandedSplitSection) "Collapse" else "Expand"
+                                )
+                            }
+                        }
+
+                        // Split mode toggles
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "Default Split Settings",
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.SemiBold
+                                    text = "Method",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
 
-                                IconButton(onClick = { expandedSplitSection = !expandedSplitSection }) {
-                                    Icon(
-                                        imageVector = if (expandedSplitSection) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                        contentDescription = if (expandedSplitSection) "Collapse" else "Expand"
-                                    )
-                                }
-                            }
-
-                            Divider(modifier = Modifier.padding(vertical = 4.dp))
-
-                            // Split mode toggles
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "Method",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-
-                                    // Split type selection buttons
-                                    Row(
-                                        modifier = Modifier
-                                            .padding(top = 8.dp)
-                                    ) {
-                                        FilterChip(
-                                            selected = selectedSplitMode == "equally",
-                                            onClick = {
-                                                selectedSplitMode = "equally"
-                                                saveSplitSettings()
-                                            },
-                                            label = { Text("Equal Split") },
-                                            leadingIcon = if (selectedSplitMode == "equally") {
-                                                { Icon(Icons.Default.Check, contentDescription = null) }
-                                            } else null,
-                                            modifier = Modifier.padding(end = 8.dp)
-                                        )
-
-                                        FilterChip(
-                                            selected = selectedSplitMode == "percentage",
-                                            onClick = {
-                                                selectedSplitMode = "percentage"
-                                                saveSplitSettings()
-                                            },
-                                            label = { Text("Percentage") },
-                                            leadingIcon = if (selectedSplitMode == "percentage") {
-                                                { Icon(Icons.Default.Check, contentDescription = null) }
-                                            } else null
-                                        )
-                                    }
-                                }
-                            }
-
-                            // Expanded split percentage section
-                            AnimatedVisibility(
-                                visible = expandedSplitSection && selectedSplitMode == "percentage",
-                                enter = expandVertically() + fadeIn(),
-                                exit = shrinkVertically() + fadeOut()
-                            ) {
-                                Column(
+                                // Split type selection buttons
+                                Row(
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 16.dp)
+                                        .padding(top = 8.dp)
                                 ) {
-                                    // Total percentage display
-                                    val totalPercentage = memberPercentages.values
-                                        .mapNotNull { it.toDoubleOrNull() }
-                                        .sum()
+                                    FilterChip(
+                                        selected = selectedSplitMode == "equally",
+                                        onClick = {
+                                            selectedSplitMode = "equally"
+                                            expandedSplitSection = false
+                                            saveSplitSettings()
+                                        },
+                                        label = { Text("Equal Split") },
+                                        leadingIcon = if (selectedSplitMode == "equally") {
+                                            { Icon(Icons.Default.Check, contentDescription = null) }
+                                        } else null,
+                                        modifier = Modifier.padding(end = 8.dp)
+                                    )
 
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = "Total: ${String.format("%.1f", totalPercentage)}%",
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            color = if (totalPercentage == 100.0)
-                                                MaterialTheme.colorScheme.primary
-                                            else
-                                                MaterialTheme.colorScheme.error
-                                        )
+                                    FilterChip(
+                                        selected = selectedSplitMode == "percentage",
+                                        onClick = {
+                                            selectedSplitMode = "percentage"
+                                            expandedSplitSection = true
+                                            saveSplitSettings()
+                                        },
+                                        label = { Text("Percentage") },
+                                        leadingIcon = if (selectedSplitMode == "percentage") {
+                                            { Icon(Icons.Default.Check, contentDescription = null) }
+                                        } else null
+                                    )
+                                }
+                            }
+                        }
 
-                                        if (selectedSplitMode == "percentage" && defaultSplits.isNotEmpty()) {
-                                            IconButton(onClick = { showDeleteConfirmation = true }) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Refresh,
-                                                    contentDescription = "Reset percentages",
-                                                    tint = MaterialTheme.colorScheme.primary
-                                                )
-                                            }
+                        // Expanded split percentage section
+                        AnimatedVisibility(
+                            visible = expandedSplitSection && selectedSplitMode == "percentage",
+                            enter = expandVertically() + fadeIn(),
+                            exit = shrinkVertically() + fadeOut()
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                            ) {
+                                // Total percentage display
+                                val totalPercentage = memberPercentages.values
+                                    .mapNotNull { it.toDoubleOrNull() }
+                                    .sum()
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Total: ${String.format("%.1f", totalPercentage)}%",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = if (totalPercentage == 100.0)
+                                            MaterialTheme.colorScheme.primary
+                                        else
+                                            MaterialTheme.colorScheme.error
+                                    )
+
+                                    if (selectedSplitMode == "percentage" && defaultSplits.isNotEmpty()) {
+                                        IconButton(onClick = { showDeleteConfirmation = true }) {
+                                            Icon(
+                                                imageVector = Icons.Default.Refresh,
+                                                contentDescription = "Reset percentages",
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
                                         }
                                     }
+                                }
 
-                                    if (totalPercentage != 100.0) {
-                                        Text(
-                                            text = "Total must equal 100%",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.error
-                                        )
-                                    }
+                                if (totalPercentage != 100.0) {
+                                    Text(
+                                        text = "Total must equal 100%",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                }
 
-                                    Spacer(modifier = Modifier.height(8.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
 
-                                    // Member percentage inputs
-                                    Surface(
-                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                                        shape = RoundedCornerShape(12.dp),
+                                // Member percentage inputs
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 8.dp)
+                                ) {
+                                    Column(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(bottom = 8.dp)
+                                            .padding(12.dp)
                                     ) {
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(12.dp)
+                                        // Header row
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            // Header row
+                                            Text(
+                                                text = "Member",
+                                                style = MaterialTheme.typography.labelLarge,
+                                                fontWeight = FontWeight.Medium,
+                                                modifier = Modifier.weight(2f)
+                                            )
+                                            Text(
+                                                text = "Percentage",
+                                                style = MaterialTheme.typography.labelLarge,
+                                                fontWeight = FontWeight.Medium,
+                                                modifier = Modifier.weight(1f),
+                                                textAlign = TextAlign.Center
+                                            )
+                                        }
+
+                                        Divider(modifier = Modifier.padding(vertical = 8.dp))
+
+                                        members.forEach { member ->
+                                            val username = when {
+                                                member.userId == userId -> "Me"
+                                                usernames.containsKey(member.userId) -> usernames[member.userId] ?: "Unknown"
+                                                users.any { it.userId == member.userId } -> users.find { it.userId == member.userId }?.username ?: "Unknown"
+                                                else -> "User ${member.userId}"
+                                            }
+
                                             Row(
-                                                modifier = Modifier.fillMaxWidth(),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(vertical = 4.dp),
                                                 horizontalArrangement = Arrangement.SpaceBetween,
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 Text(
-                                                    text = "Member",
-                                                    style = MaterialTheme.typography.labelLarge,
-                                                    fontWeight = FontWeight.Medium,
+                                                    text = username,
+                                                    style = MaterialTheme.typography.bodyMedium,
                                                     modifier = Modifier.weight(2f)
                                                 )
-                                                Text(
-                                                    text = "Percentage",
-                                                    style = MaterialTheme.typography.labelLarge,
-                                                    fontWeight = FontWeight.Medium,
-                                                    modifier = Modifier.weight(1f),
-                                                    textAlign = TextAlign.Center
+
+                                                OutlinedTextField(
+                                                    value = memberPercentages[member.userId] ?: "0.0",
+                                                    onValueChange = { value ->
+                                                        if (value.isEmpty() || value.matches(Regex("^\\d*\\.?\\d*$"))) {
+                                                            memberPercentages[member.userId] = value
+                                                        }
+                                                    },
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .height(56.dp),
+                                                    textStyle = LocalTextStyle.current.copy(textAlign = TextAlign.Center),
+                                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                                    singleLine = true,
+                                                    suffix = { Text("%") },
+                                                    colors = OutlinedTextFieldDefaults.colors(
+                                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                                    )
                                                 )
                                             }
 
-                                            Divider(modifier = Modifier.padding(vertical = 8.dp))
-
-                                            members.forEach { member ->
-                                                val username = when {
-                                                    member.userId == userId -> "Me"
-                                                    usernames.containsKey(member.userId) -> usernames[member.userId] ?: "Unknown"
-                                                    users.any { it.userId == member.userId } -> users.find { it.userId == member.userId }?.username ?: "Unknown"
-                                                    else -> "User ${member.userId}"
-                                                }
-
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(vertical = 4.dp),
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Text(
-                                                        text = username,
-                                                        style = MaterialTheme.typography.bodyMedium,
-                                                        modifier = Modifier.weight(2f)
-                                                    )
-
-                                                    OutlinedTextField(
-                                                        value = memberPercentages[member.userId] ?: "0.0",
-                                                        onValueChange = { value ->
-                                                            if (value.isEmpty() || value.matches(Regex("^\\d*\\.?\\d*$"))) {
-                                                                memberPercentages[member.userId] = value
-                                                            }
-                                                        },
-                                                        modifier = Modifier
-                                                            .weight(1f)
-                                                            .height(56.dp),
-                                                        textStyle = LocalTextStyle.current.copy(textAlign = TextAlign.Center),
-                                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                                        singleLine = true,
-                                                        suffix = { Text("%") },
-                                                        colors = OutlinedTextFieldDefaults.colors(
-                                                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-                                                        )
-                                                    )
-                                                }
-
-                                                if (member != members.last()) {
-                                                    Divider(
-                                                        modifier = Modifier.padding(vertical = 4.dp),
-                                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-                                                    )
-                                                }
+                                            if (member != members.last()) {
+                                                Divider(
+                                                    modifier = Modifier.padding(vertical = 4.dp),
+                                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                                                )
                                             }
                                         }
                                     }
+                                }
 
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(top = 8.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    // Equal distribution button
+                                    OutlinedButton(
+                                        onClick = {
+                                            val equalPercentage = 100.0 / members.size
+                                            members.forEach { member ->
+                                                memberPercentages[member.userId] =
+                                                    String.format("%.1f", equalPercentage)
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1f)
                                     ) {
-                                        // Equal distribution button
-                                        OutlinedButton(
-                                            onClick = {
-                                                val equalPercentage = 100.0 / members.size
-                                                members.forEach { member ->
-                                                    memberPercentages[member.userId] =
-                                                        String.format("%.1f", equalPercentage)
-                                                }
-                                            },
-                                            modifier = Modifier.weight(1f)
-                                        ) {
-                                            Text("Equal Split")
-                                        }
+                                        Text("Equal Split")
+                                    }
 
-                                        Button(
-                                            onClick = { saveSplitSettings() },
-                                            modifier = Modifier.weight(1f)
-                                        ) {
-                                            Text("Save Changes")
-                                        }
+                                    Button(
+                                        onClick = { saveSplitSettings() },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text("Save Changes")
                                     }
                                 }
                             }
@@ -736,72 +668,55 @@ fun GroupSettingsScreen(
                 item {
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f)
-                        )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        // Archive/Unarchive Button
+                        OutlinedButton(
+                            onClick = {
+                                if (groupDetailsState.isArchived) {
+                                    showRestoreConfirmDialog = true
+                                } else {
+                                    showArchiveConfirmDialog = true
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error
+                            ),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error)
                         ) {
-                            Text(
-                                text = "Danger Zone",
-                                style = MaterialTheme.typography.titleLarge,
-                                color = MaterialTheme.colorScheme.error,
-                                fontWeight = FontWeight.Bold
+                            Icon(
+                                imageVector = if (groupDetailsState.isArchived)
+                                    Icons.Default.Unarchive
+                                else
+                                    Icons.Default.Archive,
+                                contentDescription = null,
+                                modifier = Modifier.padding(end = 8.dp)
                             )
+                            Text(
+                                if (groupDetailsState.isArchived) "Unarchive Group"
+                                else "Archive Group"
+                            )
+                        }
 
-                            Divider(color = MaterialTheme.colorScheme.error.copy(alpha = 0.3f))
-
-                            // Archive/Unarchive Button
-                            OutlinedButton(
-                                onClick = {
-                                    if (groupDetailsState.isArchived) {
-                                        showRestoreConfirmDialog = true
-                                    } else {
-                                        showArchiveConfirmDialog = true
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    contentColor = MaterialTheme.colorScheme.error
-                                ),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error)
-                            ) {
-                                Icon(
-                                    imageVector = if (groupDetailsState.isArchived)
-                                        Icons.Default.Unarchive
-                                    else
-                                        Icons.Default.Archive,
-                                    contentDescription = null,
-                                    modifier = Modifier.padding(end = 8.dp)
-                                )
-                                Text(
-                                    if (groupDetailsState.isArchived) "Unarchive Group"
-                                    else "Archive Group"
-                                )
-                            }
-
-                            // Leave Group Button
-                            Button(
-                                onClick = { showLeaveGroupDialog = true },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.error,
-                                    contentColor = MaterialTheme.colorScheme.onError
-                                )
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ExitToApp,
-                                    contentDescription = null,
-                                    modifier = Modifier.padding(end = 8.dp)
-                                )
-                                Text("Leave Group")
-                            }
+                        // Leave Group Button
+                        Button(
+                            onClick = { showLeaveGroupDialog = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error,
+                                contentColor = MaterialTheme.colorScheme.onError
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ExitToApp,
+                                contentDescription = null,
+                                modifier = Modifier.padding(end = 8.dp)
+                            )
+                            Text("Leave Group")
                         }
                     }
                 }
@@ -897,6 +812,7 @@ fun GroupSettingsScreen(
                         onClick = {
                             groupViewModel.archiveGroup(groupId)
                             showArchiveConfirmDialog = false
+                            showToast("Group archived")
                         },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.error
@@ -927,6 +843,7 @@ fun GroupSettingsScreen(
                         onClick = {
                             groupViewModel.restoreGroup(groupId)
                             showRestoreConfirmDialog = false
+                            showToast("Group restored")
                         },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.primary
