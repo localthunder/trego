@@ -29,7 +29,9 @@ import com.helgolabs.trego.data.repositories.GroupRepository
 import com.helgolabs.trego.data.repositories.PaymentRepository
 import com.helgolabs.trego.data.repositories.UserRepository
 import com.helgolabs.trego.data.sync.SyncStatus
+import com.helgolabs.trego.utils.ColorSchemeCache
 import com.helgolabs.trego.utils.DateUtils
+import com.helgolabs.trego.utils.ImagePaletteExtractor
 import com.helgolabs.trego.utils.ImageUtils
 import com.helgolabs.trego.utils.PlaceholderImageGenerator
 import com.helgolabs.trego.utils.getUserIdFromPreferences
@@ -53,6 +55,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
@@ -83,7 +86,8 @@ class GroupViewModel(
         val conversionResult: BatchConversionResult? = null,
         val conversionError: String? = null,
         val generatedInviteLink: String? = null,
-        val users: List<UserEntity> = emptyList()
+        val users: List<UserEntity> = emptyList(),
+        val groupColorScheme: ImagePaletteExtractor.GroupColorScheme? = null,
         )
 
 
@@ -201,6 +205,11 @@ class GroupViewModel(
     private val _statusBarShouldBeDark = MutableStateFlow(false)
     val statusBarShouldBeDark: StateFlow<Boolean> = _statusBarShouldBeDark
 
+    private val _groupColorScheme = MutableStateFlow<ImagePaletteExtractor.GroupColorScheme?>(null)
+    val groupColorScheme: StateFlow<ImagePaletteExtractor.GroupColorScheme?> = _groupColorScheme.asStateFlow()
+
+    private var activeExtractionGroupId: Int? = null
+
     init {
         viewModelScope.launch {
             groupRepository.ensureGroupImagesDownloaded()
@@ -224,13 +233,14 @@ class GroupViewModel(
         viewModelScope.launch {
             loadGroupDetails(groupId)
             fetchGroupBalances(groupId)
+            ensureColorSchemeLoaded(groupId, context)
         }
     }
 
     fun loadGroupDetails(groupId: Int, forceRefresh: Boolean = false) {
         currentLoadJob?.cancel()
         currentLoadJob = viewModelScope.launch {
-            _groupDetailsState.update { it.copy(isLoading = true, error = null) }
+            _groupDetailsState.update { it.copy(isLoading = true, error = null, groupColorScheme = null) }
 
             try {
                 // Force refresh from server if requested
@@ -729,10 +739,17 @@ class GroupViewModel(
         viewModelScope.launch {
             val currentGroup = _groupDetailsState.value.group
             if (currentGroup?.groupImg != null) {
+                // Invalidate the cache first
+                currentGroup.id?.let { groupId ->
+                    ColorSchemeCache.removeColorScheme(context, groupId)
+                }
+
                 _groupDetailsState.update { currentState ->
                     currentState.copy(
                         imageLoadingState = ImageLoadingState.Loading,
-                        groupImage = currentGroup.groupImg
+                        groupImage = currentGroup.groupImg,
+                        // Clear the color scheme to force re-extraction
+                        groupColorScheme = null
                     )
                 }
 
@@ -743,6 +760,9 @@ class GroupViewModel(
                             imageLoadingState = ImageLoadingState.Success
                         )
                     }
+
+                    // Re-extract colors for the reloaded image
+                    extractGroupImageColors(context)
                 } catch (e: Exception) {
                     _groupDetailsState.update { currentState ->
                         currentState.copy(
@@ -760,10 +780,20 @@ class GroupViewModel(
         viewModelScope.launch {
             try {
                 Log.d("GroupViewModel", "Starting image upload for group $groupId")
+
+                // Invalidate the cache
+                ColorSchemeCache.removeColorScheme(context, groupId)
+
+                if (activeExtractionGroupId == groupId) {
+                    activeExtractionGroupId = null
+                }
+
                 _groupDetailsState.update {
                     it.copy(
                         uploadStatus = UploadStatus.Loading,
-                        imageLoadingState = ImageLoadingState.Loading
+                        imageLoadingState = ImageLoadingState.Loading,
+                        // Clear the color scheme to force re-extraction
+                        groupColorScheme = null
                     )
                 }
 
@@ -786,6 +816,10 @@ class GroupViewModel(
                                 )
                             )
                         }
+
+                        // Extract colors for the new image
+                        extractGroupImageColors(context)
+
                         // Trigger a refresh of the group details to ensure we have the latest data
                         loadGroupDetails(groupId)
                     },
@@ -848,12 +882,20 @@ class GroupViewModel(
                     ?: throw Exception("Group not found")
 
                 Log.d("GroupViewModel", "Starting placeholder regeneration for groupId: $groupId")
-                Log.d("GroupViewModel", "Initial group details state: ${groupDetailsState.value}")
+                Log.d("GroupViewModel", "Initial group details state: ${_groupDetailsState.value}")
 
                 _groupDetailsState.update { it.copy(
                     uploadStatus = UploadStatus.Loading,
                     imageLoadingState = ImageLoadingState.Loading
                 ) }
+
+                // Invalidate the color scheme cache for this group before generating a new image
+                ColorSchemeCache.removeColorScheme(context, groupId)
+
+                // Clear active extraction if it's for this group
+                if (activeExtractionGroupId == groupId) {
+                    activeExtractionGroupId = null
+                }
 
                 // Always generate a new seed and pattern for regeneration
                 // This will create a completely different image than before
@@ -909,14 +951,19 @@ class GroupViewModel(
                                     imageLastModified = DateUtils.getCurrentTimestamp(),
                                     updatedAt = DateUtils.getCurrentTimestamp(),
                                     syncStatus = SyncStatus.PENDING_SYNC
-                                )
+                                ),
+                                // Clear the color scheme to force re-extraction
+                                groupColorScheme = null
                             )
                         }
+
+                        // Extract new colors for the new image
+                        extractGroupImageColors(context)
 
                         // Force a full reload of group details with force refresh
                         loadGroupDetails(groupId, forceRefresh = true)
 
-                        Log.d("GroupViewModel", "Final group details state: ${groupDetailsState.value}")
+                        Log.d("GroupViewModel", "Final group details state: ${_groupDetailsState.value}")
 
                         // Notify any listeners that the image has been updated
                         _imageUpdateEvent.value = System.currentTimeMillis()
@@ -1420,6 +1467,191 @@ class GroupViewModel(
                 // Default to dark icons
                 _statusBarShouldBeDark.value = false
             }
+        }
+    }
+
+    fun extractGroupImageColors(context: Context) {
+        viewModelScope.launch {
+            val currentGroupId = _groupDetailsState.value.group?.id
+            val currentImage = _groupDetailsState.value.groupImage
+
+            Log.d("ThemeDebug", "Extracting colors for group $currentGroupId, had scheme: ${_groupDetailsState.value.groupColorScheme != null}")
+
+            if (currentGroupId == null || currentImage == null) {
+                _groupDetailsState.update { it.copy(groupColorScheme = null) }
+                Log.d("ThemeDebug", "No group ID or image, setting color scheme to null")
+                return@launch
+            }
+
+            // Set this group as the active extraction target
+            activeExtractionGroupId = currentGroupId
+            Log.d("GroupViewModel", "Starting color extraction for group $currentGroupId")
+
+            try {
+                // Try to get from cache first (fast path)
+                val cachedScheme = ColorSchemeCache.getColorScheme(context, currentGroupId)
+                if (cachedScheme != null) {
+                    // Only apply if this is still the active extraction target
+                    if (activeExtractionGroupId == currentGroupId) {
+                        _groupDetailsState.update { it.copy(groupColorScheme = cachedScheme) }
+                        Log.d("GroupViewModel", "Applied cached color scheme for group $currentGroupId")
+                    } else {
+                        Log.d("GroupViewModel", "Group changed during cache lookup, not applying cached colors")
+                    }
+                    return@launch
+                }
+
+                // Process the image path
+                val processedPath = when {
+                    currentImage.startsWith("placeholder://") -> {
+                        val localPath = PlaceholderImageGenerator.getImageForPath(context, currentImage)
+                        "file://$localPath"
+                    }
+                    currentImage.startsWith("/data/") || currentImage.contains("/files/placeholder_images/") -> {
+                        "file://$currentImage"
+                    }
+                    else -> {
+                        ImageUtils.getFullImageUrl(currentImage)
+                    }
+                }
+
+                // Extract colors
+                val colorScheme = ImagePaletteExtractor.extractColorsFromImage(context, processedPath)
+
+                // Only apply if this is still the active extraction target
+                if (activeExtractionGroupId == currentGroupId) {
+                    _groupDetailsState.update { it.copy(groupColorScheme = colorScheme) }
+                    ColorSchemeCache.cacheColorScheme(context, currentGroupId, colorScheme)
+                    Log.d("GroupViewModel", "Applied new color scheme for group $currentGroupId")
+                } else {
+                    Log.d("GroupViewModel", "Group changed during extraction, not applying colors")
+                }
+            } catch (e: Exception) {
+                Log.e("GroupViewModel", "Error extracting colors", e)
+            }
+        }
+    }
+
+    fun initiateColorExtraction() {
+        viewModelScope.launch {
+            // Small delay to ensure UI is ready
+            kotlinx.coroutines.delay(100)
+            extractGroupImageColors(context)
+        }
+    }
+
+    private fun clearActiveExtraction() {
+        activeExtractionGroupId = null
+    }
+
+    fun clearColorSchemeIfForGroup(groupId: Int) {
+        Log.d("ThemeDebug", "clearColorSchemeIfForGroup called for $groupId")
+        if (activeExtractionGroupId == groupId) {
+            // Clear the active extraction group ID if it matches
+            activeExtractionGroupId = null
+            // Also clear the color scheme to force re-extraction when returning
+            _groupDetailsState.update { it.copy(groupColorScheme = null) }
+            Log.d("ThemeDebug", "Color scheme cleared for group $groupId")
+        }
+    }
+
+    /**
+     * Preloads color schemes for groups in the background to improve UI performance
+     */
+    fun preloadGroupColorSchemes(context: Context) {
+        viewModelScope.launch {
+            try {
+                // Get the current user ID
+                val userId = getUserIdFromPreferences(context) ?: return@launch
+
+                // Get non-archived groups
+                val groups = _userGroupItems.value
+                if (groups.isEmpty()) return@launch
+
+                Log.d("GroupViewModel", "Starting color scheme preload for ${groups.size} groups")
+
+                // Process groups in parallel with a limit to avoid overloading
+                coroutineScope {
+                    groups.take(10).map { group ->
+                        async {
+                            // Skip if already cached
+                            if (ColorSchemeCache.getColorScheme(context, group.id) != null) {
+                                Log.d("GroupViewModel", "Group ${group.id} colors already cached")
+                                return@async
+                            }
+
+                            try {
+                                // Get group details to find image path
+                                val groupDetails = groupRepository.getGroupById(group.id).firstOrNull()
+                                val imagePath = groupDetails?.groupImg
+
+                                if (imagePath != null) {
+                                    // Process the image path
+                                    val processedPath = when {
+                                        imagePath.startsWith("placeholder://") -> {
+                                            val localPath = PlaceholderImageGenerator.getImageForPath(context, imagePath)
+                                            "file://$localPath"
+                                        }
+                                        imagePath.startsWith("/data/") || imagePath.contains("/files/placeholder_images/") -> {
+                                            "file://$imagePath"
+                                        }
+                                        else -> {
+                                            ImageUtils.getFullImageUrl(imagePath)
+                                        }
+                                    }
+
+                                    // Extract colors
+                                    withContext(Dispatchers.Default) {
+                                        val colorScheme = ImagePaletteExtractor.extractColorsFromImage(context, processedPath)
+                                        ColorSchemeCache.cacheColorScheme(context, group.id, colorScheme)
+                                        Log.d("GroupViewModel", "Preloaded colors for group ${group.id}")
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                Log.e("GroupViewModel", "Error preloading colors for group ${group.id}", e)
+                            }
+                        }
+                    }.awaitAll()
+                }
+
+                Log.d("GroupViewModel", "Completed color scheme preload")
+            } catch (e: Exception) {
+                Log.e("GroupViewModel", "Error in preloadGroupColorSchemes", e)
+            }
+        }
+    }
+
+    fun ensureColorSchemeLoaded(groupId: Int, context: Context) {
+        viewModelScope.launch {
+            // Check if we already have a color scheme for this group
+            val currentColorScheme = _groupDetailsState.value.groupColorScheme
+
+            if (currentColorScheme == null) {
+                // Try to get from cache first
+                val cachedScheme = ColorSchemeCache.getColorScheme(context, groupId)
+
+                if (cachedScheme != null) {
+                    // Use cached color scheme
+                    _groupDetailsState.update { it.copy(groupColorScheme = cachedScheme) }
+                } else {
+                    // Extract fresh color scheme
+                    extractGroupImageColors(context)
+                }
+            }
+        }
+    }
+
+    fun setGroupColorScheme(colorScheme: ImagePaletteExtractor.GroupColorScheme?) {
+        _groupDetailsState.update { it.copy(groupColorScheme = colorScheme) }
+    }
+
+    /**
+     * Called when a group's image changes to invalidate the cache
+     */
+    fun invalidateGroupColorCache(groupId: Int) {
+        viewModelScope.launch {
+            ColorSchemeCache.removeColorScheme(context, groupId)
+            Log.d("GroupViewModel", "Invalidated color cache for group $groupId")
         }
     }
 }

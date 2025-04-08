@@ -2,7 +2,11 @@ package com.helgolabs.trego.ui.screens
 
 import android.app.Activity
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.util.Log
 import android.widget.Toast
@@ -43,9 +47,15 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import coil3.ImageLoader
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
+import coil3.request.SuccessResult
+import coil3.request.allowHardware
 import coil3.request.crossfade
+import coil3.toBitmap
+import com.google.android.material.color.DynamicColors
+import com.google.android.material.color.DynamicColorsOptions
 import com.helgolabs.trego.MyApplication
 import com.helgolabs.trego.data.local.entities.GroupMemberEntity
 import com.helgolabs.trego.ui.components.GlobalFAB
@@ -54,15 +64,19 @@ import com.helgolabs.trego.ui.components.AddPeopleAvatar
 import com.helgolabs.trego.ui.components.BatchCurrencyConversionButton
 import com.helgolabs.trego.ui.components.PaymentItem
 import com.helgolabs.trego.ui.components.UserAvatar
-import com.helgolabs.trego.ui.theme.GlobalTheme
+import com.helgolabs.trego.ui.theme.AnimatedDynamicThemeProvider
 import com.helgolabs.trego.ui.viewmodels.GroupViewModel
 import com.helgolabs.trego.ui.viewmodels.UserViewModel
+import com.helgolabs.trego.utils.ColorSchemeCache
 import com.helgolabs.trego.utils.DateUtils
 import com.helgolabs.trego.utils.FormattingUtils.formatAsCurrency
 import com.helgolabs.trego.utils.ImageUtils
 import com.helgolabs.trego.utils.PlaceholderImageGenerator
 import com.helgolabs.trego.utils.StatusBarHelper.StatusBarProtection
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.absoluteValue
 
@@ -70,12 +84,10 @@ import kotlin.math.absoluteValue
 @Composable
 fun GroupDetailsScreen(
     navController: NavController,
-    groupId: Int
+    groupId: Int,
+    groupViewModel: GroupViewModel
 ) {
     val context = LocalContext.current
-    val myApplication = context.applicationContext as MyApplication
-    val groupViewModel: GroupViewModel = viewModel(factory = myApplication.viewModelFactory)
-    val userViewModel: UserViewModel = viewModel(factory = myApplication.viewModelFactory)
     var showArchiveConfirmDialog by remember { mutableStateOf(false) }
     var showRestoreConfirmDialog by remember { mutableStateOf(false) }
     val archiveState by groupViewModel.archiveGroupState.collectAsState()
@@ -88,6 +100,35 @@ fun GroupDetailsScreen(
     val paymentUpdateTrigger by groupViewModel.paymentsUpdateTrigger.collectAsState()
     var tempImageUri by remember { mutableStateOf<Uri?>(null) }
     val coroutineScope = rememberCoroutineScope()
+    val isLoading = groupDetailsState.isLoading
+    val group = groupDetailsState.group
+
+    val groupColorScheme = groupDetailsState.groupColorScheme
+    val groupImage = groupDetailsState.groupImage
+    var groupImageBitmap by remember { mutableStateOf<Bitmap?>(null) }
+
+    LaunchedEffect(groupId) {
+        // Try to read cached color scheme first for immediate UI feedback
+        try {
+            val cachedScheme = withContext(Dispatchers.IO) {
+                ColorSchemeCache.getColorScheme(context, groupId)
+            }
+
+            if (cachedScheme != null) {
+                // Apply cached scheme immediately
+                groupViewModel.setGroupColorScheme(cachedScheme)
+            }
+        } catch (e: Exception) {
+            Log.e("GroupDetailsScreen", "Error reading cached color scheme", e)
+        }
+
+        // Initialize group data
+        groupViewModel.initializeGroupDetails(groupId)
+    }
+
+    LaunchedEffect(groupDetailsState.payments) {
+        groupViewModel.checkCurrentUserBalance(groupId)
+    }
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -136,45 +177,136 @@ fun GroupDetailsScreen(
         }
     }
 
-    LaunchedEffect(groupId) {
-        groupViewModel.initializeGroupDetails(groupId)
-    }
+    // Load bitmap from the image path
+    LaunchedEffect(groupImage) {
+        if (groupImage != null) {
+            withContext(Dispatchers.IO) {
+                try {
+                    val processedPath = when {
+                        groupImage.startsWith("placeholder://") -> {
+                            val localPath = PlaceholderImageGenerator.getImageForPath(context, groupImage)
+                            "file://$localPath"
+                        }
+                        groupImage.startsWith("/data/") || groupImage.contains("/files/placeholder_images/") -> {
+                            "file://$groupImage"
+                        }
+                        else -> {
+                            ImageUtils.getFullImageUrl(groupImage)
+                        }
+                    }
 
-    LaunchedEffect(groupDetailsState.payments) {
-        groupViewModel.checkCurrentUserBalance(groupId)
-    }
-
-    LaunchedEffect(groupDetailsState.groupImage) {
-        groupViewModel.loadGroupDetails(groupId)
+                    // Load bitmap based on path type
+                    if (processedPath != null) {
+                        groupImageBitmap = if (processedPath.startsWith("file://")) {
+                            val filePath = processedPath.substring(7)
+                            BitmapFactory.decodeFile(filePath)
+                        } else {
+                            val imageLoader = ImageLoader(context)
+                            val request = ImageRequest.Builder(context)
+                                .data(processedPath)
+                                .allowHardware(false)
+                                .build()
+                            val result = imageLoader.execute(request)
+                            if (result is SuccessResult) {
+                                (result.image as? BitmapDrawable)?.bitmap ?: result.image.toBitmap()
+                            } else null
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("GroupDetailsScreen", "Error loading bitmap", e)
+                    groupImageBitmap = null
+                }
+            }
+        } else {
+            groupImageBitmap = null
+        }
     }
 
     val refreshing = groupDetailsState.isLoading
     val pullToRefreshState = rememberPullToRefreshState()
 
 
-    // Get Window instance and control system bars
-    val activity = LocalContext.current as Activity
-    val windowInsets = WindowInsets.systemBars
-
-    // This is important for edge-to-edge
-    DisposableEffect(Unit) {
-        WindowCompat.setDecorFitsSystemWindows(activity.window, false) // Enable edge-to-edge
-        val insetsController = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
-        insetsController.isAppearanceLightStatusBars = true // Dark icons for status bar (for light background)
-
-        onDispose {
-            // Reset when leaving this screen
-            WindowCompat.setDecorFitsSystemWindows(activity.window, true)
-        }
-    }
-
-    GlobalTheme {
+    // Apply the dynamic theme
+    AnimatedDynamicThemeProvider(groupId, groupColorScheme) {
+        // Get Window instance and control system bars
         val activity = LocalContext.current as Activity
+        val windowInsets = WindowInsets.systemBars
 
-        SideEffect {
-            WindowCompat.setDecorFitsSystemWindows(activity.window, false) // Allow edge-to-edge
-            val insetsController = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
-            insetsController.isAppearanceLightStatusBars = true // Dark icons on light background
+        // This is important for edge-to-edge
+        DisposableEffect(Unit) {
+            WindowCompat.setDecorFitsSystemWindows(activity.window, false) // Enable edge-to-edge
+            val insetsController =
+                WindowCompat.getInsetsController(activity.window, activity.window.decorView)
+            insetsController.isAppearanceLightStatusBars =
+                true // Dark icons for status bar (for light background)
+
+            onDispose {
+                // Reset when leaving this screen
+                WindowCompat.setDecorFitsSystemWindows(activity.window, true)
+            }
+        }
+
+        // Show loading screen while initializing
+        if (isLoading && group == null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(48.dp),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Loading group...",
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                }
+            }
+            return@AnimatedDynamicThemeProvider
+        }
+
+        // Show error screen if there's an error
+        if (groupDetailsState.error != null && groupDetailsState.group == null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Error,
+                        contentDescription = "Error",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Error: ${groupDetailsState.error}",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.error,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = { groupViewModel.loadGroupDetails(groupId, true) }
+                    ) {
+                        Text("Retry")
+                    }
+                }
+            }
+            return@AnimatedDynamicThemeProvider
         }
 
         Scaffold(
@@ -215,6 +347,7 @@ fun GroupDetailsScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
+                    .background(MaterialTheme.colorScheme.surface)
             ) {
                 when {
                     groupDetailsState.isLoading && groupDetailsState.group == null -> {
@@ -427,7 +560,7 @@ fun GroupDetailsScreen(
                 groupId = groupId,
                 onDismissRequest = {
                     showAddMembersBottomSheet = false
-                    groupViewModel.loadGroupDetails(groupId) // Reload group details when sheet is dismissed
+//                    groupViewModel.loadGroupDetails(groupId) // Reload group details when sheet is dismissed
                 }
             )
         }
@@ -984,20 +1117,22 @@ fun GroupActionButtons(
         horizontalArrangement = Arrangement.SpaceEvenly
     ) {
         // Secondary color buttons first
-        Button(
+        OutlinedButton(
             onClick = onBalancesClick,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.tertiary
-            )
+//            colors = ButtonDefaults.buttonColors(
+//                containerColor = MaterialTheme.colorScheme.tertiary,
+//                contentColor = MaterialTheme.colorScheme.onTertiary
+//            )
         ) {
             Text("Balances")
         }
 
-        Button(
+        OutlinedButton(
             onClick = onTotalsClick,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.tertiary
-            )
+//            colors = ButtonDefaults.buttonColors(
+//                containerColor = MaterialTheme.colorScheme.secondary,
+//                contentColor = MaterialTheme.colorScheme.onSecondary
+//            )
         ) {
             Text("Totals")
         }
@@ -1006,7 +1141,8 @@ fun GroupActionButtons(
         Button(
             onClick = onSettleUpClick,
             colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
             )
         ) {
             Text("Settle Up")

@@ -19,96 +19,105 @@ import com.helgolabs.trego.MyApplication
 import com.helgolabs.trego.data.local.dataClasses.CurrencySettlingInstructions
 import com.helgolabs.trego.data.local.dataClasses.SettlingInstruction
 import com.helgolabs.trego.ui.components.GlobalTopAppBar
+import com.helgolabs.trego.ui.theme.AnimatedDynamicThemeProvider
 import com.helgolabs.trego.ui.viewmodels.GroupViewModel
 import com.helgolabs.trego.utils.FormattingUtils.formatAsCurrency
+import kotlinx.coroutines.delay
 
 @Composable
 fun SettleUpScreen(
     navController: NavController,
-    groupId: Int
+    groupId: Int,
+    groupViewModel: GroupViewModel
 ) {
     val context = LocalContext.current
-    val myApplication = context.applicationContext as MyApplication
-    val groupViewModel: GroupViewModel = viewModel(factory = myApplication.viewModelFactory)
     val balances by groupViewModel.groupBalances.collectAsStateWithLifecycle()
     val loading by groupViewModel.loading.collectAsStateWithLifecycle()
     val error by groupViewModel.error.collectAsStateWithLifecycle()
     val settlingInstructions by groupViewModel.settlingInstructions.collectAsStateWithLifecycle()
+    val groupDetailsState by groupViewModel.groupDetailsState.collectAsStateWithLifecycle()
+    val groupColorScheme = groupDetailsState.groupColorScheme
 
     LaunchedEffect(groupId) {
         groupViewModel.fetchGroupBalances(groupId)
         groupViewModel.fetchSettlingInstructions(groupId)
     }
 
-    Scaffold(
-        topBar = {
-            GlobalTopAppBar(
-                title = { Text("Settle Up") }
-            )
-        }
-    ) { padding ->
-        when {
-            loading -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator()
-                }
+    AnimatedDynamicThemeProvider(groupId, groupColorScheme) {
+
+        Scaffold(
+            topBar = {
+                GlobalTopAppBar(
+                    title = { Text("Settle Up") }
+                )
             }
-            error != null -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "Error: $error",
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-            }
-            settlingInstructions.isEmpty() -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Card(
+        ) { padding ->
+            when {
+                loading -> {
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
+                            .fillMaxSize()
+                            .padding(padding),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                        CircularProgressIndicator()
+                    }
+                }
+
+                error != null -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Error: $error",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+
+                settlingInstructions.isEmpty() -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp)
                         ) {
-                            Text(
-                                text = "All Settled!",
-                                style = MaterialTheme.typography.headlineMedium
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "There are no balances to settle in this group.",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "All Settled!",
+                                    style = MaterialTheme.typography.headlineMedium
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "There are no balances to settle in this group.",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }
-            }
-            else -> {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding)
-                ) {
-                    items(settlingInstructions) { currencyInstructions ->
-                        CurrencySettlementSection(currencyInstructions)
+
+                else -> {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding)
+                    ) {
+                        items(settlingInstructions) { currencyInstructions ->
+                            CurrencySettlementSection(currencyInstructions)
+                        }
                     }
                 }
             }

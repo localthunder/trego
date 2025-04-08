@@ -69,6 +69,11 @@ fun UserGroupsScreen(navController: NavController) {
         }
     }
 
+    // Add this to preload color schemes when the list is visible
+    LaunchedEffect(Unit) {
+        groupViewModel.preloadGroupColorSchemes(context)
+    }
+
     GlobalTheme {
         Scaffold(
             topBar = {

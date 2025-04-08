@@ -38,6 +38,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,6 +52,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.helgolabs.trego.MyApplication
 import com.helgolabs.trego.ui.components.GlobalTopAppBar
+import com.helgolabs.trego.ui.theme.AnimatedDynamicThemeProvider
 import com.helgolabs.trego.ui.viewmodels.GroupViewModel
 import com.helgolabs.trego.ui.viewmodels.PaymentsViewModel
 import com.helgolabs.trego.utils.DateUtils
@@ -73,16 +75,24 @@ import kotlin.math.abs
 fun GroupTotalsScreen(
     navController: NavController,
     context: Context,
-    groupId: Int
+    groupId: Int,
+    groupViewModel: GroupViewModel
 ) {
     val myApplication = context.applicationContext as MyApplication
-    val groupViewModel: GroupViewModel = viewModel(factory = myApplication.viewModelFactory)
     val paymentViewModel: PaymentsViewModel = viewModel(factory = myApplication.viewModelFactory)
 
     val payments by paymentViewModel.groupPaymentsAndSplits.collectAsStateWithLifecycle()
     val loading by paymentViewModel.loading.collectAsStateWithLifecycle()
     val error by paymentViewModel.error.collectAsStateWithLifecycle()
     val groupMembers by paymentViewModel.users.collectAsStateWithLifecycle()
+    val groupDetailsState by groupViewModel.groupDetailsState.collectAsState()
+    val groupColorScheme = groupDetailsState.groupColorScheme
+
+    Log.d("ThemeDebug", "GroupTotalsScreen: Group $groupId, has color scheme: ${groupColorScheme != null}")
+
+    // Get the group details to access default currency
+    val group by groupViewModel.groupDetailsState.collectAsStateWithLifecycle()
+    val defaultCurrency = group.group?.defaultCurrency ?: "GBP"
 
     // Create scroll state that we can control
     val scrollState = rememberScrollState()
@@ -93,6 +103,11 @@ fun GroupTotalsScreen(
     // Scroll to end when first composed
     LaunchedEffect(Unit) {
         scrollState.animateScrollTo(scrollState.maxValue)
+    }
+
+    // Load group details when screen is first displayed
+    LaunchedEffect(groupId) {
+        paymentViewModel.fetchGroupPayments(groupId)
     }
 
     // State for selected time period
@@ -215,421 +230,519 @@ fun GroupTotalsScreen(
         it.payment.paymentDate
     }
 
-    LaunchedEffect(groupId) {
-        paymentViewModel.fetchGroupPayments(groupId)
-    }
-
-    Scaffold(
-        topBar = {
-            GlobalTopAppBar(
-                title = { Text("Group Totals") }
-            )
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
-            // Month selector row with elevation and background
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shadowElevation = 4.dp,
-                color = MaterialTheme.colorScheme.surface
+    AnimatedDynamicThemeProvider(groupId, groupColorScheme) {
+        Scaffold(
+            topBar = {
+                GlobalTopAppBar(
+                    title = { Text("Group Totals") }
+                )
+            }
+        ) { padding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
             ) {
-                Row(
-                    modifier = Modifier
-                        .horizontalScroll(scrollState)
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
+                // Month selector row with elevation and background
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shadowElevation = 4.dp,
+                    color = MaterialTheme.colorScheme.surface
                 ) {
-                    // Reverse the options when displaying
-                    timeOptions.reversed().forEach { period ->
+                    Row(
+                        modifier = Modifier
+                            .horizontalScroll(scrollState)
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        // Reverse the options when displaying
+                        timeOptions.reversed().forEach { period ->
+                            Button(
+                                onClick = { selectedPeriod = period },
+                                modifier = Modifier.padding(end = 8.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (selectedPeriod == period)
+                                        MaterialTheme.colorScheme.primary
+                                    else
+                                        MaterialTheme.colorScheme.secondary.copy(alpha = 0.7f)
+                                ),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(
+                                    text = period,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                        }
+                        // Add "All time" button at the end
                         Button(
-                            onClick = { selectedPeriod = period },
+                            onClick = { selectedPeriod = "All time" },
                             modifier = Modifier.padding(end = 8.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (selectedPeriod == period)
+                                containerColor = if (selectedPeriod == "All time")
                                     MaterialTheme.colorScheme.primary
                                 else
-                                    MaterialTheme.colorScheme.secondary.copy(alpha = 0.7f)
+                                    MaterialTheme.colorScheme.secondary.copy(alpha = 0.7f),
+                                contentColor = if (selectedPeriod == "All time")
+                                    MaterialTheme.colorScheme.onPrimary
+                                else
+                                    MaterialTheme.colorScheme.onSecondary.copy(alpha = 0.7f)
                             ),
                             shape = RoundedCornerShape(8.dp)
                         ) {
                             Text(
-                                text = period,
+                                text = "All time",
                                 style = MaterialTheme.typography.bodyMedium
                             )
                         }
                     }
-                    // Add "All time" button at the end
-                    Button(
-                        onClick = { selectedPeriod = "All time" },
-                        modifier = Modifier.padding(end = 8.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (selectedPeriod == "All time")
-                                MaterialTheme.colorScheme.primary
-                            else
-                                MaterialTheme.colorScheme.secondary.copy(alpha = 0.7f)
-                        ),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text(
-                            text = "All time",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
                 }
-            }
 
-            // Rest of the content using filteredPayments
-            Column(
-                modifier = Modifier
-                    .padding(16.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                when {
-                    loading -> CircularProgressIndicator()
-                    error != null -> Text(
-                        "Error: $error",
-                        color = MaterialTheme.colorScheme.error
-                    )
+                // Rest of the content using filteredPayments
+                Column(
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    when {
+                        loading -> CircularProgressIndicator()
+                        error != null -> Text(
+                            "Error: $error",
+                            color = MaterialTheme.colorScheme.error
+                        )
 
-                    else -> {
-                        // Use filteredPayments instead of payments
-                        val expenses = filteredPayments.filter {
-                            it.payment.paymentType == "spent"
-                        }
-                        val incomes = filteredPayments.filter {
-                            it.payment.paymentType == "received"
-                        }
-                        val transfers = filteredPayments.filter {
-                            it.payment.paymentType == "transferred"
-                        }
+                        else -> {
+                            // Use filteredPayments instead of payments
+                            val expenses = filteredPayments.filter {
+                                it.payment.paymentType == "spent"
+                            }
+                            val incomes = filteredPayments.filter {
+                                it.payment.paymentType == "received"
+                            }
+                            val transfers = filteredPayments.filter {
+                                it.payment.paymentType == "transferred"
+                            }
 
-                        Log.d(
-                            "GroupTotalsScreen", """
+                            Log.d(
+                                "GroupTotalsScreen", """
                         Filtering Results:
                         - Total Payments: ${payments.size}
                         - Expenses: ${expenses.size}
                         - Incomes: ${incomes.size}
                         - Payment Types: ${payments.map { it.payment.paymentType }.distinct()}
                     """.trimIndent()
-                        )
+                            )
 
-                        val expensesByCurrency = expenses
-                            .groupBy { it.payment.currency ?: "Unknown" }
-                            .mapValues { it.value.sumOf { payment -> payment.payment.amount } }
-                            .also { Log.d("GroupTotalsScreen", "Expenses by currency: $it") }
+                            val expensesByCurrency = expenses
+                                .groupBy { it.payment.currency ?: defaultCurrency }
+                                .mapValues { it.value.sumOf { payment -> payment.payment.amount } }
+                                .also { Log.d("GroupTotalsScreen", "Expenses by currency: $it") }
 
-                        val incomeByCurrency = incomes
-                            .groupBy { it.payment.currency ?: "Unknown" }
-                            .mapValues { it.value.sumOf { payment -> payment.payment.amount } }
-                            .also { Log.d("GroupTotalsScreen", "Income by currency: $it") }
+                            val incomeByCurrency = incomes
+                                .groupBy { it.payment.currency ?: defaultCurrency }
+                                .mapValues { it.value.sumOf { payment -> payment.payment.amount } }
+                                .also { Log.d("GroupTotalsScreen", "Income by currency: $it") }
 
-                        val transfersByCurrency = transfers
-                            .groupBy { it.payment.currency ?: "Unknown" }
-                            .mapValues { it.value.sumOf { payment -> payment.payment.amount } }
-                            .also { Log.d("GroupTotalsScreen", "Transfers by currency: $it") }
+                            val transfersByCurrency = transfers
+                                .groupBy { it.payment.currency ?: defaultCurrency }
+                                .mapValues { it.value.sumOf { payment -> payment.payment.amount } }
+                                .also { Log.d("GroupTotalsScreen", "Transfers by currency: $it") }
 
-                        // Group Totals Card
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp)
+                            // Make sure all currency types are represented in each category
+                            val allCurrencies =
+                                (expensesByCurrency.keys + incomeByCurrency.keys + transfersByCurrency.keys).toSet()
+
+                            // Group Totals Card
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                             ) {
-                                Text(
-                                    "Total Spent",
-                                    style = MaterialTheme.typography.titleMedium
-                                )
-                                expensesByCurrency.forEach { (currency, total) ->
-                                    Text(
-                                        "${abs(total).formatAsCurrency(currency)}",  // Use abs() here
-                                        style = MaterialTheme.typography.titleLarge,
-                                        color = MaterialTheme.colorScheme.primary
-
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                Text(
-                                    "Total Received",
-                                    style = MaterialTheme.typography.titleMedium
-                                )
-                                incomeByCurrency.forEach { (currency, total) ->
-                                    Text(
-                                        "${abs(total).formatAsCurrency(currency)}",  // Use abs() here
-                                        style = MaterialTheme.typography.titleLarge,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                            }
-                        }
-
-                        //Transfers card
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp)
-                            ) {
-                                // Header row with expansion arrow
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp)
                                 ) {
                                     Text(
-                                        "Total Transferred",
+                                        "Total Spent",
                                         style = MaterialTheme.typography.titleMedium
                                     )
-                                    IconButton(onClick = { isTransfersExpanded = !isTransfersExpanded }) {
-                                        Icon(
-                                            if (isTransfersExpanded) Icons.Default.KeyboardArrowUp
-                                            else Icons.Default.KeyboardArrowDown,
-                                            contentDescription = if (isTransfersExpanded) "Collapse" else "Expand"
+
+                                    // If no expenses, show 0 in default currency
+                                    if (expensesByCurrency.isEmpty()) {
+                                        Text(
+                                            "0.00".formatAsCurrency(defaultCurrency),
+                                            style = MaterialTheme.typography.titleLarge,
+                                            color = MaterialTheme.colorScheme.primary
                                         )
+                                    } else {
+                                        // Show all currencies, including those with 0 amount
+                                        allCurrencies.forEach { currency ->
+                                            val amount = expensesByCurrency[currency] ?: 0.0
+                                            Text(
+                                                abs(amount).formatAsCurrency(currency),
+                                                style = MaterialTheme.typography.titleLarge,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    Text(
+                                        "Total Received",
+                                        style = MaterialTheme.typography.titleMedium
+                                    )
+
+                                    // If no income, show 0 in default currency
+                                    if (incomeByCurrency.isEmpty()) {
+                                        Text(
+                                            "0.00".formatAsCurrency(defaultCurrency),
+                                            style = MaterialTheme.typography.titleLarge,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    } else {
+                                        // Show all currencies, including those with 0 amount
+                                        allCurrencies.forEach { currency ->
+                                            val amount = incomeByCurrency[currency] ?: 0.0
+                                            Text(
+                                                abs(amount).formatAsCurrency(currency),
+                                                style = MaterialTheme.typography.titleLarge,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
                                     }
                                 }
+                            }
 
-                                // Total amounts
-                                transfersByCurrency.forEach { (currency, total) ->
-                                    Text(
-                                        "${abs(total).formatAsCurrency(currency)}",
-                                        style = MaterialTheme.typography.titleLarge,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-
-                                // Show details if expanded
-                                AnimatedVisibility(
-                                    visible = isTransfersExpanded,
-                                    enter = expandVertically() + fadeIn(),
-                                    exit = shrinkVertically() + fadeOut()
+                            //Transfers card
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp)
                                 ) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(top = 16.dp)
+                                    // Header row with expansion arrow
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        // Header divider
-                                        Divider()
+                                        Text(
+                                            "Total Transferred",
+                                            style = MaterialTheme.typography.titleMedium
+                                        )
+                                        IconButton(onClick = {
+                                            isTransfersExpanded = !isTransfersExpanded
+                                        }) {
+                                            Icon(
+                                                if (isTransfersExpanded) Icons.Default.KeyboardArrowUp
+                                                else Icons.Default.KeyboardArrowDown,
+                                                contentDescription = if (isTransfersExpanded) "Collapse" else "Expand"
+                                            )
+                                        }
+                                    }
 
-                                        // List of transfers
-                                        transfers.forEach { payment ->
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(vertical = 8.dp),
-                                                horizontalArrangement = Arrangement.SpaceBetween
-                                            ) {
-                                                // Date and description
-                                                Column(
-                                                    modifier = Modifier.weight(1f)
-                                                ) {
-                                                    Text(
-                                                        DateUtils.formatForDisplay(payment.payment.paymentDate),
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                    Text(
-                                                        payment.payment.description ?: "No description",
-                                                        style = MaterialTheme.typography.bodyMedium,
-                                                        maxLines = 2,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                }
-
-                                                // Amount
+                                    // Total amounts
+                                    if (transfersByCurrency.isEmpty()) {
+                                        Text(
+                                            "0.00".formatAsCurrency(defaultCurrency),
+                                            style = MaterialTheme.typography.titleLarge,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    } else {
+                                        // Show all currencies, including those with 0 amount
+                                        allCurrencies.forEach { currency ->
+                                            val amount = transfersByCurrency[currency] ?: 0.0
+                                            if (amount != 0.0 || transfersByCurrency.size == 1) {
                                                 Text(
-                                                    abs(payment.payment.amount)
-                                                        .formatAsCurrency(payment.payment.currency ?: "Unknown"),
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    color = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.padding(start = 16.dp)
+                                                    abs(amount).formatAsCurrency(currency),
+                                                    style = MaterialTheme.typography.titleLarge,
+                                                    color = MaterialTheme.colorScheme.primary
                                                 )
                                             }
+                                        }
+                                    }
 
-                                            if (transfers.last() != payment) {
-                                                Divider(
-                                                    modifier = Modifier.padding(vertical = 4.dp),
-                                                    color = MaterialTheme.colorScheme.outlineVariant
+                                    // Show details if expanded
+                                    AnimatedVisibility(
+                                        visible = isTransfersExpanded,
+                                        enter = expandVertically() + fadeIn(),
+                                        exit = shrinkVertically() + fadeOut()
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(top = 16.dp)
+                                        ) {
+                                            // Header divider
+                                            Divider()
+
+                                            if (transfers.isEmpty()) {
+                                                Text(
+                                                    "No transfers in this period",
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    modifier = Modifier.padding(vertical = 8.dp),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
+                                            } else {
+                                                // List of transfers
+                                                transfers.forEach { payment ->
+                                                    Row(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(vertical = 8.dp),
+                                                        horizontalArrangement = Arrangement.SpaceBetween
+                                                    ) {
+                                                        // Date and description
+                                                        Column(
+                                                            modifier = Modifier.weight(1f)
+                                                        ) {
+                                                            Text(
+                                                                DateUtils.formatForDisplay(payment.payment.paymentDate),
+                                                                style = MaterialTheme.typography.bodySmall,
+                                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
+                                                            Text(
+                                                                payment.payment.description
+                                                                    ?: "No description",
+                                                                style = MaterialTheme.typography.bodyMedium,
+                                                                maxLines = 2,
+                                                                overflow = TextOverflow.Ellipsis
+                                                            )
+                                                        }
+
+                                                        // Amount
+                                                        Text(
+                                                            abs(payment.payment.amount)
+                                                                .formatAsCurrency(
+                                                                    payment.payment.currency
+                                                                        ?: defaultCurrency
+                                                                ),
+                                                            style = MaterialTheme.typography.bodyMedium,
+                                                            color = MaterialTheme.colorScheme.primary,
+                                                            modifier = Modifier.padding(start = 16.dp)
+                                                        )
+                                                    }
+
+                                                    if (transfers.last() != payment) {
+                                                        Divider(
+                                                            modifier = Modifier.padding(vertical = 4.dp),
+                                                            color = MaterialTheme.colorScheme.outlineVariant
+                                                        )
+                                                    }
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
-                        }
 
-                        // User Spending Summary Card
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp)
+                            // User Spending Summary Card
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                             ) {
-                                Text(
-                                    "Member Summary",
-                                    style = MaterialTheme.typography.titleMedium
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp)
+                                ) {
+                                    Text(
+                                        "Member Summary",
+                                        style = MaterialTheme.typography.titleMedium
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
 
-                                // Calculate spent by each user (from splits)
-                                val spentByUserAndCurrency = mutableMapOf<Pair<Int, String>, Double>()
-                                filteredPayments
-                                    .filter { it.payment.paymentType != "transferred" } // Exclude transferred payments
-                                    .forEach { paymentWithSplits ->
-                                        val currency = paymentWithSplits.payment.currency ?: "Unknown"
-                                        Log.d("MemberSummary", """
+                                    // Calculate spent by each user (from splits)
+                                    val spentByUserAndCurrency =
+                                        mutableMapOf<Pair<Int, String>, Double>()
+                                    filteredPayments
+                                        .filter { it.payment.paymentType != "transferred" } // Exclude transferred payments
+                                        .forEach { paymentWithSplits ->
+                                            val currency = paymentWithSplits.payment.currency
+                                                ?: defaultCurrency
+                                            Log.d(
+                                                "MemberSummary", """
                                                     Processing splits for payment:
                                                     - Payment ID: ${paymentWithSplits.payment.id}
                                                     - Amount: ${paymentWithSplits.payment.amount}
                                                     - Currency: $currency
                                                     - Type: ${paymentWithSplits.payment.paymentType}
                                                     - Split count: ${paymentWithSplits.splits.size}
-                                                """.trimIndent())
+                                                """.trimIndent()
+                                            )
 
-                                        paymentWithSplits.splits.forEach { split ->
-                                            val key = Pair(split.userId, currency)
-                                            val currentAmount = spentByUserAndCurrency[key] ?: 0.0
-                                            val newAmount = currentAmount + split.amount
-                                            spentByUserAndCurrency[key] = newAmount
+                                            paymentWithSplits.splits.forEach { split ->
+                                                val key = Pair(split.userId, currency)
+                                                val currentAmount =
+                                                    spentByUserAndCurrency[key] ?: 0.0
+                                                val newAmount = currentAmount + split.amount
+                                                spentByUserAndCurrency[key] = newAmount
 
-                                            Log.d("MemberSummary", """
+                                                Log.d(
+                                                    "MemberSummary", """
                                                         Split details:
                                                         - User ID: ${split.userId}
                                                         - Split Amount: ${split.amount}
                                                         - Running Total: $newAmount
-                                                    """.trimIndent())
+                                                    """.trimIndent()
+                                                )
+                                            }
                                         }
-                                    }
 
-                                // Log spent totals
-                                Log.d("MemberSummary", "Final spent totals by user and currency:")
-                                spentByUserAndCurrency.forEach { (key, amount) ->
+                                    // Log spent totals
                                     Log.d(
                                         "MemberSummary",
-                                        "User ${key.first} in ${key.second}: $amount"
+                                        "Final spent totals by user and currency:"
                                     )
-                                }
-
-                                // Calculate paid by each user
-                                val paidByUserAndCurrency = filteredPayments
-                                    .filter { it.payment.paymentType != "transferred" } // Exclude transferred payments
-                                    .groupBy { Pair(it.payment.paidByUserId, it.payment.currency ?: "Unknown") }
-                                    .mapValues { (_, payments) ->
-                                        payments.sumOf { it.payment.amount }
+                                    spentByUserAndCurrency.forEach { (key, amount) ->
+                                        Log.d(
+                                            "MemberSummary",
+                                            "User ${key.first} in ${key.second}: $amount"
+                                        )
                                     }
-                                    .also { paidMap ->
-                                        Log.d("MemberSummary", "Paid totals by user and currency:")
-                                        paidMap.forEach { (key, amount) ->
-                                            Log.d("MemberSummary", "User ${key.first} in ${key.second}: $amount")
+
+                                    // Calculate paid by each user
+                                    val paidByUserAndCurrency = filteredPayments
+                                        .filter { it.payment.paymentType != "transferred" } // Exclude transferred payments
+                                        .groupBy {
+                                            Pair(
+                                                it.payment.paidByUserId,
+                                                it.payment.currency ?: defaultCurrency
+                                            )
                                         }
-                                    }
+                                        .mapValues { (_, payments) ->
+                                            payments.sumOf { it.payment.amount }
+                                        }
+                                        .also { paidMap ->
+                                            Log.d(
+                                                "MemberSummary",
+                                                "Paid totals by user and currency:"
+                                            )
+                                            paidMap.forEach { (key, amount) ->
+                                                Log.d(
+                                                    "MemberSummary",
+                                                    "User ${key.first} in ${key.second}: $amount"
+                                                )
+                                            }
+                                        }
 
-                                // Get unique sets
-                                val allUserIds = paidByUserAndCurrency.keys.map { it.first }
-                                    .union(spentByUserAndCurrency.keys.map { it.first })
-                                val allCurrencies = paidByUserAndCurrency.keys.map { it.second }
-                                    .union(spentByUserAndCurrency.keys.map { it.second })
+                                    // Get unique sets
+                                    val allUserIds = paidByUserAndCurrency.keys.map { it.first }
+                                        .union(spentByUserAndCurrency.keys.map { it.first })
+                                    val allCurrencies = paidByUserAndCurrency.keys.map { it.second }
+                                        .union(spentByUserAndCurrency.keys.map { it.second })
+                                        .ifEmpty { setOf(defaultCurrency) } // Use default currency if none found
 
-                                Log.d(
-                                    "MemberSummary", """
+                                    Log.d(
+                                        "MemberSummary", """
                                         Summary totals:
                                         - Total unique users: ${allUserIds.size}
                                         - User IDs: $allUserIds
                                         - Currencies: $allCurrencies
                                     """.trimIndent()
-                                )
+                                    )
 
-                                // Show both spent and paid for each user
-                                allUserIds.forEach { userId ->
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 8.dp)
-                                    ) {
-                                        val username =
-                                            groupMembers.find { it.userId == userId }?.username
-                                                ?: "User $userId"
-                                        Log.d(
-                                            "MemberSummary",
-                                            "Processing user: $username (ID: $userId)"
-                                        )
-
+                                    if (allUserIds.isEmpty()) {
                                         Text(
-                                            text = username,
-                                            style = MaterialTheme.typography.titleSmall
+                                            "No member activity in this period",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            modifier = Modifier.padding(vertical = 8.dp),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
-
-                                        allCurrencies.forEach { currency ->
-                                            val spent =
-                                                spentByUserAndCurrency[Pair(userId, currency)]
-                                                    ?: 0.0
-                                            val paid =
-                                                paidByUserAndCurrency[Pair(userId, currency)] ?: 0.0
-                                            val net = paid - spent
-
-                                            Log.d(
-                                                "MemberSummary", """
-                                                    User $username ($userId) in $currency:
-                                                    - Spent: $spent
-                                                    - Paid: $paid
-                                                    - Net: $net
-                                                """.trimIndent()
-                                            )
-
-                                            if (spent != 0.0 || paid != 0.0) {
-                                                Text(
-                                                    currency,
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.secondary
+                                    } else {
+                                        // Show both spent and paid for each user
+                                        allUserIds.forEach { userId ->
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(vertical = 8.dp)
+                                            ) {
+                                                val username =
+                                                    groupMembers.find { it.userId == userId }?.username
+                                                        ?: "User $userId"
+                                                Log.d(
+                                                    "MemberSummary",
+                                                    "Processing user: $username (ID: $userId)"
                                                 )
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.SpaceBetween
-                                                ) {
-                                                    Column {
+
+                                                Text(
+                                                    text = username,
+                                                    style = MaterialTheme.typography.titleSmall
+                                                )
+
+                                                allCurrencies.forEach { currency ->
+                                                    val spent =
+                                                        spentByUserAndCurrency[Pair(
+                                                            userId,
+                                                            currency
+                                                        )]
+                                                            ?: 0.0
+                                                    val paid =
+                                                        paidByUserAndCurrency[Pair(
+                                                            userId,
+                                                            currency
+                                                        )] ?: 0.0
+                                                    val net = paid - spent
+
+                                                    Log.d(
+                                                        "MemberSummary", """
+                                                        User $username ($userId) in $currency:
+                                                        - Spent: $spent
+                                                        - Paid: $paid
+                                                        - Net: $net
+                                                    """.trimIndent()
+                                                    )
+
+                                                    // Always show currency row regardless of zero amounts
+                                                    Text(
+                                                        currency,
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.secondary
+                                                    )
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.SpaceBetween
+                                                    ) {
+                                                        Column {
+                                                            Text(
+                                                                "Spent: ${
+                                                                    abs(spent).formatAsCurrency(
+                                                                        currency
+                                                                    )
+                                                                }",
+                                                                style = MaterialTheme.typography.bodyMedium
+                                                            )
+                                                            Text(
+                                                                "Paid: ${
+                                                                    abs(paid).formatAsCurrency(
+                                                                        currency
+                                                                    )
+                                                                }",
+                                                                style = MaterialTheme.typography.bodyMedium,
+                                                                color = MaterialTheme.colorScheme.primary
+                                                            )
+                                                        }
+
                                                         Text(
-                                                            // Show 0 instead of empty when amount is 0
-                                                            "Spent: ${if (spent == 0.0) "0.00".formatAsCurrency(currency) else abs(spent).formatAsCurrency(currency)}",
-                                                            style = MaterialTheme.typography.bodyMedium
-                                                        )
-                                                        Text(
-                                                            "Paid: ${if (paid == 0.0) "0.00".formatAsCurrency(currency) else abs(paid).formatAsCurrency(currency)}",
+                                                            net.formatAsCurrency(currency),
                                                             style = MaterialTheme.typography.bodyMedium,
-                                                            color = MaterialTheme.colorScheme.primary
+                                                            color = if (net >= 0)
+                                                                MaterialTheme.colorScheme.primary
+                                                            else
+                                                                MaterialTheme.colorScheme.error
                                                         )
                                                     }
-
-                                                    Text(
-                                                        // Show 0 for net amount as well
-                                                        if (net == 0.0) "0.00".formatAsCurrency(currency) else net.formatAsCurrency(currency),
-                                                        style = MaterialTheme.typography.bodyMedium,
-                                                        color = if (net >= 0)
-                                                            MaterialTheme.colorScheme.primary
-                                                        else
-                                                            MaterialTheme.colorScheme.error
-                                                    )
                                                 }
                                             }
+                                            Spacer(modifier = Modifier.height(8.dp))
                                         }
                                     }
-                                    Divider()
                                 }
                             }
                         }
@@ -639,4 +752,3 @@ fun GroupTotalsScreen(
         }
     }
 }
-

@@ -33,6 +33,7 @@ import com.helgolabs.trego.ui.viewmodels.TransactionViewModel
 import com.helgolabs.trego.ui.viewmodels.UserPreferencesViewModel
 import com.helgolabs.trego.ui.viewmodels.UserViewModel
 import com.helgolabs.trego.utils.AppCoroutineDispatchers
+import com.helgolabs.trego.utils.ColorSchemeCache
 import com.helgolabs.trego.utils.EntityServerConverter
 import com.helgolabs.trego.utils.NetworkUtils
 import com.helgolabs.trego.utils.NetworkUtils.hasNetworkCapabilities
@@ -43,6 +44,7 @@ import com.helgolabs.trego.workers.CacheCleanupWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class MyApplication : Application(), Configuration.Provider {
     lateinit var viewModelFactory: AppViewModelFactory
@@ -111,6 +113,10 @@ class MyApplication : Application(), Configuration.Provider {
         reviewManager = PlayStoreReviewManager(applicationContext)
         FirebaseApp.initializeApp(this)
 
+        applicationScope.launch {
+            ColorSchemeCache.initialize(this@MyApplication)
+        }
+
         if (isTestMode()) {
             WorkManagerTestInitHelper.initializeTestWorkManager(this)
         } else {
@@ -138,6 +144,7 @@ class MyApplication : Application(), Configuration.Provider {
 
         setupViewModelFactory()
         SyncUtils.initialize(this)
+
     }
 
 

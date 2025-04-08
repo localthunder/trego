@@ -60,6 +60,9 @@ android {
 
 dependencies {
 
+    implementation("com.google.android.material:material:1.12.0")
+    implementation("com.materialkolor:material-color-utilities:2.1.1")
+    implementation("com.materialkolor:material-kolor:2.1.1")
     val composeBom = platform("androidx.compose:compose-bom:2025.02.00")
     implementation(composeBom)
     testImplementation(composeBom)
@@ -173,5 +176,6 @@ dependencies {
     //In app updates
     implementation ("com.google.android.play:app-update:2.1.0")
     implementation ("com.google.android.play:app-update-ktx:2.1.0")
+
 
 }

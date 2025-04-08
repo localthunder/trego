@@ -16,8 +16,8 @@ fun GlobalFAB(
 ) {
     ExtendedFloatingActionButton(
         onClick = onClick,
-        containerColor = MaterialTheme.colorScheme.primary,
-        contentColor = MaterialTheme.colorScheme.onPrimary,
+        containerColor = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
         modifier = modifier.padding(16.dp),
         icon = { icon() },
         text = { Text(text) }

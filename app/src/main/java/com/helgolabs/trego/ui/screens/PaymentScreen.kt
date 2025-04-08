@@ -406,6 +406,12 @@ fun PaymentScreen(
                                     PayerDropdown(paymentsViewModel, userId, users)
                                     Text("to")
                                     RecipientDropdown(paymentsViewModel, userId, users)
+                                } else if (editablePayment?.paymentType == "received"){
+                                    PaymentTypeDropdown(paymentsViewModel)
+                                    Text("by")
+                                    PayerDropdown(paymentsViewModel, userId, users)
+                                    Text("and shared")
+                                    SplitModeDropdown(paymentsViewModel)
                                 } else {
                                     PaymentTypeDropdown(paymentsViewModel)
                                     Text("by")
