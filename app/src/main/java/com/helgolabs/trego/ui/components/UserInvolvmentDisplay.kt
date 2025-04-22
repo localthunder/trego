@@ -55,6 +55,16 @@ fun UserInvolvementDisplay(
                 "You paid",
                 abs(involvement.amount)
             )
+            is UserInvolvement.SentTransfer -> Triple(
+                Color(0xFF2196F3),  // Blue
+                "You sent",
+                abs(involvement.amount)
+            )
+            is UserInvolvement.ReceivedTransfer -> Triple(
+                Color(0xFF9C27B0),  // Purple
+                "You were sent",
+                abs(involvement.amount)
+            )
             is UserInvolvement.NotInvolved -> Triple(
                 Color.Gray,
                 "You're not involved",

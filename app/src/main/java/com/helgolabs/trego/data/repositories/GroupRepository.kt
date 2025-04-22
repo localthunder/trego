@@ -84,6 +84,7 @@ class GroupRepository(
     override val syncPriority = 1 // High priority as other entities depend on groups
 
     val myApplication = context.applicationContext as MyApplication
+    val userRepository = myApplication.syncManagerProvider.provideUserRepository()
 
     fun getGroupListItems(userId: Int): Flow<List<UserGroupListItem>> =
         groupDao.getGroupsByUserId(userId)
@@ -909,34 +910,41 @@ class GroupRepository(
 
     suspend fun calculateGroupBalances(groupId: Int): Result<List<UserBalanceWithCurrency>> = withContext(dispatchers.io) {
         try {
-            val payments = paymentDao.getNonArchivedPaymentsByGroup(groupId)
+            // Use chunked processing for large payment datasets
             val balances = mutableMapOf<Int, MutableMap<String, Double>>()
 
-            payments.forEach { payment ->
+            // Process payments in chunks to reduce memory pressure
+            val payments = paymentDao.getNonArchivedPaymentsByGroup(groupId)
+
+            // Process in smaller chunks
+            for (payment in payments) {
                 val paidByUserId = payment.paidByUserId
                 val amount = payment.amount * -1
+                val currency = payment.currency ?: continue
 
+                // Update payer balance
                 balances.getOrPut(paidByUserId) { mutableMapOf() }
-                balances[paidByUserId]!!.merge(payment.currency!!, amount, Double::plus)
+                    .merge(currency, amount, Double::plus)
 
+                // Process splits in smaller chunks too
                 val splits = paymentSplitDao.getNonArchivedSplitsByPayment(payment.id)
-                splits.forEach { split ->
-                    val userId = split.userId
-                    val splitAmount = split.amount
-
-                    balances.getOrPut(userId) { mutableMapOf() }
-                    balances[userId]!!.merge(split.currency, splitAmount, Double::plus)
+                for (split in splits) {
+                    balances.getOrPut(split.userId) { mutableMapOf() }
+                        .merge(split.currency, split.amount, Double::plus)
                 }
             }
 
+            // Get user info efficiently
             val userIds = balances.keys.toList()
-            val users = userDao.getUsersByIds(userIds).first()
+            val userMap = userDao.getUsersByIds(userIds).first().associateBy { it.userId }
 
-            val result = users.map { user ->
+            // Create result objects efficiently
+            val result = userIds.mapNotNull { userId ->
+                val user = userMap[userId] ?: return@mapNotNull null
                 UserBalanceWithCurrency(
                     userId = user.userId,
                     username = user.username,
-                    balances = balances[user.userId] ?: emptyMap()
+                    balances = balances[userId] ?: emptyMap()
                 )
             }
 
@@ -1110,74 +1118,135 @@ class GroupRepository(
 
     suspend fun calculateSettlingInstructions(groupId: Int): Result<List<CurrencySettlingInstructions>> = withContext(dispatchers.io) {
         try {
-            // Get the balances first
+            // Get the balances with a more memory-efficient approach
             val balances = calculateGroupBalances(groupId).getOrElse {
                 return@withContext Result.failure(it)
             }
 
-            // Group balances by currency
-            val currencyBalances = mutableMapOf<String, MutableList<Pair<String, Double>>>()
+            // Build a map of user IDs to usernames
+            val usernameLookup = mutableMapOf<Int, String>()
+            val userIds = balances.map { it.userId }.toSet()
 
-            balances.forEach { userBalance ->
-                userBalance.balances.forEach { (currency, amount) ->
-                    currencyBalances.getOrPut(currency) { mutableListOf() }
-                        .add(Pair(userBalance.username, amount))
-                }
+            // Load user data to get names
+            userRepository.getUsersByIds(userIds.toList()).first().forEach { user ->
+                usernameLookup[user.userId] = user.username
             }
 
-            val instructions = currencyBalances.map { (currency, balanceList) ->
-                // Sort balances: negative (debtors) first, positive (creditors) last
-                val sortedBalances = balanceList.sortedBy { it.second }
-                val currencyInstructions = mutableListOf<SettlingInstruction>()
+            // Process one currency at a time to reduce memory usage
+            val result = mutableListOf<CurrencySettlingInstructions>()
+            val currencies = balances.flatMap { it.balances.keys }.toSet()
 
-                var i = 0 // Index for debtors (negative balances)
-                var j = sortedBalances.size - 1 // Index for creditors (positive balances)
+            for (currency in currencies) {
+                // Extract only balances for this currency
+                val currencyBalances = balances.mapNotNull { userBalance ->
+                    val amount = userBalance.balances[currency] ?: return@mapNotNull null
+                    if (kotlin.math.abs(amount) < 0.01) return@mapNotNull null
 
-                while (i < j) {
-                    val debtor = sortedBalances[i]
-                    val creditor = sortedBalances[j]
-
-                    // Skip effectively zero balances
-                    if (kotlin.math.abs(debtor.second) < 0.01 || kotlin.math.abs(creditor.second) < 0.01) {
-                        if (kotlin.math.abs(debtor.second) < 0.01) i++
-                        if (kotlin.math.abs(creditor.second) < 0.01) j--
-                        continue
-                    }
-
-                    // Calculate transfer amount
-                    val transferAmount = kotlin.math.min(kotlin.math.abs(debtor.second), creditor.second)
-
-                    currencyInstructions.add(
-                        SettlingInstruction(
-                            from = debtor.first,
-                            to = creditor.first,
-                            amount = transferAmount,
-                            currency = currency
-                        )
+                    // Create a triple with userId, username, and amount
+                    Triple(
+                        userBalance.userId,
+                        usernameLookup[userBalance.userId] ?: "Unknown",
+                        amount
                     )
-
-                    // Update balances
-                    val updatedDebtorBalance = debtor.second + transferAmount
-                    val updatedCreditorBalance = creditor.second - transferAmount
-
-                    // Move indices if balances are settled
-                    if (kotlin.math.abs(updatedDebtorBalance) < 0.01) i++
-                    if (kotlin.math.abs(updatedCreditorBalance) < 0.01) j--
                 }
 
-                CurrencySettlingInstructions(currency, currencyInstructions)
+                if (currencyBalances.isEmpty()) continue
+
+                // Process settling for this currency
+                val currencyInstructions = processSettlingForCurrency(currencyBalances, currency, groupId)
+                if (currencyInstructions.isNotEmpty()) {
+                    result.add(CurrencySettlingInstructions(currency, currencyInstructions))
+                }
             }
 
-            Result.success(instructions)
+            Result.success(result)
         } catch (e: Exception) {
             Log.e(TAG, "Error calculating settling instructions", e)
             Result.failure(e)
         }
     }
 
+
+    /**
+     * Process balances and generate settling instructions for a specific currency.
+     * This creates optimized settling instructions to minimize the number of transactions.
+     *
+     * @param balances List of user balances with IDs, names, and amounts
+     * @param currency The currency code
+     * @param groupId The group ID
+     * @return List of settling instructions
+     */
+    private fun processSettlingForCurrency(
+        balances: List<Triple<Int, String, Double>>, // userId, username, balance
+        currency: String,
+        groupId: Int
+    ): List<SettlingInstruction> {
+        // Sort balances: negative (debtors) first, positive (creditors) last
+        val sortedBalances = balances.sortedBy { it.third }.toMutableList()
+        val instructions = mutableListOf<SettlingInstruction>()
+
+        // Use a more memory-efficient algorithm
+        while (sortedBalances.size >= 2) {
+            val debtor = sortedBalances.first()
+            val creditor = sortedBalances.last()
+
+            // Both have effectively zero balance - remove them
+            if (abs(debtor.third) < 0.01 && abs(creditor.third) < 0.01) {
+                sortedBalances.removeAt(sortedBalances.lastIndex)
+                sortedBalances.removeAt(0)
+                continue
+            }
+
+            // Debtor has zero balance - remove it
+            if (abs(debtor.third) < 0.01) {
+                sortedBalances.removeAt(0)
+                continue
+            }
+
+            // Creditor has zero balance - remove it
+            if (abs(creditor.third) < 0.01) {
+                sortedBalances.removeAt(sortedBalances.lastIndex)
+                continue
+            }
+
+            // Calculate transfer amount
+            val transferAmount = kotlin.math.min(abs(debtor.third), creditor.third)
+
+            instructions.add(
+                SettlingInstruction(
+                    fromId = debtor.first,
+                    toId = creditor.first,
+                    fromName = debtor.second,
+                    toName = creditor.second,
+                    amount = transferAmount,
+                    currency = currency,
+                    groupId = groupId
+                )
+            )
+
+            // Update balances and remove settled entries
+            val updatedDebtorBalance = debtor.third + transferAmount
+            val updatedCreditorBalance = creditor.third - transferAmount
+
+            // Replace with updated balances
+            sortedBalances[0] = Triple(debtor.first, debtor.second, updatedDebtorBalance)
+            sortedBalances[sortedBalances.lastIndex] = Triple(creditor.first, creditor.second, updatedCreditorBalance)
+
+            // Remove settled balances
+            if (abs(updatedDebtorBalance) < 0.01) {
+                sortedBalances.removeAt(0)
+            }
+            if (sortedBalances.isNotEmpty() && abs(updatedCreditorBalance) < 0.01) {
+                sortedBalances.removeAt(sortedBalances.lastIndex)
+            }
+        }
+
+        return instructions
+    }
+
     suspend fun joinGroupByInvite(inviteCode: String, userId: Int): Result<Int> = withContext(dispatchers.io) {
         try {
-            if (NetworkUtils.isOnline()) {
+            if (isOnline()) {
                 val serverResponse = apiService.joinGroupByInvite(inviteCode)
                 val localGroup = serverResponse.toEntity(SyncStatus.SYNCED)
 

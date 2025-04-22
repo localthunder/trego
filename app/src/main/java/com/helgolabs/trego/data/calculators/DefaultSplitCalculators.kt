@@ -31,40 +31,45 @@ class DefaultSplitCalculator : SplitCalculator {
         currentTime: String
     ): List<PaymentSplitEntity> {
         val numSplits = splits.size
+        if (numSplits == 0) return emptyList()
+
+        // Calculate the base amount per split with FLOOR to ensure we don't exceed the total
         val perSplitBD = targetAmount
             .divide(BigDecimal(numSplits), 2, RoundingMode.FLOOR)
-            .abs()
-            .multiply(BigDecimal(if (targetAmount >= BigDecimal.ZERO) 1 else -1))
 
-        val totalWithBaseSplits = perSplitBD.multiply(BigDecimal(numSplits))
-        val remainingAmount = targetAmount.subtract(totalWithBaseSplits)
-        val centsDifference = remainingAmount
+        // Calculate the initial total with the floored amounts
+        val initialTotal = perSplitBD.multiply(BigDecimal(numSplits))
+
+        // Calculate the difference (what needs to be distributed as pennies)
+        val difference = targetAmount.subtract(initialTotal)
+
+        // Convert difference to pennies (cents)
+        val pennies = difference
             .multiply(BigDecimal(100))
             .setScale(0, RoundingMode.HALF_UP)
-            .abs()
-            .intValueExact()
+            .toInt()
 
-        return splits
-            .sortedBy { it.userId }
-            .mapIndexed { index, split ->
-                val adjustedAmount = if (index < centsDifference) {
-                    if (targetAmount <= BigDecimal.ZERO) {
-                        perSplitBD.add(BigDecimal("0.01"))
-                    } else {
-                        perSplitBD.subtract(BigDecimal("0.01"))
-                    }
-                } else {
-                    perSplitBD
-                }
+        // Sort splits to ensure consistent distribution
+        // We'll adjust the first 'pennies' splits by adding one penny to each
+        val sortedSplits = splits.sortedBy { it.userId }
 
-                split.copy(
-                    currency = targetCurrency,
-                    amount = adjustedAmount.toDouble(),
-                    updatedAt = currentTime,
-                    updatedBy = userId,
-                    syncStatus = SyncStatus.PENDING_SYNC
-                )
+        return sortedSplits.mapIndexed { index, split ->
+            // Determine if this split gets an extra penny
+            val adjustedAmount = if (index < pennies) {
+                perSplitBD.add(BigDecimal("0.01"))
+            } else {
+                perSplitBD
             }
+
+            // Create the adjusted split
+            split.copy(
+                currency = targetCurrency,
+                amount = adjustedAmount.toDouble(),
+                updatedAt = currentTime,
+                updatedBy = userId,
+                syncStatus = SyncStatus.PENDING_SYNC
+            )
+        }
     }
 
     private fun calculateUnequalSplits(

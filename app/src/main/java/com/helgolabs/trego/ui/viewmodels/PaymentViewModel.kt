@@ -9,6 +9,7 @@ import com.helgolabs.trego.data.calculators.DefaultSplitCalculator
 import com.helgolabs.trego.data.calculators.SplitCalculator
 import com.helgolabs.trego.data.extensions.toModel
 import com.helgolabs.trego.data.local.dataClasses.PaymentEntityWithSplits
+import com.helgolabs.trego.data.local.dataClasses.SettlingInstruction
 import com.helgolabs.trego.data.local.dataClasses.UserInvolvement
 import com.helgolabs.trego.data.local.entities.GroupEntity
 import com.helgolabs.trego.data.local.entities.GroupMemberEntity
@@ -23,6 +24,7 @@ import com.helgolabs.trego.data.model.Payment
 import com.helgolabs.trego.data.model.PaymentSplit
 import com.helgolabs.trego.data.model.Transaction
 import com.helgolabs.trego.data.model.User
+import com.helgolabs.trego.data.network.ExchangeRateService
 import com.helgolabs.trego.data.repositories.InstitutionRepository
 import com.helgolabs.trego.data.repositories.TransactionRepository
 import com.helgolabs.trego.data.repositories.UserRepository
@@ -44,6 +46,7 @@ import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import java.time.Instant
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 class PaymentsViewModel(
@@ -71,6 +74,12 @@ class PaymentsViewModel(
 
     private val _groupPaymentsAndSplits = MutableStateFlow<List<PaymentEntityWithSplits>>(emptyList())
     val groupPaymentsAndSplits = _groupPaymentsAndSplits.asStateFlow()
+
+    private val _exchangeRate = MutableStateFlow<Double?>(null)
+    val exchangeRate: StateFlow<Double?> = _exchangeRate.asStateFlow()
+
+    private val _exchangeRateDate = MutableStateFlow<String?>(null)
+    val exchangeRateDate: StateFlow<String?> = _exchangeRateDate.asStateFlow()
 
     private val _loading = MutableStateFlow(false)
     val loading = _loading.asStateFlow()
@@ -975,6 +984,78 @@ class PaymentsViewModel(
         }
     }
 
+    fun recordSettlementPayment(instruction: SettlingInstruction) {
+        viewModelScope.launch {
+            try {
+                _paymentScreenState.update { it.copy(
+                    paymentOperationStatus = PaymentOperationStatus.Loading
+                )}
+
+                // Create a payment entity with type "transferred"
+                val paymentToCreate = PaymentEntity(
+                    id = 0,
+                    groupId = instruction.groupId,
+                    paidByUserId = instruction.fromId,  // The person sending the money
+                    transactionId = null,
+                    amount = instruction.amount,
+                    description = "Settlement payment from ${instruction.fromName} to ${instruction.toName}",
+                    notes = "Record of a settlement payment that was completed outside of this app",
+                    paymentDate = DateUtils.getCurrentTimestamp(),
+                    currency = instruction.currency,
+                    splitMode = "equally",
+                    paymentType = "transferred",
+                    institutionId = null,
+                    createdBy = userId ?: 0,
+                    updatedBy = userId ?: 0,
+                    createdAt = DateUtils.getCurrentTimestamp(),
+                    updatedAt = DateUtils.getCurrentTimestamp(),
+                    deletedAt = null
+                )
+
+                // Create a single split for the recipient
+                val recipientSplit = PaymentSplitEntity(
+                    id = 0,
+                    paymentId = 0,  // Will be set by createPaymentWithSplits
+                    userId = instruction.toId,  // The person receiving the money
+                    amount = instruction.amount,
+                    currency = instruction.currency,
+                    createdAt = DateUtils.getCurrentTimestamp(),
+                    updatedAt = DateUtils.getCurrentTimestamp(),
+                    createdBy = userId ?: 0,
+                    updatedBy = userId ?: 0,
+                    deletedAt = null
+                )
+
+                paymentRepository.createPaymentWithSplits(paymentToCreate, listOf(recipientSplit))
+                    .onSuccess { savedPayment ->
+                        _paymentScreenState.update { currentState ->
+                            currentState.copy(
+                                paymentOperationStatus = PaymentOperationStatus.Success
+                            )
+                        }
+
+                        // Notify that the payment was successful
+                        _navigationState.value = NavigationState.NavigateBack
+                    }
+                    .onFailure { error ->
+                        Log.e("PaymentsVM", "Failed to save settlement payment", error)
+                        _paymentScreenState.update { currentState ->
+                            currentState.copy(
+                                paymentOperationStatus = PaymentOperationStatus.Error(error.message ?: "Unknown error")
+                            )
+                        }
+                    }
+            } catch (e: Exception) {
+                Log.e("PaymentsVM", "Exception recording settlement payment", e)
+                _paymentScreenState.update { currentState ->
+                    currentState.copy(
+                        paymentOperationStatus = PaymentOperationStatus.Error(e.message ?: "Unknown error")
+                    )
+                }
+            }
+        }
+    }
+
     // Add this function to reset navigation state
     fun resetNavigationState() {
         _navigationState.value = NavigationState.Idle
@@ -1118,14 +1199,19 @@ class PaymentsViewModel(
                         }
                     }
 
-                    // Case 2: Transfer payment
+                    // Case 2: Transfer payment - separate into sent vs received
                     payment.paymentType == "transferred" -> {
                         Log.d("PaymentsVM", "This is a transfer payment")
+                        val transferAmount = Math.abs(payment.amount)
 
-                        // If user is the recipient in a transfer
-                        if (splits.any { it.userId == userId }) {
-                            Log.d("PaymentsVM", "User is recipient of transfer")
-                            emit(UserInvolvement.Borrowed(Math.abs(payment.amount)))
+                        if (payment.paidByUserId == userId) {
+                            // User is the sender of the transfer
+                            Log.d("PaymentsVM", "User sent this transfer")
+                            emit(UserInvolvement.SentTransfer(transferAmount))
+                        } else if (splits.any { it.userId == userId }) {
+                            // User is the recipient of the transfer
+                            Log.d("PaymentsVM", "User received this transfer")
+                            emit(UserInvolvement.ReceivedTransfer(transferAmount))
                         } else {
                             Log.d("PaymentsVM", "User is not involved in this transfer")
                             emit(UserInvolvement.NotInvolved)
@@ -1252,6 +1338,7 @@ class PaymentsViewModel(
                     toCurrency = targetCurrency,
                     paymentId = currentPayment.id,
                     userId = userId,
+                    paymentDate = currentPayment.paymentDate,
                     customExchangeRate = customRate
                 )
 
@@ -1319,6 +1406,27 @@ class PaymentsViewModel(
                         e.message ?: "An unexpected error occurred"
                     )
                 )}
+            }
+        }
+    }
+
+    fun fetchExchangeRate(fromCurrency: String, toCurrency: String, paymentDate: String?) {
+        viewModelScope.launch {
+            try {
+                _exchangeRate.value = null
+                _exchangeRateDate.value = null
+
+                // Call your existing repository method to get exchange rate information
+                paymentRepository.getExchangeRateInfo(
+                    fromCurrency = fromCurrency,
+                    toCurrency = toCurrency,
+                    paymentDate = paymentDate
+                ).onSuccess { rateInfo ->
+                    _exchangeRate.value = rateInfo.rate
+                    _exchangeRateDate.value = rateInfo.date
+                }
+            } catch (e: Exception) {
+                Log.e("PaymentsViewModel", "Error fetching exchange rate", e)
             }
         }
     }

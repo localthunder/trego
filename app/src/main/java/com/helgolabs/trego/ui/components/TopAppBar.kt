@@ -5,7 +5,11 @@ import android.os.Build
 import android.view.WindowInsetsController
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -24,7 +28,9 @@ fun GlobalTopAppBar(
     actions: @Composable RowScope.() -> Unit = {},
     userPreferencesViewModel: UserPreferencesViewModel? = null,
     systemInDarkTheme: Boolean = isSystemInDarkTheme(),
-    isTransparent: Boolean = false
+    isTransparent: Boolean = false,
+    showBackButton: Boolean = false,
+    onBackClick: () -> Unit = {}
 ) {
     val activity = LocalContext.current as Activity
 
@@ -54,6 +60,17 @@ fun GlobalTopAppBar(
     // Transparent Top App Bar
     TopAppBar(
         title = { title() },
+        navigationIcon = {
+            if (showBackButton) {
+                IconButton(onClick = onBackClick) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Go back",
+                        tint = contentColor
+                    )
+                }
+            }
+        },
         actions = { actions() },
         colors = TopAppBarDefaults.topAppBarColors(
             containerColor = backgroundColor,

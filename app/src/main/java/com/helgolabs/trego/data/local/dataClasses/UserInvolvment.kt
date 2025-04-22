@@ -5,5 +5,7 @@ sealed class UserInvolvement {
     data class Borrowed(val amount: Double) : UserInvolvement()
     data class Lent(val amount: Double) : UserInvolvement()
     data class Paid(val amount: Double) : UserInvolvement()
+    data class SentTransfer(val amount: Double) : UserInvolvement()
+    data class ReceivedTransfer(val amount: Double) : UserInvolvement()
     object NotInvolved : UserInvolvement()
 }

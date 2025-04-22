@@ -1,12 +1,14 @@
 package com.helgolabs.trego.ui.screens
 
 import android.content.Context
+import android.graphics.Paint
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -14,6 +16,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.times
@@ -25,6 +29,7 @@ import com.helgolabs.trego.data.local.dataClasses.UserBalanceWithCurrency
 import com.helgolabs.trego.ui.components.GlobalTopAppBar
 import com.helgolabs.trego.ui.theme.AnimatedDynamicThemeProvider
 import com.helgolabs.trego.ui.viewmodels.GroupViewModel
+import com.helgolabs.trego.utils.getCurrencySymbol
 import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.math.max
@@ -39,156 +44,154 @@ fun GroupBalancesScreen(
     val balances by groupViewModel.groupBalances.collectAsStateWithLifecycle()
     val loading by groupViewModel.loading.collectAsStateWithLifecycle()
     val error by groupViewModel.error.collectAsStateWithLifecycle()
+    val groupDetailsState by groupViewModel.groupDetailsState.collectAsStateWithLifecycle()
+    val groupColorScheme = groupDetailsState.groupColorScheme
 
     LaunchedEffect(groupId) {
         groupViewModel.fetchGroupBalances(groupId)
     }
+    AnimatedDynamicThemeProvider(groupId, groupColorScheme) {
 
-    Scaffold(
-        topBar = {
-            GlobalTopAppBar(title = { Text("Group Balances") })
-        },
-        content = { padding ->
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(vertical = 8.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Top
-            ) {
-                when {
-                    loading -> {
-                        item {
-                            CircularProgressIndicator(
-                                modifier = Modifier.padding(top = 24.dp)
-                            )
-                        }
-                    }
-                    error != null -> {
-                        item {
-                            Text(
-                                "Error: $error",
-                                color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.padding(16.dp)
-                            )
-                        }
-                    }
-                    else -> {
-                        // Chart section at the top
-                        item {
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                                elevation = CardDefaults.cardElevation(2.dp)
-                            ) {
-                                // Add the vertical center bar chart - make sure to use the new component
-                                ChristmasTreeBarChart(balances = balances)
+        Scaffold(
+            topBar = {
+                GlobalTopAppBar(title = { Text("Group Balances") })
+            },
+            content = { padding ->
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .padding(vertical = 8.dp, horizontal = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Top
+                ) {
+                    when {
+                        loading -> {
+                            item {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.padding(top = 24.dp)
+                                )
                             }
                         }
 
-                        // Detailed balances section header
-                        item {
-                            Text(
-                                text = "Detailed Balances",
-                                style = MaterialTheme.typography.titleMedium,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                            )
+                        error != null -> {
+                            item {
+                                Text(
+                                    "Error: $error",
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(16.dp)
+                                )
+                            }
                         }
 
-                        // Individual balance items
-                        items(balances) { balance ->
-                            DetailedBalanceItem(balance = balance)
+                        else -> {
+                            // Chart section at the top
+                            item {
+                                // Add the vertical center bar chart - make sure to use the new component
+                                ChristmasTreeBarChart(balances = balances)
+
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                            }
+
+                            // Detailed balances section header
+                            item {
+                                Text(
+                                    text = "Detailed Balances",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 8.dp, vertical = 8.dp)
+                                )
+                            }
+
+                            // Individual balance items
+                            items(balances) { balance ->
+                                DetailedBalanceItem(balance = balance)
+                            }
                         }
                     }
                 }
             }
-        }
-    )
+        )
+    }
 }
 
 @Composable
 fun DetailedBalanceItem(balance: UserBalanceWithCurrency) {
-    Card(
+    Column(
         modifier = Modifier
-            .fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(2.dp)
+            .fillMaxWidth()
+            .padding(8.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-        ) {
-            // Username header
-            Text(
-                text = balance.username,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+        // Username header
+        Text(
+            text = balance.username,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
 
-            Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-            // Individual currency balances
-            balance.balances.forEach { (currency, amount) ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = currency,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                    )
-
-                    Text(
-                        text = "%.2f".format(amount),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = when {
-                            amount > 0 -> MaterialTheme.colorScheme.primary
-                            amount < 0 -> MaterialTheme.colorScheme.error
-                            else -> MaterialTheme.colorScheme.onSurface
-                        }
-                    )
-                }
-            }
-
-            // Total summary if multiple currencies
-            if (balance.balances.size > 1) {
-                Divider(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp)
+        // Individual currency balances
+        balance.balances.forEach { (currency, amount) ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = currency,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                 )
 
-                val total = balance.balances.values.sum()
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Total",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold,
-                        )
+                val currencySymbol = getCurrencySymbol(currency)
 
-                    Text(
-                        text = "%.2f".format(total),
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = when {
-                            total > 0 -> MaterialTheme.colorScheme.primary
-                            total < 0 -> MaterialTheme.colorScheme.error
-                            else -> MaterialTheme.colorScheme.onSurface
-                        }
+                Text(
+                    text = currencySymbol+"%.2f".format(amount),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = when {
+                        amount > 0 -> MaterialTheme.colorScheme.primary
+                        amount < 0 -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.onSurface
+                    }
+                )
+            }
+        }
+
+        // Total summary if multiple currencies
+        if (balance.balances.size > 1) {
+            Divider(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+            )
+
+            val total = balance.balances.values.sum()
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Total",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
                     )
-                }
+
+                Text(
+                    text = "%.2f".format(total),
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = when {
+                        total > 0 -> MaterialTheme.colorScheme.primary
+                        total < 0 -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.onSurface
+                    }
+                )
             }
         }
     }
@@ -199,14 +202,14 @@ fun ChristmasTreeBarChart(
     balances: List<UserBalanceWithCurrency>,
     modifier: Modifier = Modifier
 ) {
-    // Process balances data - convert to single balance value per user
+    // Process balances data - convert to single balance value per user and sort
     val sortedBalances = balances.map { balance ->
         val total = balance.balances.values.sum()
-        balance.username to total
-    }.sortedBy { it.second } // Sort from negative to positive
+        val currency = if (balance.balances.size == 1) balance.balances.keys.first() else "GBP"
+        Triple(balance.username, total, currency)
+    }.sortedBy { abs(it.second) }
 
     val maxAbsBalance = sortedBalances.maxOfOrNull { abs(it.second) } ?: 1.0
-    val labelThreshold = 50.dp // Minimum bar width to show label inside
 
     // Animation state
     var animationStarted by remember { mutableStateOf(false) }
@@ -218,18 +221,19 @@ fun ChristmasTreeBarChart(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-
         // Chart container with vertical center line
-        Box(modifier = Modifier
-            .wrapContentHeight()
+        Box(
+            modifier = Modifier
+                .wrapContentHeight()
+                .fillMaxWidth()
         ) {
             // Vertical center line
             Box(
                 modifier = Modifier
-                    .width(2.dp)
+                    .width(1.dp)
                     .fillMaxHeight()
                     .align(Alignment.Center)
                     .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
@@ -237,10 +241,13 @@ fun ChristmasTreeBarChart(
 
             // Bars
             Column(
-                modifier = Modifier.wrapContentHeight().fillMaxWidth(),
+                modifier = Modifier
+                    .wrapContentHeight()
+                    .fillMaxWidth()
+                    .padding(start = 84.dp), // Make space for usernames on the left
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                sortedBalances.forEach { (username, balance) ->
+                sortedBalances.forEach { (username, balance, currency) ->
                     val targetFraction = abs(balance) / maxAbsBalance
                     val animatedFraction by animateFloatAsState(
                         targetValue = if (animationStarted) targetFraction.toFloat() else 0f,
@@ -248,10 +255,38 @@ fun ChristmasTreeBarChart(
                         label = "BarAnimation"
                     )
 
+                    // Get currency symbol and format value
+                    val currencySymbol = getCurrencySymbol(currency)
+                    val formattedValue = "$currencySymbol${String.format("%.2f", abs(balance))}"
+
+                    // Get the configuration and density
+                    val configuration = LocalConfiguration.current
+                    val density = LocalDensity.current
+
+                    // Calculate the bar width in dp
+                    val halfScreenWidth = configuration.screenWidthDp / 2.0
+                    val barWidthDp = (animatedFraction * 0.98f * halfScreenWidth).dp
+
+                    // Get the text width in dp
+                    val textStyle = MaterialTheme.typography.labelMedium
+                    val textSizePx = with(density) { 12.sp.toPx() }
+                    val paint = Paint().apply {
+                        textSize = textSizePx
+                    }
+                    val textWidthPx = paint.measureText(formattedValue)
+                    val textWidthDp = with(density) { textWidthPx.toDp() }
+
+                    // Add padding for text (8dp on each side)
+                    val textWidthWithPadding = textWidthDp + 16.dp
+
+                    // Compare actual width with the fully animated bar width
+                    // Use a safety margin of 1.2x the text width to ensure comfortable fit
+                    val labelFitsInside = barWidthDp > (textWidthWithPadding * 1.2f)
+
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(32.dp),
+                            .height(48.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         // Left side (negative values)
@@ -262,63 +297,62 @@ fun ChristmasTreeBarChart(
                             contentAlignment = Alignment.CenterEnd
                         ) {
                             if (balance < 0) {
-                                // Calculate animated width
-                                val barWidth = animatedFraction * 0.98f // 98% of available space
+                                // Calculate the position for outside label
+                                val outsideLabelPosition = with(density) {
+                                    // Calculate the position where the bar ends
+                                    val barEndPosition = (halfScreenWidth * animatedFraction * 0.98f).dp
+                                    // Position just outside the bar
+                                    barEndPosition + 4.dp
+                                }
 
-                                Row(
+                                // Draw the bar first without any label
+                                Box(
                                     modifier = Modifier
                                         .fillMaxHeight()
-                                        .fillMaxWidth(barWidth)
+                                        .fillMaxWidth(animatedFraction * 0.98f)
                                         .background(
                                             MaterialTheme.colorScheme.error,
-                                            shape = MaterialTheme.shapes.small
-                                        ),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.End
-                                ) {
-                                    // Check if bar is wide enough for internal label
-                                    val widthInDp = with(LocalDensity.current) {
-                                        (barWidth * (LocalConfiguration.current.screenWidthDp.dp / 2))
-                                    }
+                                            shape = RoundedCornerShape(
+                                                topStart = 4.dp,
+                                                bottomStart = 4.dp,
+                                                topEnd = 0.dp,
+                                                bottomEnd = 0.dp
+                                            )
+                                        )
+                                )
 
-                                    if (widthInDp > labelThreshold) {
+                                // Draw the appropriate label
+                                if (labelFitsInside) {
+                                    // Inside label
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.CenterEnd
+                                    ) {
                                         Text(
-                                            text = "%.2f".format(balance),
+                                            text = "-$formattedValue",
                                             fontSize = 12.sp,
                                             color = MaterialTheme.colorScheme.onError,
                                             modifier = Modifier.padding(end = 8.dp)
                                         )
                                     }
-                                }
-
-                                // External label for small bars
-                                if (barWidth < 0.25f) {
-                                    Text(
-                                        text = "%.2f".format(balance),
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.padding(end = 4.dp)
-                                    )
+                                } else {
+                                    // Outside label - positioned to the right of the bar
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.CenterEnd
+                                    ) {
+                                        Text(
+                                            text = "-$formattedValue",  // Add negative sign back for outside labels
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.padding(
+                                                start = 0.dp,
+                                                end = with(density) { ((animatedFraction * halfScreenWidth * 0.98f)).dp }
+                                            )
+                                        )
+                                    }
                                 }
                             }
-                        }
-
-                        // Center with username
-                        Box(
-                            modifier = Modifier.width(100.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = username,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier
-                                    .background(
-                                        MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
-                                        shape = MaterialTheme.shapes.small
-                                    )
-                                    .padding(horizontal = 4.dp, vertical = 2.dp)
-                            )
                         }
 
                         // Right side (positive values)
@@ -329,94 +363,84 @@ fun ChristmasTreeBarChart(
                             contentAlignment = Alignment.CenterStart
                         ) {
                             if (balance > 0) {
-                                // Calculate animated width
-                                val barWidth = animatedFraction * 0.98f // 98% of available space
-
-                                Row(
+                                // Draw the bar first without any label
+                                Box(
                                     modifier = Modifier
                                         .fillMaxHeight()
-                                        .fillMaxWidth(barWidth)
+                                        .fillMaxWidth(animatedFraction * 0.98f)
                                         .background(
                                             MaterialTheme.colorScheme.primary,
-                                            shape = MaterialTheme.shapes.small
-                                        ),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Start
-                                ) {
-                                    // Check if bar is wide enough for internal label
-                                    val widthInDp = with(LocalDensity.current) {
-                                        (barWidth * (LocalConfiguration.current.screenWidthDp.dp / 2))
-                                    }
+                                            shape = RoundedCornerShape(
+                                                topStart = 0.dp,
+                                                bottomStart = 0.dp,
+                                                topEnd = 4.dp,
+                                                bottomEnd = 4.dp
+                                            )
+                                        )
+                                )
 
-                                    if (widthInDp > labelThreshold) {
+                                // Draw the appropriate label
+                                if (labelFitsInside) {
+                                    // Inside label
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.CenterStart
+                                    ) {
                                         Text(
-                                            text = "%.2f".format(balance),
+                                            text = formattedValue,
                                             fontSize = 12.sp,
                                             color = MaterialTheme.colorScheme.onPrimary,
                                             modifier = Modifier.padding(start = 8.dp)
                                         )
                                     }
-                                }
-
-                                // External label for small bars
-                                if (barWidth < 0.25f) {
-                                    Text(
-                                        text = "%.2f".format(balance),
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.padding(start = 4.dp)
-                                    )
+                                } else {
+                                    // Outside label - positioned to the right of the bar
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.CenterStart
+                                    ) {
+                                        Text(
+                                            text = formattedValue,
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(
+                                                start = with(density) { (animatedFraction * halfScreenWidth * 0.98f).dp }
+                                            )
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
-        }
 
-        // Legend
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Negative (You owe) legend
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(end = 16.dp)
+            // Usernames on the left side
+            Column(
+                modifier = Modifier
+                    .wrapContentHeight()
+                    .width(80.dp)
+                    .align(Alignment.TopStart),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .width(12.dp)
-                        .height(12.dp)
-                        .background(MaterialTheme.colorScheme.error, shape = MaterialTheme.shapes.small)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = "You owe",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-
-            // Positive (Owed to you) legend
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(start = 16.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .width(12.dp)
-                        .height(12.dp)
-                        .background(MaterialTheme.colorScheme.primary, shape = MaterialTheme.shapes.small)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = "Owed to you",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                // Add usernames in the same order as the bars
+                sortedBalances.forEach { (username, _, _) ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        Text(
+                            text = username,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                    }
+                }
             }
         }
     }

@@ -4,6 +4,8 @@ import android.content.Context
 import android.icu.text.NumberFormat
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -71,7 +73,10 @@ import com.helgolabs.trego.utils.CurrencyUtils
 import com.helgolabs.trego.utils.DateUtils
 import com.helgolabs.trego.utils.getCurrencySymbol
 import com.helgolabs.trego.utils.getUserIdFromPreferences
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.*
 
 @Composable
@@ -86,7 +91,6 @@ fun PaymentScreen(
     val myApplication = context.applicationContext as MyApplication
     val paymentsViewModel: PaymentsViewModel = viewModel(factory = myApplication.viewModelFactory)
     val userViewModel: UserViewModel = viewModel(factory = myApplication.viewModelFactory)
-    val paymentRepository = myApplication.paymentRepository
     val transactionRepository = myApplication.transactionRepository
     val reviewManager = myApplication.reviewManager
     val coroutineScope = rememberCoroutineScope()
@@ -98,6 +102,8 @@ fun PaymentScreen(
     val screenState by paymentsViewModel.paymentScreenState.collectAsState()
     val users by userViewModel.users.collectAsState(emptyList())
     val navigationState by paymentsViewModel.navigationState.collectAsState()
+    val group = paymentsViewModel.getGroup()
+    val groupDefaultCurrency = group?.defaultCurrency ?: "GBP"
     var showCurrencySheet by remember { mutableStateOf(false) }
 
     val editablePayment = screenState.editablePayment
@@ -114,6 +120,38 @@ fun PaymentScreen(
 
     // Split section reference for scrolling
     val splitSectionKey = remember { Any() }
+
+    // Exchange rates for previewing conversion rates and amounts
+    val exchangeRate by paymentsViewModel.exchangeRate.collectAsState(null)
+    val exchangeRateDate by paymentsViewModel.exchangeRateDate.collectAsState(null)
+    var showConversionSheetTrigger by remember { mutableStateOf(false) }
+    var showSaveBeforeConvertDialog by remember { mutableStateOf(false) }
+    var showConversionSheetAfterSave by remember { mutableStateOf(false) }
+
+    // For handling unsaved changes
+    var showUnsavedChangesDialog by remember { mutableStateOf(false) }
+    var pendingNavigationAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+
+    // Function to check for unsaved changes before navigation
+    fun checkUnsavedChangesBeforeNavigation(navigateAction: () -> Unit) {
+        val hasUnsavedChanges = screenState.payment != screenState.editablePayment ||
+                screenState.splits != screenState.editableSplits
+
+        if (hasUnsavedChanges) {
+            pendingNavigationAction = navigateAction
+            showUnsavedChangesDialog = true
+        } else {
+            // No changes, just navigate
+            navigateAction()
+        }
+    }
+
+    // Handle system back button/gesture
+    BackHandler {
+        checkUnsavedChangesBeforeNavigation {
+            navController.popBackStack()
+        }
+    }
 
     // When the split section is focused, ensure we scroll to it
     LaunchedEffect(isSplitSectionFocused) {
@@ -218,19 +256,48 @@ fun PaymentScreen(
     LaunchedEffect(navigationState) {
         when (navigationState) {
             is PaymentsViewModel.NavigationState.NavigateBack -> {
-                // If payment was successful (check paymentOperationStatus)
+                // If payment was saved successfully
                 if (screenState.paymentOperationStatus is PaymentsViewModel.PaymentOperationStatus.Success) {
-                    // Show review prompt
-                    activity?.let {
-                        coroutineScope.launch {
-                            reviewManager.maybeAskForReview(it)
+                    // If we were in the "save then convert" flow
+                    if (showConversionSheetAfterSave) {
+                        showConversionSheetAfterSave = false
+                        paymentsViewModel.resetNavigationState()
+
+                        // Fetch exchange rate and trigger sheet display
+                        paymentsViewModel.fetchExchangeRate(
+                            fromCurrency = screenState.payment?.currency ?: "GBP",
+                            toCurrency = groupDefaultCurrency,
+                            paymentDate = screenState.payment?.paymentDate
+                        )
+
+                        // Trigger showing the sheet
+                        showConversionSheetTrigger = true
+                    } else {
+                        // Normal save completion - show review and go back
+                        activity?.let {
+                            coroutineScope.launch {
+                                reviewManager.maybeAskForReview(it)
+                            }
                         }
+                        navController.popBackStack()
+                        paymentsViewModel.resetNavigationState()
                     }
+                } else {
+                    // If save failed, just navigate back
+                    navController.popBackStack()
+                    paymentsViewModel.resetNavigationState()
                 }
-                navController.popBackStack()
-                paymentsViewModel.resetNavigationState()
             }
             else -> {}
+        }
+    }
+
+    // Reset trigger once the ConvertCurrencyButton has processed it
+    LaunchedEffect(showConversionSheetTrigger) {
+        if (showConversionSheetTrigger) {
+            // Give the component time to process the trigger
+            delay(100)
+            showConversionSheetTrigger = false
         }
     }
 
@@ -357,7 +424,7 @@ fun PaymentScreen(
                                 Spacer(modifier = Modifier.width(8.dp))
 
                                 GlobalDatePickerDialog(
-                                    date = editablePayment?.paymentDate.toString() ?: "",
+                                    date = DateUtils.extractDatePart(editablePayment?.paymentDate),
                                     enabled = !screenState.isTransaction,
                                     onDateChange = { newDate ->
                                         paymentsViewModel.processAction(
@@ -424,8 +491,6 @@ fun PaymentScreen(
 
                         //Convert currency button
                         if (editablePayment != null && editablePayment.id != 0) {  // Check if this is an existing payment
-                            val group = paymentsViewModel.getGroup()
-                            val groupDefaultCurrency = group?.defaultCurrency ?: "GBP"
 
                             if (editablePayment.currency != groupDefaultCurrency) {
                                 ConvertCurrencyButton(
@@ -434,6 +499,25 @@ fun PaymentScreen(
                                     amount = editablePayment.amount,
                                     isConverting = screenState.isConverting,
                                     conversionError = screenState.conversionError,
+                                    exchangeRate = exchangeRate,
+                                    rateDate = exchangeRateDate?.let { DateUtils.formatForDisplay(it) },
+                                    onPrepareConversion = {
+                                        val hasUnsavedChanges = screenState.payment != screenState.editablePayment ||
+                                                screenState.splits != screenState.editableSplits
+
+                                        if (hasUnsavedChanges) {
+                                            showSaveBeforeConvertDialog = true
+                                            false // Don't show the sheet yet
+                                        } else {
+                                            // No changes, proceed with conversion
+                                            paymentsViewModel.fetchExchangeRate(
+                                                fromCurrency = editablePayment.currency ?: "GBP",
+                                                toCurrency = groupDefaultCurrency,
+                                                paymentDate = editablePayment.paymentDate
+                                            )
+                                            true // Show the sheet
+                                        }
+                                    },
                                     onConvertClicked = { confirmed, customRate ->
                                         if (confirmed) {
                                             paymentsViewModel.convertPaymentCurrency(
@@ -442,6 +526,7 @@ fun PaymentScreen(
                                             )
                                         }
                                     },
+                                    showSheetTrigger = showConversionSheetTrigger, // Connect to our trigger
                                     modifier = Modifier.padding(start = 8.dp)
                                 )
                             }
@@ -536,6 +621,98 @@ fun PaymentScreen(
                             }
                         )
                     }
+            }
+        )
+    }
+    // And the dialog itself
+    if (showUnsavedChangesDialog) {
+        AlertDialog(
+            onDismissRequest = { showUnsavedChangesDialog = false },
+            title = { Text("Unsaved Changes") },
+            text = { Text("You have unsaved changes. What would you like to do?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showUnsavedChangesDialog = false
+                        paymentsViewModel.savePayment() // This usually triggers navigation when done
+                    }
+                ) {
+                    Text("Save Changes")
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(
+                        onClick = {
+                            showUnsavedChangesDialog = false
+                            pendingNavigationAction?.invoke()
+                        }
+                    ) {
+                        Text("Discard")
+                    }
+                    TextButton(
+                        onClick = {
+                            showUnsavedChangesDialog = false
+                        }
+                    ) {
+                        Text("Cancel")
+                    }
+                }
+            }
+        )
+    }
+    if (showSaveBeforeConvertDialog) {
+        AlertDialog(
+            onDismissRequest = { showSaveBeforeConvertDialog = false },
+            title = { Text("Unsaved Changes") },
+            text = { Text("You have unsaved changes. Would you like to save them before converting the currency?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showSaveBeforeConvertDialog = false
+
+                        // Perform save
+                        paymentsViewModel.savePayment()
+
+                        // Observer NavigationState.NavigateBack will handle this
+                        // We'll set a flag to know we should show the conversion sheet after save
+                        showConversionSheetAfterSave = true
+                    }
+                ) {
+                    Text("Save & Convert")
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(
+                        onClick = {
+                            showSaveBeforeConvertDialog = false
+
+                            // Discard changes
+                            paymentsViewModel.resetEditableState(userId ?: 0)
+
+                            // Fetch exchange rate and show the conversion sheet
+                            paymentsViewModel.fetchExchangeRate(
+                                fromCurrency = screenState.payment?.currency ?: "GBP",
+                                toCurrency = groupDefaultCurrency,
+                                paymentDate = screenState.payment?.paymentDate
+                            )
+
+                            // Immediately trigger showing the sheet
+                            showConversionSheetTrigger = true
+                        }
+                    ) {
+                        Text("Discard Changes")
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    TextButton(
+                        onClick = {
+                            showSaveBeforeConvertDialog = false
+                        }
+                    ) {
+                        Text("Cancel")
+                    }
+                }
             }
         )
     }
@@ -917,6 +1094,32 @@ fun WrappedGroupMemberSplits(
         onDispose {
             // Clear focus state when component is removed from composition
             onFocusChange(false)
+        }
+    }
+}
+
+@Composable
+fun BackHandler(enabled: Boolean = true, onBack: () -> Unit) {
+    val backDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+    val currentOnBack by rememberUpdatedState(onBack)
+
+    val backCallback = remember {
+        object : OnBackPressedCallback(enabled) {
+            override fun handleOnBackPressed() {
+                currentOnBack()
+            }
+        }
+    }
+
+    // Update the enabled state
+    SideEffect {
+        backCallback.isEnabled = enabled
+    }
+
+    DisposableEffect(backDispatcher) {
+        backDispatcher?.addCallback(backCallback)
+        onDispose {
+            backCallback.remove()
         }
     }
 }

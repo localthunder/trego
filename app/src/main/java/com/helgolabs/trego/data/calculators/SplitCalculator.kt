@@ -17,10 +17,19 @@ interface SplitCalculator {
 
     companion object {
         fun verifySplits(splits: List<PaymentSplitEntity>, targetAmount: BigDecimal): Boolean {
-            val splitSum = splits.sumOf {
-                it.amount.toBigDecimal().setScale(2, RoundingMode.HALF_UP)
-            }
-            return splitSum == targetAmount
+            if (splits.isEmpty()) return targetAmount == BigDecimal.ZERO
+
+            // Sum up the splits, ensuring consistent rounding
+            val splitSum = splits
+                .map { it.amount.toBigDecimal().setScale(2, RoundingMode.HALF_UP) }
+                .fold(BigDecimal.ZERO) { acc, amount -> acc.add(amount) }
+                .setScale(2, RoundingMode.HALF_UP)
+
+            // Compare with target amount, allowing a very tiny difference due to floating point
+            val targetRounded = targetAmount.setScale(2, RoundingMode.HALF_UP)
+
+            // Check if they are equal or extremely close (difference less than 0.01)
+            return splitSum.subtract(targetRounded).abs() < BigDecimal("0.01")
         }
 
         fun verifyEqualDistribution(splits: List<PaymentSplitEntity>): Boolean {

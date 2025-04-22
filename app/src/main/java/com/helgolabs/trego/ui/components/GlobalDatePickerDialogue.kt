@@ -1,5 +1,6 @@
 package com.helgolabs.trego.ui.components
 
+import android.util.Log
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +19,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
@@ -34,6 +36,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
+// In GlobalDatePickerDialog.kt
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GlobalDatePickerDialog(
@@ -41,7 +44,7 @@ fun GlobalDatePickerDialog(
     enabled: Boolean,
     onDateChange: (String) -> Unit,
     modifier: Modifier = Modifier
-    ) {
+) {
     // State for controlling the dialog
     var showDatePicker by remember { mutableStateOf(false) }
 
@@ -94,11 +97,22 @@ fun GlobalDatePickerDialog(
 
     // Date picker dialog
     if (showDatePicker) {
+        val today = LocalDate.now()
+
         val datePickerState = rememberDatePickerState(
             initialSelectedDateMillis = initialDate
                 .atStartOfDay(ZoneId.systemDefault())
                 .toInstant()
-                .toEpochMilli()
+                .toEpochMilli(),
+            selectableDates = object : SelectableDates {
+                override fun isSelectableDate(utcTimeMillis: Long): Boolean {
+                    // Don't allow future dates
+                    val date = Instant.ofEpochMilli(utcTimeMillis)
+                        .atZone(ZoneId.systemDefault())
+                        .toLocalDate()
+                    return !date.isAfter(today)
+                }
+            }
         )
 
         DatePickerDialog(

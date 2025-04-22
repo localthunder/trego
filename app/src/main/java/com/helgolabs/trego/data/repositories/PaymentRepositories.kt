@@ -17,6 +17,7 @@ import com.helgolabs.trego.data.local.dao.TransactionDao
 import com.helgolabs.trego.data.local.dataClasses.BatchConversionResult
 import com.helgolabs.trego.data.local.dataClasses.ConversionAttempt
 import com.helgolabs.trego.data.local.dataClasses.CurrencyConversionResult
+import com.helgolabs.trego.data.local.dataClasses.ExchangeRateInfo
 import com.helgolabs.trego.data.local.dataClasses.PaymentEntityWithSplits
 import com.helgolabs.trego.data.local.dataClasses.PaymentWithSplits
 import com.helgolabs.trego.data.local.entities.CurrencyConversionEntity
@@ -916,30 +917,97 @@ class PaymentRepository(
         return timeSinceLastSync > SYNC_INTERVAL || metadata.syncStatus != SyncStatus.SYNCED
     }
 
+    suspend fun getExchangeRateInfo(
+        fromCurrency: String,
+        toCurrency: String,
+        paymentDate: String?
+    ): Result<ExchangeRateInfo> {
+        return try {
+            // Convert String date to LocalDate if provided
+            val localDate = paymentDate?.let { dateStr ->
+                try {
+                    val parsedDate = java.time.LocalDate.parse(
+                        dateStr.substring(0, 10),
+                        java.time.format.DateTimeFormatter.ISO_DATE
+                    )
+                    parsedDate
+                } catch (e: Exception) {
+                    null
+                }
+            }
+
+            // Use your existing ExchangeRateService to get the rate
+            val exchangeRateService = ExchangeRateService()
+            val rateResult = exchangeRateService.getExchangeRate(
+                fromCurrency = fromCurrency,
+                toCurrency = toCurrency,
+                date = localDate
+            )
+
+            rateResult.map { rate ->
+                // Date is either the requested date or today's date if it was null/auto-fetched
+                val dateStr = localDate?.toString() ?: DateUtils.getCurrentDate()
+                ExchangeRateInfo(rate, dateStr)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun convertCurrency(
         amount: Double,
         fromCurrency: String,
         toCurrency: String,
         paymentId: Int? = null,
         userId: Int? = null,
+        paymentDate: String? = null,
         customExchangeRate: Double? = null
     ): Result<CurrencyConversionResult> = withContext(dispatchers.io) {
         try {
+            Log.d(TAG, "Starting currency conversion with parameters:")
+            Log.d(TAG, "Amount: $amount, From: $fromCurrency, To: $toCurrency")
+            Log.d(TAG, "Payment date: $paymentDate, Payment ID: $paymentId, User ID: $userId")
+
             // Get exchange rate either from custom input or service
             val (rateResult, rateSource) = if (customExchangeRate != null) {
+                Log.d(TAG, "Using custom exchange rate: $customExchangeRate")
                 Pair(customExchangeRate, "user_$userId")
             } else {
                 val exchangeRateService = ExchangeRateService()
+
+                // Convert String date to LocalDate if provided
+                val localDate = paymentDate?.let { dateStr ->
+                    try {
+                        // Use your DateUtils to parse the date string
+                        val parsedDate = java.time.LocalDate.parse(
+                            dateStr.substring(0, 10),
+                            java.time.format.DateTimeFormatter.ISO_DATE
+                        )
+                        Log.d(TAG, "Successfully parsed payment date: $dateStr to LocalDate: $parsedDate")
+                        parsedDate
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error parsing payment date: $dateStr", e)
+                        Log.w(TAG, "Falling back to current date for exchange rate lookup")
+                        null // Fall back to current date if parsing fails
+                    }
+                }
+
+                Log.d(TAG, "Requesting exchange rate for date: ${localDate ?: "Current date (no date provided)"}")
+
                 val rate = exchangeRateService.getExchangeRate(
                     fromCurrency = fromCurrency,
-                    toCurrency = toCurrency
+                    toCurrency = toCurrency,
+                    date = localDate
                 ).getOrNull() ?: return@withContext Result.failure(
                     Exception("Could not get exchange rate")
                 )
+
+                Log.d(TAG, "Retrieved exchange rate: $rate for date: ${localDate ?: "Current date"}")
                 Pair(rate, "ECB/ExchangeRatesAPI")
             }
 
             val convertedAmount = amount * rateResult
+            Log.d(TAG, "Conversion result: $amount $fromCurrency → $convertedAmount $toCurrency (rate: $rateResult)")
 
             // If paymentId and userId are provided, handle the conversion
             if (paymentId != null && userId != null) {
@@ -1051,11 +1119,25 @@ class PaymentRepository(
                 try {
                     val fromCurrency = payment.currency ?: "GBP"
 
+                    // Convert payment date to LocalDate
+                    val localDate = try {
+                        payment.paymentDate?.let { dateStr ->
+                            java.time.LocalDate.parse(
+                                dateStr.substring(0, 10),
+                                java.time.format.DateTimeFormatter.ISO_DATE
+                            )
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error parsing payment date", e)
+                        null
+                    }
+
                     // Get exchange rate from service
                     val exchangeRateService = ExchangeRateService()
                     val rate = exchangeRateService.getExchangeRate(
                         fromCurrency = fromCurrency,
-                        toCurrency = targetCurrency
+                        toCurrency = targetCurrency,
+                        date = localDate
                     ).getOrNull()
 
                     if (rate == null) {

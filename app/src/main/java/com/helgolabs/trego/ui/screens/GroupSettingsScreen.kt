@@ -77,7 +77,9 @@ fun GroupSettingsScreen(
 
     // UI state variables
     var editingGroupName by remember { mutableStateOf(false) }
+    var editingGroupDescription by remember { mutableStateOf(false) }
     var groupName by remember(group) { mutableStateOf(group?.name ?: "") }
+    var groupDescription by remember(group) { mutableStateOf(group?.description ?: "") }
     var showCurrencySheet by remember { mutableStateOf(false) }
     var showAddMembersSheet by remember { mutableStateOf(false) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
@@ -109,24 +111,9 @@ fun GroupSettingsScreen(
     // Initialize data
     LaunchedEffect(groupId) {
         Log.d("GroupSettings", "Loading group details for groupId: $groupId")
-//        groupViewModel.initializeGroupDetails(groupId)
-//        groupViewModel.loadGroupDefaultSplits(groupId)
-//        delay(100) // Small delay to ensure UI is ready
-//        groupViewModel.extractGroupImageColors(context)
+
         Log.e("Group Settings: ", "$groupColorScheme")
     }
-
-//    //Initialize dynamic group color scheme
-//    LaunchedEffect(groupId) {
-//        groupViewModel.initializeGroupDetails(groupId)
-//        groupViewModel.loadGroupDetails(groupId)
-//
-////        Ensure color extraction is triggered
-//        delay(100) // Small delay to ensure UI is ready
-//        groupViewModel.extractGroupImageColors(context)
-//        Log.e("Group Settings: ", "$groupColorScheme")
-//
-//    }
 
     // Initialize percentages when members and splits are loaded
     LaunchedEffect(members, defaultSplits) {
@@ -187,6 +174,18 @@ fun GroupSettingsScreen(
         )
         groupViewModel.updateGroup(updatedGroup)
         editingGroupName = false
+    }
+
+    // Save group description
+    fun saveGroupDescription() {
+        if (group == null || groupDescription.isBlank()) return
+
+        val updatedGroup = group.copy(
+            description = groupDescription,
+            updatedAt = DateUtils.getCurrentTimestamp()
+        )
+        groupViewModel.updateGroup(updatedGroup)
+        editingGroupDescription = false
     }
 
     // Save split settings
@@ -309,6 +308,21 @@ fun GroupSettingsScreen(
                                     onCancel = { editingGroupName = false }
                                 )
                             }
+
+                            // Group description
+                            EditableField(
+                                label = "Description",
+                                value = group?.description ?: "Loading...",
+                                isEditing = editingGroupDescription,
+                                editedValue = groupDescription,
+                                onEditStart = {
+                                    editingGroupDescription = true
+                                    groupDescription = group?.description ?: ""
+                                },
+                                onValueChange = { groupDescription = it },
+                                onSave = { saveGroupDescription() },
+                                onCancel = { editingGroupDescription = false }
+                            )
 
                             val symbol =
                                 CurrencyUtils.currencySymbols[selectedCurrency] ?: selectedCurrency

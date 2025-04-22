@@ -80,42 +80,101 @@ class ExchangeRateService {
     /**
      * Gets the exchange rate between two currencies for a specific date
      */
-    suspend fun getExchangeRate(
-        fromCurrency: String,
-        toCurrency: String,
-        date: LocalDate? = null
-    ): Result<Double> = coroutineScope {
+    suspend fun getExchangeRate(fromCurrency: String, toCurrency: String, date: LocalDate? = null): Result<Double> {
         try {
-            // Check cache first
-            val cacheKey = "${fromCurrency}_${toCurrency}_${date ?: "latest"}"
-            rateCache.get(cacheKey)?.let {
-                return@coroutineScope Result.success(it)
+            // Use provided date or current date
+            val requestDate = date ?: LocalDate.now()
+
+            Log.d(TAG, "Getting exchange rate from $fromCurrency to $toCurrency for date $requestDate")
+
+            // First try: Try to get rates for the specific date
+            val ratesResult = if (requestDate == LocalDate.now()) {
+                // For current date, try current rates first
+                ECBExchangeRateApi.getCurrentExchangeRates()
+            } else {
+                // For historical dates, use historical API
+                ECBExchangeRateApi.getHistoricalExchangeRates(requestDate)
             }
 
-            // Try ECB first
-            val ecbResult = async { getEcbRate(fromCurrency, toCurrency, date) }
-            val rate = ecbResult.await().getOrNull()
+            // If the specific date fails or returns empty rates (e.g., weekend or holiday)
+            if (ratesResult.isFailure || ratesResult.getOrNull().isNullOrEmpty()) {
+                Log.d(TAG, "No rates available for $requestDate, falling back to recent rates")
 
-            if (rate != null) {
-                rateCache.put(cacheKey, rate)
-                return@coroutineScope Result.success(rate)
+                // Second try: For today's date, fall back to historical data which has the most recent
+                val fallbackResult = if (requestDate == LocalDate.now()) {
+                    // Use 90-day history to get the most recent rates
+                    val historicalRates = ECBExchangeRateApi.getHistoricalExchangeRates(
+                        requestDate.minusDays(7)  // Look back a week to ensure we get some rates
+                    ).getOrNull()
+
+                    // Find the most recent date with available rates
+                    if (historicalRates != null) {
+                        Result.success(historicalRates)
+                    } else {
+                        Result.failure(Exception("No recent exchange rates available"))
+                    }
+                } else {
+                    // For historical dates, try neighboring dates (previous business day)
+                    var searchDate = requestDate.minusDays(1)
+                    var foundRates: Map<String, Double>? = null
+
+                    // Try up to 5 previous days to find rates
+                    for (i in 0 until 5) {
+                        val prevDayRates = ECBExchangeRateApi.getHistoricalExchangeRates(searchDate).getOrNull()
+                        if (!prevDayRates.isNullOrEmpty()) {
+                            foundRates = prevDayRates
+                            break
+                        }
+                        searchDate = searchDate.minusDays(1)
+                    }
+
+                    if (foundRates != null) {
+                        Result.success(foundRates)
+                    } else {
+                        Result.failure(Exception("No exchange rates found for date range around $requestDate"))
+                    }
+                }
+
+                if (fallbackResult.isFailure) {
+                    return Result.failure(fallbackResult.exceptionOrNull()
+                        ?: Exception("Failed to get exchange rates"))
+                }
+
+                // Use the fallback rates
+                return calculateRate(fromCurrency, toCurrency, fallbackResult.getOrNull()!!)
             }
 
-            // Fallback to Exchange Rates API
-            val exchangeRatesResult = async {
-                getExchangeRatesApiRate(fromCurrency, toCurrency, date)
-            }
-            val fallbackRate = exchangeRatesResult.await().getOrNull()
-                ?: return@coroutineScope Result.failure(
-                    Exception("Could not get exchange rate from any provider")
-                )
-
-            rateCache.put(cacheKey, fallbackRate)
-            Result.success(fallbackRate)
+            // Use the rates from the specific date
+            return calculateRate(fromCurrency, toCurrency, ratesResult.getOrNull()!!)
         } catch (e: Exception) {
             Log.e(TAG, "Error getting exchange rate", e)
-            Result.failure(e)
+            return Result.failure(e)
         }
+    }
+
+    private fun calculateRate(fromCurrency: String, toCurrency: String, rates: Map<String, Double>): Result<Double> {
+        // Both currencies are the same, rate is 1:1
+        if (fromCurrency == toCurrency) {
+            return Result.success(1.0)
+        }
+
+        // Handle EUR as base currency (ECB provides rates with EUR as base)
+        if (fromCurrency == "EUR" && rates.containsKey(toCurrency)) {
+            return Result.success(rates[toCurrency]!!)
+        }
+
+        if (toCurrency == "EUR" && rates.containsKey(fromCurrency)) {
+            return Result.success(1.0 / rates[fromCurrency]!!)
+        }
+
+        // Cross-rate calculation: convert through EUR
+        if (rates.containsKey(fromCurrency) && rates.containsKey(toCurrency)) {
+            val fromToEur = 1.0 / rates[fromCurrency]!!
+            val eurToTarget = rates[toCurrency]!!
+            return Result.success(fromToEur * eurToTarget)
+        }
+
+        return Result.failure(Exception("Cannot calculate exchange rate from $fromCurrency to $toCurrency"))
     }
 
     private suspend fun getEcbRate(

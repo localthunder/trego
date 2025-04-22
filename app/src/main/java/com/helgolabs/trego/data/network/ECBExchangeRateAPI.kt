@@ -1,6 +1,8 @@
 package com.helgolabs.trego.data.network
 
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.w3c.dom.Document
 import org.w3c.dom.Element
 import org.w3c.dom.NodeList
@@ -24,17 +26,19 @@ object ECBExchangeRateApi {
      * @return Map of currency codes to exchange rates (base currency is EUR)
      */
     suspend fun getCurrentExchangeRates(): Result<Map<String, Double>> {
-        return try {
-            val response = fetchXmlFromUrl(CURRENT_RATES_URL)
-            val rates = parseExchangeRates(response)
-            if (rates.isEmpty()) {
-                Result.failure(Exception("No exchange rates found in the response"))
-            } else {
-                Result.success(rates)
+        return withContext(Dispatchers.IO) {
+            try {
+                val response = fetchXmlFromUrl(CURRENT_RATES_URL)
+                val rates = parseExchangeRates(response)
+                if (rates.isEmpty()) {
+                    Result.failure(Exception("No exchange rates found in the response"))
+                } else {
+                    Result.success(rates)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error fetching current exchange rates", e)
+                Result.failure(e)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error fetching current exchange rates", e)
-            Result.failure(e)
         }
     }
 
@@ -44,21 +48,23 @@ object ECBExchangeRateApi {
      * @return Map of currency codes to exchange rates for the specified date (base currency is EUR)
      */
     suspend fun getHistoricalExchangeRates(date: LocalDate): Result<Map<String, Double>> {
-        return try {
-            // Use 90-day history if date is within last 90 days, otherwise use full history
-            val isWithin90Days = date.isAfter(LocalDate.now().minusDays(90))
-            val url = if (isWithin90Days) HISTORICAL_90_DAYS_URL else HISTORICAL_RATES_URL
+        return withContext(Dispatchers.IO) {
+            try {
+                // Use 90-day history if date is within last 90 days, otherwise use full history
+                val isWithin90Days = date.isAfter(LocalDate.now().minusDays(90))
+                val url = if (isWithin90Days) HISTORICAL_90_DAYS_URL else HISTORICAL_RATES_URL
 
-            val response = fetchXmlFromUrl(url)
-            val rates = parseHistoricalExchangeRates(response, date)
-            if (rates.isEmpty()) {
-                Result.failure(Exception("No exchange rates found for date $date"))
-            } else {
-                Result.success(rates)
+                val response = fetchXmlFromUrl(url)
+                val rates = parseHistoricalExchangeRates(response, date)
+                if (rates.isEmpty()) {
+                    Result.failure(Exception("No exchange rates found for date $date"))
+                } else {
+                    Result.success(rates)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error fetching historical exchange rates for date $date", e)
+                Result.failure(e)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error fetching historical exchange rates for date $date", e)
-            Result.failure(e)
         }
     }
 
@@ -72,37 +78,41 @@ object ECBExchangeRateApi {
         startDate: LocalDate,
         endDate: LocalDate
     ): Result<Map<LocalDate, Map<String, Double>>> {
-        return try {
-            // Use 90-day history if entire range is within last 90 days, otherwise use full history
-            val isWithin90Days = startDate.isAfter(LocalDate.now().minusDays(90))
-            val url = if (isWithin90Days) HISTORICAL_90_DAYS_URL else HISTORICAL_RATES_URL
+        return withContext(Dispatchers.IO) {
+            try {
+                // Use 90-day history if entire range is within last 90 days, otherwise use full history
+                val isWithin90Days = startDate.isAfter(LocalDate.now().minusDays(90))
+                val url = if (isWithin90Days) HISTORICAL_90_DAYS_URL else HISTORICAL_RATES_URL
 
-            val response = fetchXmlFromUrl(url)
-            val rates = parseHistoricalExchangeRatesRange(response, startDate, endDate)
-            if (rates.isEmpty()) {
-                Result.failure(Exception("No exchange rates found for date range $startDate to $endDate"))
-            } else {
-                Result.success(rates)
+                val response = fetchXmlFromUrl(url)
+                val rates = parseHistoricalExchangeRatesRange(response, startDate, endDate)
+                if (rates.isEmpty()) {
+                    Result.failure(Exception("No exchange rates found for date range $startDate to $endDate"))
+                } else {
+                    Result.success(rates)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error fetching historical exchange rates for range $startDate to $endDate", e)
+                Result.failure(e)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error fetching historical exchange rates for range $startDate to $endDate", e)
-            Result.failure(e)
         }
     }
 
     private suspend fun fetchXmlFromUrl(urlString: String): String {
-        return try {
-            val url = URL(urlString)
-            val connection = url.openConnection() as HttpURLConnection
-            connection.requestMethod = "GET"
+        return withContext(Dispatchers.IO) {  // Move network call to IO dispatcher
+            try {
+                val url = URL(urlString)
+                val connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
 
-            val response = connection.inputStream.bufferedReader().use { it.readText() }
-            connection.disconnect()
+                val response = connection.inputStream.bufferedReader().use { it.readText() }
+                connection.disconnect()
 
-            response
-        } catch (e: Exception) {
-            Log.e(TAG, "Error fetching XML from $urlString", e)
-            throw e
+                response
+            } catch (e: Exception) {
+                Log.e(TAG, "Error fetching XML from $urlString", e)
+                throw e
+            }
         }
     }
 

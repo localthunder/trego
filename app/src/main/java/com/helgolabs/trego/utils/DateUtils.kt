@@ -212,4 +212,18 @@ object DateUtils {
             false
         }
     }
+
+    fun extractDatePart(timestamp: String?): String {
+        if (timestamp.isNullOrBlank()) return ""
+
+        return try {
+            parseTimestamp(timestamp)
+                .atZone(ZoneId.systemDefault())
+                .toLocalDate()
+                .format(DateTimeFormatter.ISO_DATE)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to extract date part from: $timestamp")
+            ""
+        }
+    }
 }
