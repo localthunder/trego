@@ -240,7 +240,6 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
                 navController = navController,
                 context = context,
                 groupId = groupId,
-                transactionRepository = transactionRepository
             )
         }
         composable(

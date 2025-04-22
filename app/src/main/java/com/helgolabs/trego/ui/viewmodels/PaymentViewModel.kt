@@ -1431,6 +1431,98 @@ class PaymentsViewModel(
         }
     }
 
+    // Add this function to your PaymentsViewModel.kt class
+
+    /**
+     * Process multiple transactions at once, creating payments with default settings
+     */
+    fun addMultipleTransactions(
+        transactions: List<Transaction>,
+        groupId: Int,
+        onComplete: (Result<Int>) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                Log.d(TAG, "Processing ${transactions.size} transactions as batch")
+                _paymentScreenState.update { it.copy(paymentOperationStatus = PaymentOperationStatus.Loading) }
+
+                // Get group info for defaults
+                val group = groupRepository.getGroupById(groupId).firstOrNull()
+                val defaultSplitMode = group?.defaultSplitMode ?: "equally"
+                val defaultCurrency = group?.defaultCurrency ?: "GBP"
+
+                // Get current user ID
+                val userId = this@PaymentsViewModel.userId ?: throw IllegalStateException("User not logged in")
+
+                // Process each transaction
+                var successCount = 0
+
+                for (transaction in transactions) {
+                    try {
+                        // Save transaction if needed
+                        transactionRepository.saveTransaction(transaction)
+
+                        // Determine payment type
+                        val paymentType = if (transaction.getEffectiveAmount() > 0) "received" else "spent"
+                        val paymentAmount = kotlin.math.abs(transaction.getEffectiveAmount())
+
+                        // Create payment entity
+                        val description = transaction.creditorName
+                            ?: transaction.remittanceInformationUnstructured
+                            ?: "Transaction ${transaction.transactionId?.takeLast(4) ?: ""}"
+
+                        val payment = PaymentEntity(
+                            id = 0,
+                            groupId = groupId,
+                            paidByUserId = userId,
+                            transactionId = transaction.transactionId,
+                            amount = paymentAmount,
+                            description = description,
+                            notes = transaction.remittanceInformationUnstructured ?: "",
+                            paymentDate = transaction.bookingDateTime ?: DateUtils.getCurrentTimestamp(),
+                            currency = transaction.getEffectiveCurrency() ?: defaultCurrency,
+                            splitMode = defaultSplitMode,
+                            paymentType = paymentType,
+                            institutionId = transaction.institutionId,
+                            createdBy = userId,
+                            updatedBy = userId,
+                            createdAt = DateUtils.getCurrentTimestamp(),
+                            updatedAt = DateUtils.getCurrentTimestamp(),
+                            deletedAt = null
+                        )
+
+                        // Create payment with empty splits (the repository will handle default splitting)
+                        paymentRepository.createPaymentWithSplits(payment, emptyList())
+                            .onSuccess {
+                                successCount++
+                            }
+                            .onFailure { error ->
+                                Log.e(TAG, "Failed to process transaction ${transaction.transactionId}", error)
+                            }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error processing transaction ${transaction.transactionId}", e)
+                    }
+                }
+
+                Log.d(TAG, "Batch processing complete. Processed $successCount/${transactions.size} transactions")
+
+                _paymentScreenState.update { it.copy(paymentOperationStatus = PaymentOperationStatus.Success) }
+
+                if (successCount > 0) {
+                    onComplete(Result.success(successCount))
+                } else {
+                    onComplete(Result.failure(Exception("Failed to process any transactions")))
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in batch transaction processing", e)
+                _paymentScreenState.update { it.copy(
+                    paymentOperationStatus = PaymentOperationStatus.Error(e.message ?: "Unknown error")
+                )}
+                onComplete(Result.failure(e))
+            }
+        }
+    }
+
     suspend fun syncPayments(): Result<Unit> {
         return try {
             // Your implementation here

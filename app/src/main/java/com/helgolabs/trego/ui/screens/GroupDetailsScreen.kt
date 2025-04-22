@@ -102,6 +102,7 @@ fun GroupDetailsScreen(
     val coroutineScope = rememberCoroutineScope()
     val isLoading = groupDetailsState.isLoading
     val group = groupDetailsState.group
+    val snackbarHostState = remember { SnackbarHostState() }
 
     val groupColorScheme = groupDetailsState.groupColorScheme
     val groupImage = groupDetailsState.groupImage
@@ -128,6 +129,23 @@ fun GroupDetailsScreen(
 
     LaunchedEffect(groupDetailsState.payments) {
         groupViewModel.checkCurrentUserBalance(groupId)
+    }
+
+    // 3. Check for messages from previous screen navigation
+    LaunchedEffect(Unit) {
+        // Get navigation arguments
+        val batchCount = navController.currentBackStackEntry
+            ?.savedStateHandle
+            ?.get<Int>("batchAddCount")
+
+        // If we received a batch count, show a snackbar
+        if (batchCount != null && batchCount > 0) {
+            snackbarHostState.showSnackbar(
+                message = "$batchCount expenses added successfully"
+            )
+            // Clear the argument after showing the snackbar
+            navController.currentBackStackEntry?.savedStateHandle?.remove<Int>("batchAddCount")
+        }
     }
 
     val launcher = rememberLauncherForActivityResult(
@@ -318,23 +336,9 @@ fun GroupDetailsScreen(
             ),
             containerColor = Color.Transparent, // Allow content behind status bar
             contentWindowInsets = WindowInsets(0, 0, 0, 0), // No insets for content - critical for edge-to-edge
-
-//            topBar = {
-//                GlobalTopAppBar(
-//                    title = {}, // Remove title
-//                    actions = {
-//                        IconButton(onClick = {
-//                            navController.navigate("groupSettings/${groupId}")
-//                        }) {
-//                            Icon(
-//                                imageVector = Icons.Default.Settings,
-//                                contentDescription = "Group Settings"
-//                            )
-//                        }
-//                    },
-//                    isTransparent = true
-//                )
-//            },
+            snackbarHost = {
+                SnackbarHost(hostState = snackbarHostState)
+            },
             floatingActionButton = {
                 GlobalFAB(
                     onClick = { navController.navigate("addExpense/$groupId") },
