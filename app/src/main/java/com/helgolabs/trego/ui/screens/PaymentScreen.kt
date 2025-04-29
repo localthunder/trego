@@ -3,6 +3,7 @@ package com.helgolabs.trego.ui.screens
 import android.content.Context
 import android.icu.text.NumberFormat
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
@@ -790,6 +791,13 @@ fun PaymentAmountField(
     val focusRequester = remember { FocusRequester() }
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused = interactionSource.collectIsFocusedAsState().value
+    val context = LocalContext.current
+
+    // Define maximum value constant
+    val MAX_AMOUNT = 9_999_999.99
+
+    // State to show error message
+    var showErrorMessage by remember { mutableStateOf(false) }
 
     // Use TextFieldValue to track both text content and cursor position
     var textFieldValue by remember { mutableStateOf(TextFieldValue()) }
@@ -834,6 +842,22 @@ fun PaymentAmountField(
 
         // Add just a small amount of padding for the cursor
         measuredWidth + 8.dp
+    }
+
+    // Handle error message display
+    LaunchedEffect(showErrorMessage) {
+        if (showErrorMessage) {
+            // Show error using Toast
+            Toast.makeText(
+                context,
+                "Amount cannot exceed ${NumberFormat.getCurrencyInstance().format(MAX_AMOUNT)}",
+                Toast.LENGTH_LONG
+            ).show()
+
+            // Reset the error state after showing message
+            delay(100)
+            showErrorMessage = false
+        }
     }
 
     // Initialize from provided amount
@@ -935,7 +959,35 @@ fun PaymentAmountField(
                     }
                 }
 
-                onAmountChange(numericValue)
+                // Check if the value exceeds the maximum
+                if (numericValue > MAX_AMOUNT) {
+                    // Show error message
+                    showErrorMessage = true
+
+                    // Format the maximum allowed value
+                    val maxValueStr = NumberFormat.getNumberInstance(Locale.US).apply {
+                        maximumFractionDigits = 2
+                        minimumFractionDigits = 2
+                    }.format(MAX_AMOUNT)
+
+                    // Update text field with max value
+                    textFieldValue = TextFieldValue(
+                        text = maxValueStr,
+                        selection = TextRange(maxValueStr.length)
+                    )
+
+                    // Notify listener with max value
+                    onAmountChange(MAX_AMOUNT)
+                } else {
+                    // Update with new text and adjusted cursor position
+                    textFieldValue = TextFieldValue(
+                        text = validInput,
+                        selection = TextRange(adjustedPosition)
+                    )
+
+                    // Notify listener with the new value
+                    onAmountChange(numericValue)
+                }
             }
         },
         textStyle = textStyle.copy(
