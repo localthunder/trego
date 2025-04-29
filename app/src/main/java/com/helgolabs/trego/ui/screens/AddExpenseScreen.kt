@@ -21,6 +21,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FilterAlt
+import androidx.compose.material.icons.filled.FilterAltOff
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -85,6 +87,9 @@ fun AddExpenseScreen(
     val userId = getUserIdFromPreferences(context)
     val hapticFeedback = LocalHapticFeedback.current
     val backDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+    val addedTransactionIds by transactionViewModel.addedTransactionIds.collectAsState(emptySet())
+    val showAlreadyAdded by transactionViewModel.showAlreadyAdded.collectAsState(true)
+    val filteredTransactions by transactionViewModel.filteredTransactions.collectAsState(emptyList())
 
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -104,6 +109,11 @@ fun AddExpenseScreen(
         initialFirstVisibleItemScrollOffset = savedScrollInfo.offset
     )
 
+    // Debugging launched effect
+    LaunchedEffect(transactions, addedTransactionIds, showAlreadyAdded) {
+        Log.d("AddExpenseScreen", "Transactions: ${transactions.size}, Added IDs: ${addedTransactionIds.size}, Showing Added: $showAlreadyAdded")
+    }
+
     // Save scroll position when the user scrolls or leaves the screen
     DisposableEffect(listState, groupId) {
         onDispose {
@@ -117,7 +127,7 @@ fun AddExpenseScreen(
         }
     }
 
-// Handle back button to exit selection mode when in selection mode
+    // Handle back button to exit selection mode when in selection mode
     DisposableEffect(isSelectionMode, backDispatcher) {
         // Define the exit function that the callback will use
         val exitSelection = {
@@ -145,16 +155,20 @@ fun AddExpenseScreen(
     val requisitionLink by institutionViewModel.requisitionLink.collectAsState()
 
     // Effect to load transactions and reauth states
-    LaunchedEffect(userId) {
-        isLoading = true
-        error = null
-
+    LaunchedEffect(userId, groupId) {
         try {
+            isLoading = true
+            error = null
+
             userId?.let { id ->
                 // Load transactions and reauth states concurrently
                 val transactionsDeferred = async { transactionViewModel.fetchTransactions(id) }
                 val reauthDeferred = async { transactionViewModel.getAccountsNeedingReauth(id) }
 
+                // Load already added transaction IDs for this group
+                transactionViewModel.loadAddedTransactionIds(groupId)
+
+                // Await other operations
                 transactions = transactionsDeferred.await() ?: emptyList()
                 accountsNeedingReauth = reauthDeferred.await()
             }
@@ -304,7 +318,24 @@ fun AddExpenseScreen(
             )
         } else {
             GlobalTopAppBar(
-                title = { Text("Add Expense", style = MaterialTheme.typography.headlineSmall) }
+                title = { Text("Add Expense", style = MaterialTheme.typography.headlineSmall) },
+                actions = {
+                    // Add filter toggle
+                    IconButton(
+                        onClick = { transactionViewModel.toggleShowAlreadyAdded() }
+                    ) {
+                        Icon(
+                            imageVector = if (showAlreadyAdded)
+                                Icons.Default.FilterAlt
+                            else
+                                Icons.Default.FilterAltOff,
+                            contentDescription = if (showAlreadyAdded)
+                                "Filter out already added transactions"
+                            else
+                                "Show all transactions"
+                        )
+                    }
+                }
             )
         }
     }
@@ -356,6 +387,23 @@ fun AddExpenseScreen(
                     groupId = groupId,
                     navController = navController
                 )
+
+                // Show filter indicator when filter is active
+                if (!showAlreadyAdded) {
+                    FilterChip(
+                        selected = true,
+                        onClick = { transactionViewModel.toggleShowAlreadyAdded() },
+                        label = { Text("Hiding already added") },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.FilterAlt,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -431,6 +479,14 @@ fun AddExpenseScreen(
                     }
                 }
 
+                val displayedTransactions = remember(transactions, addedTransactionIds, showAlreadyAdded) {
+                    if (showAlreadyAdded) {
+                        transactions
+                    } else {
+                        transactions.filter { it.transactionId !in addedTransactionIds }
+                    }
+                }
+
                 // Transactions Section
                 Box(
                     modifier = Modifier
@@ -465,48 +521,63 @@ fun AddExpenseScreen(
                                 state = listState,
                                 modifier = Modifier.fillMaxSize()
                             ) {
-                                items(
-                                    items = transactions,
-                                    key = { it.transactionId }
-                                ) { transaction ->
-                                    val isSelected = selectedTransactions.contains(transaction.transactionId)
-
-                                    // Use the SelectableTransactionItem component
-                                    TransactionItem(
-                                        transaction = transaction,
-                                        context = context,
-                                        isSelected = isSelected,
-                                        onClick = {
-                                            if (isSelectionMode) {
-                                                // Toggle selection when in selection mode
-                                                toggleSelection(transaction.transactionId)
-                                            } else {
-                                                // Normal navigation when not in selection mode
-                                                handleTransactionClick(
-                                                    transaction,
-                                                    groupId,
-                                                    navController,
-                                                    transactionViewModel,
-                                                    coroutineScope
-                                                )
-                                            }
-                                        },
-                                        onLongClick = {
-                                            // Provide haptic feedback
-                                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-
-                                            // Enter selection mode if not already in it
-                                            if (!isSelectionMode) {
-                                                isSelectionMode = true
-                                                selectedTransactions = setOf(transaction.transactionId)
-                                            } else {
-                                                // Toggle selection if already in selection mode
-                                                toggleSelection(transaction.transactionId)
-                                            }
+                                if (displayedTransactions.isEmpty() && !isLoading) {
+                                    item {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 32.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = if (transactions.isEmpty())
+                                                    "No transactions available"
+                                                else
+                                                    "No matching transactions found",
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
                                         }
-                                    )
+                                    }
+                                } else {
+                                    items(
+                                        items = displayedTransactions,
+                                        key = { it.transactionId }
+                                    ) { transaction ->
+                                        val isSelected = selectedTransactions.contains(transaction.transactionId)
+                                        val isAlreadyAdded = transaction.transactionId in addedTransactionIds
 
-                                    Spacer(modifier = Modifier.height(4.dp))
+                                        TransactionItem(
+                                            transaction = transaction,
+                                            context = context,
+                                            isSelected = isSelected,
+                                            isAlreadyAdded = isAlreadyAdded,
+                                            onClick = {
+                                                if (isSelectionMode) {
+                                                    toggleSelection(transaction.transactionId)
+                                                } else {
+                                                    handleTransactionClick(
+                                                        transaction,
+                                                        groupId,
+                                                        navController,
+                                                        transactionViewModel,
+                                                        coroutineScope
+                                                    )
+                                                }
+                                            },
+                                            onLongClick = {
+                                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                if (!isSelectionMode) {
+                                                    isSelectionMode = true
+                                                    selectedTransactions = setOf(transaction.transactionId)
+                                                } else {
+                                                    toggleSelection(transaction.transactionId)
+                                                }
+                                            }
+                                        )
+
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                    }
                                 }
                             }
 

@@ -1431,8 +1431,6 @@ class PaymentsViewModel(
         }
     }
 
-    // Add this function to your PaymentsViewModel.kt class
-
     /**
      * Process multiple transactions at once, creating payments with default settings
      */
@@ -1452,15 +1450,22 @@ class PaymentsViewModel(
                 val defaultCurrency = group?.defaultCurrency ?: "GBP"
 
                 // Get current user ID
-                val userId = this@PaymentsViewModel.userId ?: throw IllegalStateException("User not logged in")
+                val userId = userId ?: return@launch
 
                 // Process each transaction
                 var successCount = 0
 
                 for (transaction in transactions) {
                     try {
-                        // Save transaction if needed
-                        transactionRepository.saveTransaction(transaction)
+                        // Create a copy of the transaction with the user ID set
+                        val transactionWithUser = transaction.copy(
+                            userId = userId,  // Set the user ID here
+                            createdAt = DateUtils.getCurrentTimestamp(),
+                            updatedAt = DateUtils.getCurrentTimestamp()
+                        )
+
+                        // Save the transaction with userId properly set
+                        transactionRepository.saveTransaction(transactionWithUser)
 
                         // Determine payment type
                         val paymentType = if (transaction.getEffectiveAmount() > 0) "received" else "spent"

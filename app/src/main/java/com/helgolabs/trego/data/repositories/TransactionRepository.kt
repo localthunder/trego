@@ -20,6 +20,7 @@ import com.helgolabs.trego.data.sync.managers.TransactionSyncManager
 import com.helgolabs.trego.ui.viewmodels.TransactionViewModel
 import com.helgolabs.trego.utils.CoroutineDispatchers
 import com.helgolabs.trego.utils.DateUtils
+import com.helgolabs.trego.utils.EntityServerConverter
 import com.helgolabs.trego.utils.NetworkUtils
 import com.helgolabs.trego.utils.ServerIdUtil
 import com.helgolabs.trego.utils.getUserIdFromPreferences
@@ -254,8 +255,14 @@ class TransactionRepository(
             // Try to sync immediately if online
             if (NetworkUtils.isOnline()) {
                 try {
-                    val serverTransaction = apiService.createTransaction(transaction)
-                    transactionDao.insertTransaction(serverTransaction.toEntity(SyncStatus.SYNCED))
+                    val serverTransactionModel = myApplication.entityServerConverter
+                        .convertTransactionToServer(transaction.toEntity())
+                        .getOrElse { return@withContext Result.failure(it) }
+
+                    val serverTransaction = apiService.createTransaction(serverTransactionModel)
+                    val syncedTransaction = myApplication.entityServerConverter.convertTransactionFromServer(serverTransaction)
+
+                    transactionDao.insertTransaction(syncedTransaction.getOrElse { return@withContext Result.failure(it) }.copy(syncStatus = SyncStatus.SYNCED))
                     Result.success(serverTransaction)
                 } catch (e: Exception) {
                     Log.e("TransactionRepository", "Failed to sync new transaction", e)

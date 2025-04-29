@@ -48,6 +48,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
@@ -1213,6 +1214,15 @@ class PaymentRepository(
             Log.e(TAG, "Error in batch currency conversion", e)
             Result.failure(e)
         }
+    }
+
+    fun getAddedTransactionIds(groupId: Int): Flow<List<String>> {
+        return paymentDao.getAddedTransactionIds(groupId)
+            .catch { e ->
+                Log.e("PaymentRepository", "Error fetching added transaction IDs", e)
+                emit(emptyList())
+            }
+            .flowOn(dispatchers.io)
     }
 
     override suspend fun sync(): Unit = withContext(dispatchers.io) {

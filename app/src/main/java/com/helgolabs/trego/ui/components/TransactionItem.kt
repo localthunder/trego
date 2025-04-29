@@ -2,7 +2,6 @@ package com.helgolabs.trego.ui.components
 
 import android.content.Context
 import android.icu.text.DecimalFormat
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -13,23 +12,21 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.helgolabs.trego.MyApplication
-import com.helgolabs.trego.data.local.dataClasses.UserInvolvement
 import com.helgolabs.trego.data.model.Transaction
 import com.helgolabs.trego.ui.viewmodels.InstitutionViewModel
 import com.helgolabs.trego.utils.CurrencyUtils.currencySymbols
@@ -42,6 +39,7 @@ fun TransactionItem(
     transaction: Transaction,
     context: Context,
     isSelected: Boolean = false,
+    isAlreadyAdded: Boolean = false,
     onClick: () -> Unit = {},
     onLongClick: () -> Unit = {}
 ) {
@@ -54,11 +52,11 @@ fun TransactionItem(
         listOf(Color.Gray, Color.LightGray)
     }
 
-    // Single Card with combined clickable
+    // Surface with selection border
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp, horizontal = 16.dp)
+            .padding(vertical = 4.dp)
             // Apply selection border when selected
             .then(
                 if (isSelected)
@@ -70,19 +68,23 @@ fun TransactionItem(
                 else
                     Modifier
             )
+            // Apply opacity if already added (but not when selected)
+            .then(
+                if (isAlreadyAdded && !isSelected)
+                    Modifier.alpha(0.7f)
+                else
+                    Modifier
+            )
             // Use combinedClickable for both regular click and long press
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick
             ),
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        )
+        shape = RoundedCornerShape(8.dp)
     ) {
         // Content goes directly inside the clickable card
         Box(modifier = Modifier.fillMaxWidth()) {
-            // Transaction content directly in the main card
+            // Regular transaction content
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -116,12 +118,6 @@ fun TransactionItem(
                         },
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onBackground
-                    )
-
-                    // Display user involvement if needed
-                    UserInvolvementDisplay(
-                        involvement = null, // We don't have involvement for transactions
-                        currency = transaction.getEffectiveCurrency()
                     )
                 }
 
@@ -165,7 +161,36 @@ fun TransactionItem(
                 }
             }
 
-            // Selection indicator overlay
+            // "Already Added" chip - positioned at top right or top left (if selected)
+            if (isAlreadyAdded) {
+                Surface(
+                    modifier = Modifier
+                        .align(if (isSelected) Alignment.TopStart else Alignment.TopEnd)
+                        .padding(8.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Sync,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Added",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                }
+            }
+
+            // Selection indicator
             if (isSelected) {
                 Box(
                     modifier = Modifier

@@ -8,16 +8,19 @@ import androidx.lifecycle.viewModelScope
 import com.helgolabs.trego.data.extensions.toModel
 import com.helgolabs.trego.data.repositories.TransactionRepository
 import com.helgolabs.trego.data.model.Transaction
+import com.helgolabs.trego.data.repositories.PaymentRepository
 import com.helgolabs.trego.utils.CoroutineDispatchers
 import com.helgolabs.trego.utils.DateUtils
 import com.helgolabs.trego.utils.getUserIdFromPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class TransactionViewModel(
     private val transactionRepository: TransactionRepository,
+    private val paymentRepository: PaymentRepository,
     private val dispatchers: CoroutineDispatchers,
     private val context: Context
 ) : ViewModel() {
@@ -32,6 +35,23 @@ class TransactionViewModel(
 
     private val _nonRecentTransactions = MutableStateFlow<List<Transaction>>(emptyList())
     val nonRecentTransactions: StateFlow<List<Transaction>> = _nonRecentTransactions
+
+    // Track already added transaction IDs
+    private val _addedTransactionIds = MutableStateFlow<Set<String>>(emptySet())
+    val addedTransactionIds: StateFlow<Set<String>> = _addedTransactionIds
+
+    // Track if we're loading the added transaction IDs
+    private val _loadingAddedIds = MutableStateFlow(false)
+    val loadingAddedIds: StateFlow<Boolean> = _loadingAddedIds
+
+    // Filter state for showing/hiding already added transactions
+    private val _showAlreadyAdded = MutableStateFlow(true)
+    val showAlreadyAdded: StateFlow<Boolean> = _showAlreadyAdded
+
+    // Filtered transactions based on visibility settings
+    private val _filteredTransactions = MutableStateFlow<List<Transaction>>(emptyList())
+    val filteredTransactions: StateFlow<List<Transaction>> = _filteredTransactions
+
 
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading
@@ -185,6 +205,69 @@ class TransactionViewModel(
                 transactionRepository.saveTransaction(transactionWithUser)
             } catch (e: Exception) {
                 _error.value = "Failed to save transaction: ${e.message}"
+            }
+        }
+    }
+
+    /**
+     * Load transaction IDs that have already been added to a specific group
+     */
+    fun loadAddedTransactionIds(groupId: Int) {
+        viewModelScope.launch(dispatchers.io) {
+            _loadingAddedIds.value = true
+
+            try {
+                // Use a proper PaymentRepository function to fetch transaction IDs
+                // that have already been added to this group
+                val addedIds = paymentRepository.getAddedTransactionIds(groupId).first()
+
+                _addedTransactionIds.value = addedIds.toSet()
+                updateFilteredTransactions()
+            } catch (e: Exception) {
+                Log.e("TransactionViewModel", "Error loading added transaction IDs", e)
+                _error.value = "Failed to check for already added transactions: ${e.message}"
+            } finally {
+                _loadingAddedIds.value = false
+            }
+        }
+    }
+
+    /**
+     * Check if a specific transaction has already been added to the current group
+     */
+    fun isTransactionAdded(transactionId: String): Boolean {
+        return transactionId in _addedTransactionIds.value
+    }
+
+    /**
+     * Toggle visibility of already added transactions
+     */
+    fun toggleShowAlreadyAdded() {
+        _showAlreadyAdded.value = !_showAlreadyAdded.value
+        updateFilteredTransactions()
+    }
+
+    /**
+     * Update filtered transactions list based on filter settings
+     */
+    private fun updateFilteredTransactions() {
+        val allTransactions = _transactions.value
+        val added = _addedTransactionIds.value
+
+        _filteredTransactions.value = if (_showAlreadyAdded.value) {
+            allTransactions
+        } else {
+            allTransactions.filter { it.transactionId !in added }
+        }
+    }
+
+    /**
+     * Update filtered transactions whenever main transaction list changes
+     */
+    init {
+        viewModelScope.launch {
+            _transactions.collect {
+                updateFilteredTransactions()
             }
         }
     }

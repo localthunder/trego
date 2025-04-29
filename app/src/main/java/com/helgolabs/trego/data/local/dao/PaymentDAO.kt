@@ -107,4 +107,7 @@ interface PaymentDao {
 
     @Query("UPDATE payments SET sync_status = :status, updated_at = :timestamp WHERE id = :paymentId")
     suspend fun updatePaymentSyncStatus(paymentId: Int, status: SyncStatus, timestamp: String = DateUtils.getCurrentTimestamp())
+
+    @Query("SELECT DISTINCT transaction_id FROM payments WHERE group_id = :groupId AND transaction_id IS NOT NULL AND deleted_at IS NULL")
+    fun getAddedTransactionIds(groupId: Int): Flow<List<String>>
 }

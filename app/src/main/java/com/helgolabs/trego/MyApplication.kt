@@ -156,7 +156,7 @@ class MyApplication : Application(), Configuration.Provider {
                 BankAccountViewModel::class.java to { BankAccountViewModel(bankAccountRepository, transactionRepository, dispatchers, this)},
                 InstitutionViewModel::class.java to { InstitutionViewModel(institutionRepository, dispatchers)},
                 PaymentsViewModel::class.java to { PaymentsViewModel(paymentRepository, paymentSplitRepository, groupRepository, transactionRepository, institutionRepository, userRepository, splitCalculator,this) },
-                TransactionViewModel::class.java to { TransactionViewModel(transactionRepository, dispatchers, this)},
+                TransactionViewModel::class.java to { TransactionViewModel(transactionRepository, paymentRepository, dispatchers, this)},
                 UserViewModel::class.java to { UserViewModel(userRepository, dispatchers, this)},
                 UserPreferencesViewModel::class.java to { UserPreferencesViewModel(userPreferencesRepository, dispatchers, this)}
             )
