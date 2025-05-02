@@ -375,24 +375,36 @@ class GroupViewModel(
     fun loadGroupMembersWithUsers(groupId: Int) {
         viewModelScope.launch {
             try {
+                _groupDetailsState.update { it.copy(isLoading = true) }
+
                 // First load group members
                 groupRepository.getGroupMembers(groupId).collect { members ->
                     // Get all user IDs from the members
                     val userIds = members.map { it.userId }
 
+                    // Update members in state immediately
+                    _groupDetailsState.update { currentState ->
+                        currentState.copy(groupMembers = members)
+                    }
+
                     // Load user data for these IDs
-                    userRepository.getUsersByIds(userIds).collect { userEntities ->
-                        _groupDetailsState.update { currentState ->
-                            currentState.copy(
-                                groupMembers = members,
-                                users = userEntities
-                            )
+                    try {
+                        userRepository.getUsersByIds(userIds).collect { userEntities ->
+                            _groupDetailsState.update { currentState ->
+                                currentState.copy(
+                                    users = userEntities,
+                                    isLoading = false
+                                )
+                            }
                         }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error loading users", e)
+                        _groupDetailsState.update { it.copy(isLoading = false, error = e.message) }
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error loading group members with users", e)
-                _groupDetailsState.update { it.copy(error = e.message) }
+                Log.e(TAG, "Error loading group members", e)
+                _groupDetailsState.update { it.copy(isLoading = false, error = e.message) }
             }
         }
     }
@@ -724,15 +736,63 @@ class GroupViewModel(
         }
     }
 
-
     fun addMemberToGroup(groupId: Int, userId: Int) {
         viewModelScope.launch {
-            _addMemberResult.value = groupRepository.addMemberToGroup(groupId, userId)
+            try {
+                // First, get the username before adding the member
+                val username = usernames.value?.get(userId) ?: userRepository.getUserById(userId).first()?.username
+
+                val result = groupRepository.addMemberToGroup(groupId, userId)
+
+                result.onSuccess { member ->
+                    // Always update usernames map in the state with the found username
+                    if (username != null) {
+                        _groupDetailsState.update { state ->
+                            state.copy(
+                                usernames = state.usernames + (userId to username),
+                                groupMembers = state.groupMembers + member
+                            )
+                        }
+                    }
+                    // Make sure to load the username for this user
+                    ensureUsernamesLoaded(listOf(userId))
+
+                    // Also refresh from the repository to ensure consistency
+                    loadGroupMembersWithUsers(groupId)
+                }
+
+                _addMemberResult.value = result
+            } catch (e: Exception) {
+                _addMemberResult.value = Result.failure(e)
+            }
         }
     }
 
     fun resetAddMemberResult() {
         _addMemberResult.value = null
+    }
+
+    fun ensureUsernamesLoaded(userIds: List<Int>) {
+        viewModelScope.launch {
+            try {
+                // Get all usernames that are not already in our state
+                val currentUsernames = _groupDetailsState.value.usernames
+                val missingUserIds = userIds.filter { !currentUsernames.containsKey(it) }
+
+                if (missingUserIds.isNotEmpty()) {
+                    userRepository.getUsersByIds(missingUserIds).collect { users ->
+                        val newUsernames = users.associate { it.userId to it.username }
+                        _groupDetailsState.update { currentState ->
+                            currentState.copy(
+                                usernames = currentState.usernames + newUsernames
+                            )
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("GroupViewModel", "Error loading usernames", e)
+            }
+        }
     }
 
     fun reloadGroupImage() {
@@ -1242,6 +1302,11 @@ class GroupViewModel(
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    // Add this function to GroupViewModel.kt
+    fun clearGeneratedInviteLink() {
+        _groupDetailsState.update { it.copy(generatedInviteLink = null) }
     }
 
     // Load the default splits for a group

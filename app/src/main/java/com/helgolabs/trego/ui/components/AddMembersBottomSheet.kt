@@ -4,8 +4,10 @@ import android.content.Intent
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -41,15 +43,20 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.helgolabs.trego.MyApplication
 import com.helgolabs.trego.data.local.entities.GroupMemberEntity
+import com.helgolabs.trego.data.local.entities.UserEntity
 import com.helgolabs.trego.ui.viewmodels.GroupViewModel
 import com.helgolabs.trego.ui.viewmodels.UserViewModel
+import com.helgolabs.trego.utils.DateUtils
+import com.helgolabs.trego.utils.getUserIdFromPreferences
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,20 +81,54 @@ fun AddMembersBottomSheet(
     val addMemberResult by groupViewModel.addMemberResult.observeAsState()
     val groupDetailsState by groupViewModel.groupDetailsState.collectAsState()
 
-    // Add new state for provisional users and email dialog
-    var selectedProvisionalUser by remember { mutableStateOf<GroupMemberEntity?>(null) }
+    var selectedProvisionalUser by remember { mutableStateOf<UserEntity?>(null) }
     var showEmailDialog by remember { mutableStateOf(false) }
     var editableEmail by remember { mutableStateOf("") }
 
-    val groupMembers by groupViewModel.groupDetailsState.collectAsState()
-    val users by userViewModel.users.collectAsState()
+    val groupMembers = groupDetailsState.groupMembers
+    val currentUserId = getUserIdFromPreferences(context)
 
-    // Filter provisional users
-    val provisionalMembers = groupDetailsState.groupMembers.mapNotNull { member ->
-        val user = groupDetailsState.users.find { it.userId == member.userId }
-        if (user?.isProvisional == true) {
-            member to user
-        } else null
+    // Combine members and available users
+    val combinedUserList = remember(groupDetailsState.users, groupMembers, usernames) {
+        // First get current members
+        val memberUserIds = groupMembers.map { it.userId }.toSet()
+        val currentMembers = groupDetailsState.users
+            .filter { it.userId in memberUserIds }
+            .map { it to true } // true = is a member
+
+        // Create a full map of users for lookup
+        val userMap = groupDetailsState.users.associateBy { it.userId }
+
+        // Then get available users from usernames
+        val availableUsers = usernames.entries
+            .filter { (userId, _) -> userId !in memberUserIds && userId != 0 }
+            .map { (userId, username) ->
+                // Look up the complete user entity
+                val foundUser = userMap[userId]
+
+                if (foundUser != null) {
+                    foundUser to false // false = not a member
+                } else {
+                    // Try to determine if this user is provisional
+                    // We need to check if this user is marked as provisional
+                    // in any of the existing users list
+                    val isProvisionalUser = groupDetailsState.users
+                        .any { it.userId == userId && it.isProvisional }
+
+                    // Create a temporary user entity with the known username
+                    // and properly set isProvisional
+                    UserEntity(
+                        userId = userId,
+                        username = username,
+                        isProvisional = isProvisionalUser, // Set based on found data
+                        serverId = null,
+                        createdAt = DateUtils.getCurrentTimestamp(),
+                        updatedAt = DateUtils.getCurrentTimestamp()
+                    ) to false
+                }
+            }
+
+        currentMembers + availableUsers
     }
 
     LaunchedEffect(Unit) {
@@ -99,22 +140,13 @@ fun AddMembersBottomSheet(
         addMemberResult?.let { result ->
             result.onSuccess { member ->
                 Toast.makeText(context, "${usernames[member.userId]} added to group", Toast.LENGTH_SHORT).show()
+                // Refresh the user list after adding a member
+                groupViewModel.fetchUsernamesForInvitation(groupId)
+                groupViewModel.loadGroupMembersWithUsers(groupId)
             }.onFailure { exception ->
                 Toast.makeText(context, "Failed to add member: ${exception.message}", Toast.LENGTH_SHORT).show()
             }
             groupViewModel.resetAddMemberResult()
-        }
-    }
-
-    // Observe generated link and share when available
-    LaunchedEffect(groupDetailsState.generatedInviteLink) {
-        groupDetailsState.generatedInviteLink?.let { link ->
-            val shareIntent = Intent().apply {
-                action = Intent.ACTION_SEND
-                putExtra(Intent.EXTRA_TEXT, "Join my group on Splittr: $link")
-                type = "text/plain"
-            }
-            context.startActivity(Intent.createChooser(shareIntent, "Share invite"))
         }
     }
 
@@ -139,17 +171,21 @@ fun AddMembersBottomSheet(
                 }
             },
             confirmButton = {
-                Button(onClick = {
-                    scope.launch {
-                        selectedProvisionalUser?.let { member ->
-                            groupViewModel.generateProvisionalUserInviteLink(
-                                provisionalUserId = member.userId,
-                            )
+                Button(
+                    onClick = {
+                        scope.launch {
+                            selectedProvisionalUser?.let { user ->
+                                groupViewModel.generateProvisionalUserInviteLink(
+                                    provisionalUserId = user.userId,
+                                    emailOverride = if (editableEmail.isNotBlank()) editableEmail else null
+                                )
+                            }
                         }
-                    }
-                    showEmailDialog = false
-                    selectedProvisionalUser = null
-                }) {
+                        showEmailDialog = false
+                        selectedProvisionalUser = null
+                    },
+                    enabled = editableEmail.isNotBlank() && android.util.Patterns.EMAIL_ADDRESS.matcher(editableEmail).matches()
+                ) {
                     Text("Send Invite")
                 }
             },
@@ -179,8 +215,7 @@ fun AddMembersBottomSheet(
                         val inviteLink = groupViewModel.getGroupInviteLink(groupId)
                         inviteLink.onSuccess { link ->
                             if (link.isNotBlank()) {
-                                // Create a better share message with both the direct deep link
-                                // and a fallback for users without the app
+                                // Create a share message
                                 val playStoreUrl = "https://play.google.com/store/apps/details?id=com.helgolabs.trego"
                                 val shareText = """
                         Join my group on Trego!
@@ -198,16 +233,12 @@ fun AddMembersBottomSheet(
                                 context.startActivity(Intent.createChooser(shareIntent, "Share invite link"))
                             } else {
                                 Toast.makeText(
-                                    context,
-                                    "Couldn't generate invite link. Please check your connection and try again.",
-                                    Toast.LENGTH_SHORT
+                                    context, "Couldn't generate invite link", Toast.LENGTH_SHORT
                                 ).show()
                             }
                         }.onFailure { error ->
                             Toast.makeText(
-                                context,
-                                "Failed to generate invite link: ${error.message}",
-                                Toast.LENGTH_SHORT
+                                context, "Failed to generate invite link: ${error.message}", Toast.LENGTH_SHORT
                             ).show()
                         }
                     }
@@ -218,6 +249,7 @@ fun AddMembersBottomSheet(
             }
 
             if (isAddingNew) {
+                // New user form
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -255,10 +287,20 @@ fun AddMembersBottomSheet(
                                 val result = userViewModel.createProvisionalUser(name, email, inviteLater, groupId)
                                 result.onSuccess { userId ->
                                     Log.d("AddMembersBottomSheet", "User created and added to group successfully")
-                                    groupViewModel.generateProvisionalUserInviteLink(userId)
-                                    onDismissRequest()
+                                    if (!inviteLater && email.isNotBlank()) {
+                                        groupViewModel.generateProvisionalUserInviteLink(userId)
+                                    }
+                                    // Reset form fields
+                                    name = ""
+                                    email = ""
+                                    inviteLater = false
+                                    isAddingNew = false
+
+                                    // Refresh members list
+                                    groupViewModel.loadGroupMembersWithUsers(groupId)
                                 }.onFailure { error ->
                                     Log.e("AddMembersBottomSheet", "Failed to create user and add to group", error)
+                                    Toast.makeText(context, "Failed to add user: ${error.message}", Toast.LENGTH_SHORT).show()
                                 }
                             }
                         },
@@ -280,66 +322,41 @@ fun AddMembersBottomSheet(
                     Text("Add Someone New")
                 }
 
-                // Add Provisional Users Section
-                if (provisionalMembers.isNotEmpty()) {
-                    Text(
-                        "Provisional Members",
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
-                    )
-
-                    LazyColumn {
-                        items(provisionalMembers) { (member, user) ->
-                            ListItem(
-                                headlineContent = {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Column {
-                                            Text(user.username)
-                                            AssistChip(
-                                                onClick = { },
-                                                label = { Text("Provisional") },
-                                                colors = AssistChipDefaults.assistChipColors(
-                                                    containerColor = MaterialTheme.colorScheme.secondaryContainer
-                                                )
-                                            )
-                                        }
-                                        Button(
-                                            onClick = {
-                                                selectedProvisionalUser = member
-                                                editableEmail = user.invitationEmail ?: ""
-                                                showEmailDialog = true
-                                            }
-                                        ) {
-                                            Text("Invite")
-                                        }
-                                    }
-                                }
-                            )
-                        }
-                    }
-                }
-
+                // Use our new user list component
                 if (loading) {
-                    CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                    }
                 } else if (error != null) {
                     Text(error!!, color = MaterialTheme.colorScheme.error)
                 } else {
-                    LazyColumn {
-                        val sortedUsernames = usernames.values.sorted()
-                        items(sortedUsernames) { username ->
-                            val userId = usernames.filterValues { it == username }.keys.first()
-                            ListItem(
-                                headlineContent = { Text(username) },
-                                modifier = Modifier.clickable {
-                                    groupViewModel.addMemberToGroup(groupId, userId)
-                                }
-                            )
+                    UserList(
+                        groupMembers = combinedUserList,
+                        currentUserId = currentUserId,
+                        onInviteClick = { userId ->
+                            val user = combinedUserList.find { it.first.userId == userId }?.first
+                            if (user != null && user.isProvisional) {
+                                selectedProvisionalUser = user
+                                editableEmail = user.invitationEmail ?: ""
+                                showEmailDialog = true
+                            }
+                        },
+                        onAddClick = { userId ->
+                            // Add debugging
+                            Log.d("AddMembersBottomSheet", "Attempting to add user with ID: $userId")
+
+                            // Verify user exists
+                            val userExists = usernames.containsKey(userId)
+                            if (!userExists) {
+                                Log.e("AddMembersBottomSheet", "User with ID $userId not found in usernames map: $usernames")
+                                Toast.makeText(context, "Can't add user: Not found in available users", Toast.LENGTH_SHORT).show()
+                                return@UserList
+                            }
+
+                            groupViewModel.addMemberToGroup(groupId, userId)
+                            groupViewModel.loadGroupMembersWithUsers(groupId)
                         }
-                    }
+                    )
                 }
             }
         }

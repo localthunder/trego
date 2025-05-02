@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.pulltorefresh.pullToRefresh
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
+import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -124,7 +125,23 @@ fun GroupDetailsScreen(
         groupViewModel.checkCurrentUserBalance(groupId)
     }
 
-    // 3. Check for messages from previous screen navigation
+    LaunchedEffect(groupViewModel.addMemberResult.observeAsState().value) {
+        groupViewModel.addMemberResult.value?.let { result ->
+            result.onSuccess {
+                // Refresh the group members list when a new member is added
+                groupViewModel.loadGroupMembersWithUsers(groupId)
+            }
+            // Reset after handling
+            groupViewModel.resetAddMemberResult()
+        }
+    }
+
+    LaunchedEffect(groupDetailsState.groupMembers) {
+        // Whenever members change, ensure we have usernames for all
+        val memberIds = groupDetailsState.groupMembers.map { it.userId }
+        groupViewModel.ensureUsernamesLoaded(memberIds)
+    }
+
     LaunchedEffect(Unit) {
         // Get navigation arguments
         val batchCount = navController.currentBackStackEntry
@@ -573,7 +590,7 @@ fun GroupDetailsScreen(
                 groupId = groupId,
                 onDismissRequest = {
                     showAddMembersBottomSheet = false
-//                    groupViewModel.loadGroupDetails(groupId) // Reload group details when sheet is dismissed
+                    groupViewModel.loadGroupMembersWithUsers(groupId)
                 }
             )
         }
@@ -739,8 +756,7 @@ fun GroupDetailsScreen(
         LaunchedEffect(archiveState) {
             when (archiveState) {
                 is GroupViewModel.ArchiveGroupState.Success -> {
-                    Toast.makeText(context, "Group successfully archived", Toast.LENGTH_SHORT).show()
-                    navController.popBackStack()
+                    groupViewModel.resetArchiveGroupState() // Reset the state
                 }
                 is GroupViewModel.ArchiveGroupState.Error -> {
                     Toast.makeText(
@@ -757,8 +773,7 @@ fun GroupDetailsScreen(
         LaunchedEffect(restoreState) {
             when (restoreState) {
                 is GroupViewModel.RestoreGroupState.Success -> {
-                    Toast.makeText(context, "Group successfully unarchived", Toast.LENGTH_SHORT).show()
-                    navController.popBackStack()
+                    groupViewModel.resetRestoreGroupState()
                 }
                 is GroupViewModel.RestoreGroupState.Error -> {
                     Toast.makeText(
@@ -1056,8 +1071,9 @@ fun GroupMembersSection(
     groupMembers: List<GroupMemberEntity>,
     usernames: Map<Int, String>,
     onAddPeopleClick: () -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
+
     Column(modifier = modifier.padding(16.dp)) {
         Text(
             "Members",
@@ -1094,23 +1110,26 @@ fun GroupMembersSection(
 
             // Member Avatars
             items(groupMembers) { member ->
-                val username = usernames[member.userId] ?: "?"
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.width(64.dp)
-                ) {
-                    UserAvatar(
-                        username = username,
-                        modifier = Modifier.size(56.dp)
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = username,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        textAlign = TextAlign.Center,
-                        maxLines = 1
-                    )
+                key(member.id) {
+                    // CHANGE HERE: Ensure we have a valid username, never use "?"
+                    val username = usernames[member.userId] ?: "User ${member.userId}"
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.width(64.dp)
+                    ) {
+                        UserAvatar(
+                            username = username,
+                            modifier = Modifier.size(56.dp)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = username,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            textAlign = TextAlign.Center,
+                            maxLines = 1
+                        )
+                    }
                 }
             }
         }

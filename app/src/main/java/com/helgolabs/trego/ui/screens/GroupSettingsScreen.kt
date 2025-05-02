@@ -9,11 +9,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -25,24 +22,20 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import com.helgolabs.trego.MyApplication
 import com.helgolabs.trego.data.local.entities.GroupDefaultSplitEntity
-import com.helgolabs.trego.data.local.entities.GroupEntity
 import com.helgolabs.trego.ui.components.AddMembersBottomSheet
 import com.helgolabs.trego.ui.components.CurrencySelectionBottomSheet
 import com.helgolabs.trego.ui.components.EditableField
 import com.helgolabs.trego.ui.components.GlobalTopAppBar
 import com.helgolabs.trego.ui.components.SectionHeader
 import com.helgolabs.trego.ui.components.SelectableField
+import com.helgolabs.trego.ui.components.UserListItem
 import com.helgolabs.trego.ui.theme.AnimatedDynamicThemeProvider
 import com.helgolabs.trego.ui.viewmodels.GroupViewModel
 import com.helgolabs.trego.utils.CurrencyUtils
@@ -110,9 +103,14 @@ fun GroupSettingsScreen(
 
     // Initialize data
     LaunchedEffect(groupId) {
-        Log.d("GroupSettings", "Loading group details for groupId: $groupId")
+        // Load group details
+        groupViewModel.loadGroupDetails(groupId)
 
-        Log.e("Group Settings: ", "$groupColorScheme")
+        // Load group members with their user data
+        groupViewModel.loadGroupMembersWithUsers(groupId)
+
+        // Load default splits if needed
+        groupViewModel.loadGroupDefaultSplits(groupId)
     }
 
     // Initialize percentages when members and splits are loaded
@@ -362,12 +360,13 @@ fun GroupSettingsScreen(
                                 }
                             }
 
-                            // Member cards with avatars
                             Column(
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 members.forEach { member ->
-                                    val memberName = when {
+                                    val user = users.find { it.userId == member.userId }
+                                    val isProvisional = user?.isProvisional == true
+                                    val memberUsername = when {
                                         member.userId == userId -> "Me"
                                         usernames.containsKey(member.userId) -> usernames[member.userId]
                                             ?: "Unknown"
@@ -378,46 +377,25 @@ fun GroupSettingsScreen(
                                         else -> "User ${member.userId}"
                                     }
 
-                                    // Initial for avatar
-                                    val initial = memberName.firstOrNull()?.uppercase() ?: "?"
-
-                                    Surface(
-                                        modifier = Modifier
-                                            .fillMaxWidth(),
-                                        color = MaterialTheme.colorScheme.surface,
-                                        tonalElevation = 1.dp,
-                                        shape = RoundedCornerShape(8.dp)
-                                    ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(12.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            // Avatar circle
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(36.dp)
-                                                    .clip(CircleShape)
-                                                    .background(MaterialTheme.colorScheme.secondaryContainer),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Text(
-                                                    text = initial,
-                                                    style = MaterialTheme.typography.titleMedium,
-                                                    color = MaterialTheme.colorScheme.onSecondaryContainer
-                                                )
+                                    UserListItem(
+                                        userId = member.userId,
+                                        username = memberUsername,
+                                        isProvisional = isProvisional,
+                                        isCurrentUser = member.userId == userId,
+                                        canInvite = isProvisional,
+                                        onInviteClick = { provisionalUserId ->
+                                            scope.launch {
+                                                val provisionalUser =
+                                                    users.find { it.userId == provisionalUserId }
+                                                if (provisionalUser != null) {
+                                                    // Handle invitation (you could show a dialog here)
+                                                    groupViewModel.generateProvisionalUserInviteLink(
+                                                        provisionalUserId
+                                                    )
+                                                }
                                             }
-
-                                            Spacer(modifier = Modifier.width(12.dp))
-
-                                            Text(
-                                                text = memberName,
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                modifier = Modifier.weight(1f)
-                                            )
                                         }
-                                    }
+                                    )
                                 }
                             }
                         }

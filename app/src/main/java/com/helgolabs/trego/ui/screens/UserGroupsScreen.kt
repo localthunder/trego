@@ -89,6 +89,22 @@ fun UserGroupsScreen(navController: NavController) {
         }
     }
 
+    val archiveState by groupViewModel.archiveGroupState.collectAsState()
+    val restoreState by groupViewModel.restoreGroupState.collectAsState()
+
+    // Reset archive/restore state when navigating to a group
+    LaunchedEffect(archiveState, restoreState) {
+        if (archiveState is GroupViewModel.ArchiveGroupState.Success) {
+            // Reset the archive state after showing toast
+            groupViewModel.resetArchiveGroupState()
+        }
+
+        if (restoreState is GroupViewModel.RestoreGroupState.Success) {
+            // Reset the restore state after showing toast
+            groupViewModel.resetRestoreGroupState()
+        }
+    }
+
     GlobalTheme {
         Scaffold(
             topBar = {
