@@ -243,33 +243,20 @@ class PaymentsViewModel(
                     } else currentPaidToUser
 
                     if (newPaidToUser != null) {
+                        // Update paidToUser and other settings first
                         _paymentScreenState.update { currentState ->
-                            // Get usernames for description
-                            val paidByUsername = if (currentPaidBy == currentUserId) "I" else
-                                currentState.groupMembers.find { it.userId == currentPaidBy }?.let { member ->
-                                    users.value.find { it.userId == member.userId }?.username
-                                } ?: "Unknown"
-
-                            val paidToUsername = if (newPaidToUser == currentUserId) "me" else
-                                currentState.groupMembers.find { it.userId == newPaidToUser }?.let { member ->
-                                    users.value.find { it.userId == member.userId }?.username
-                                } ?: "Unknown"
-
-                            // Format description with the new format
-                            val transferDescription = "Transfer: From $paidByUsername to $paidToUsername"
-
-                            // Update state with everything
                             currentState.copy(
                                 paidToUser = newPaidToUser,
                                 selectedMembers = currentState.groupMembers
                                     .filter { it.userId == newPaidToUser }
                                     .toSet(),
-                                editableSplits = emptyList(),
-                                editablePayment = currentState.editablePayment?.copy(
-                                    description = transferDescription
-                                )
+                                editableSplits = emptyList()
+                                // Note: We don't update description here - that will happen in loadUsersAndUpdateDescription
                             )
                         }
+
+                        // Then load users and update the description
+                        loadUsersAndUpdateDescription(currentPaidBy, newPaidToUser)
                     }
                 } else if (isChangingFromTransfer) {
                     // When changing from transfer to another type, reset the selected members
@@ -310,17 +297,17 @@ class PaymentsViewModel(
             is PaymentAction.UpdatePaidByUser -> {
                 updateEditablePayment { it.copy(paidByUserId = action.userId) }
 
-                // Update the description for transferred payments when paid by changes
+                // Update description for transfer payments
                 if (_paymentScreenState.value.editablePayment?.paymentType == "transferred") {
-                    updateTransferDescription(action.userId, _paymentScreenState.value.paidToUser)
+                    loadUsersAndUpdateDescription(action.userId, _paymentScreenState.value.paidToUser)
                 }
             }
             is PaymentAction.UpdatePaidToUser -> {
                 _paymentScreenState.value = _paymentScreenState.value.copy(paidToUser = action.userId)
 
-                // Update the description for transferred payments when paid to changes
+                // Update description for transfer payments
                 if (_paymentScreenState.value.editablePayment?.paymentType == "transferred") {
-                    updateTransferDescription(_paymentScreenState.value.editablePayment?.paidByUserId, action.userId)
+                    loadUsersAndUpdateDescription(_paymentScreenState.value.editablePayment?.paidByUserId, action.userId)
                 }
             }
             is PaymentAction.UpdateSplit -> {
@@ -377,23 +364,66 @@ class PaymentsViewModel(
     }
 
     private fun updateTransferDescription(paidByUserId: Int?, paidToUserId: Int?) {
-        if (paidByUserId == null || paidToUserId == null) return
+        if (paidByUserId == null || paidToUserId == null) {
+            Log.d("PaymentsVM", "Cannot update transfer description - missing user IDs")
+            return
+        }
 
-        val paidByUsername = if (paidByUserId == userId) "I" else
-            _paymentScreenState.value.groupMembers.find { it.userId == paidByUserId }?.let { member ->
-                users.value.find { it.userId == member.userId }?.username
-            } ?: "Unknown"
+        // Get current state
+        val currentState = _paymentScreenState.value
+        val currentUsers = users.value
 
-        val paidToUsername = if (paidToUserId == userId) "me" else
-            _paymentScreenState.value.groupMembers.find { it.userId == paidToUserId }?.let { member ->
-                users.value.find { it.userId == member.userId }?.username
-            } ?: "Unknown"
+        // Debug current state
+        Log.d("PaymentsVM", "Updating transfer description with paidBy: $paidByUserId, paidTo: $paidToUserId")
+        Log.d("PaymentsVM", "Available users: ${currentUsers.map { "${it.userId}:${it.username}" }}")
+        Log.d("PaymentsVM", "Group members: ${currentState.groupMembers.map { it.userId }}")
+
+        // We need to first find the corresponding group members
+        val paidByMember = currentState.groupMembers.find { it.userId == paidByUserId }
+        val paidToMember = currentState.groupMembers.find { it.userId == paidToUserId }
+
+        if (paidByMember == null || paidToMember == null) {
+            Log.d("PaymentsVM", "Cannot find group members for users")
+            return
+        }
+
+        // Then find the users
+        val paidByUser = currentUsers.find { it.userId == paidByUserId }
+        val paidToUser = currentUsers.find { it.userId == paidToUserId }
+
+        // Get usernames for description
+        val paidByUsername = paidByUser?.username ?: "Unknown user $paidByUserId"
+        val paidToUsername = paidToUser?.username ?: "Unknown user $paidToUserId"
+
+        Log.d("PaymentsVM", "Found paidBy username: $paidByUsername")
+        Log.d("PaymentsVM", "Found paidTo username: $paidToUsername")
 
         // Format description with the new format
         val transferDescription = "Transfer: From $paidByUsername to $paidToUsername"
 
         // Update the payment description
         updateEditablePayment { it.copy(description = transferDescription) }
+
+        Log.d("PaymentsVM", "Updated description to: $transferDescription")
+    }
+
+    // Add this function to ensure users are loaded before updating descriptions
+    private fun loadUsersAndUpdateDescription(paidByUserId: Int?, paidToUserId: Int?) {
+        if (users.value.isEmpty()) {
+            // If users not loaded yet, load them and then update
+            viewModelScope.launch {
+                val userIds = listOfNotNull(paidByUserId, paidToUserId)
+                userRepository.getUsersByIds(userIds).collect { loadedUsers ->
+                    if (loadedUsers.isNotEmpty()) {
+                        _users.value = loadedUsers
+                        updateTransferDescription(paidByUserId, paidToUserId)
+                    }
+                }
+            }
+        } else {
+            // Users already loaded, just update
+            updateTransferDescription(paidByUserId, paidToUserId)
+        }
     }
 
     private fun updateSplitPercentage(userId: Int, percentage: Double) {
@@ -1529,6 +1559,12 @@ class PaymentsViewModel(
                 )}
             }
         }
+    }
+
+    fun resetOperationStatus() {
+        _paymentScreenState.update { it.copy(
+            paymentOperationStatus = PaymentOperationStatus.Idle
+        ) }
     }
 
     fun fetchExchangeRate(fromCurrency: String, toCurrency: String, paymentDate: String?) {

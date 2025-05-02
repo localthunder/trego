@@ -227,7 +227,6 @@ fun RecipientDropdown(
                     users.find { it.userId == screenState.paidToUser }?.username
                         ?: users.find { it.userId != currentUserId }?.username ?: ""
                 },
-                style = MaterialTheme.typography.bodyLarge
             )
         }
 

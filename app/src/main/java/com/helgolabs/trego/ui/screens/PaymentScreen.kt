@@ -717,6 +717,22 @@ fun PaymentScreen(
             }
         )
     }
+    // Check for error status and display message
+    if (paymentOperationStatus is PaymentsViewModel.PaymentOperationStatus.Error) {
+        Snackbar(
+            modifier = Modifier.padding(16.dp),
+            action = {
+                TextButton(onClick = {
+                    // Reset error state
+                    paymentsViewModel.resetOperationStatus()
+                }) {
+                    Text("Dismiss")
+                }
+            }
+        ) {
+            Text(paymentOperationStatus.message)
+        }
+    }
 }
 
 @Composable
