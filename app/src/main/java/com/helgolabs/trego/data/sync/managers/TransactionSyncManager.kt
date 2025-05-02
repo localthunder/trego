@@ -10,6 +10,7 @@ import com.helgolabs.trego.data.local.dao.BankAccountDao
 import com.helgolabs.trego.data.local.dao.TransactionDao
 import com.helgolabs.trego.data.local.dao.SyncMetadataDao
 import com.helgolabs.trego.data.local.dao.UserDao
+import com.helgolabs.trego.data.local.dataClasses.AccountReauthState
 import com.helgolabs.trego.data.local.entities.TransactionEntity
 import com.helgolabs.trego.data.model.Transaction
 import com.helgolabs.trego.data.model.User
@@ -225,7 +226,7 @@ class TransactionSyncManager(
         }
     }
 
-    private suspend fun handleReauthAccounts(accountsNeedingReauth: List<TransactionViewModel.AccountReauthState>) {
+    private suspend fun handleReauthAccounts(accountsNeedingReauth: List<AccountReauthState>) {
         accountsNeedingReauth.forEach { account ->
             try {
                 Log.d(TAG, "Account ${account.accountId} needs reauthorization")

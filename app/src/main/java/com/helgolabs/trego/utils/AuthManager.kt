@@ -20,16 +20,57 @@ object AuthManager {
     private const val TAG = "AuthManager"
     private const val PREFS_NAME = "AuthPrefs"
     private const val KEY_AUTHENTICATED = "is_authenticated"
+    private const val KEY_AUTH_TIMESTAMP = "auth_timestamp"
+    private const val SESSION_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 
+    // Add this method to check if authentication has timed out
+    fun hasSessionTimedOut(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val isAuthenticated = prefs.getBoolean(KEY_AUTHENTICATED, false)
+
+        if (!isAuthenticated) return true
+
+        val lastAuthTime = prefs.getLong(KEY_AUTH_TIMESTAMP, 0)
+        val currentTime = System.currentTimeMillis()
+
+        return (currentTime - lastAuthTime) > SESSION_TIMEOUT_MS
+    }
+
+    // Update setAuthenticated to also store the timestamp
+    fun setAuthenticated(context: Context, authenticated: Boolean) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val editor = prefs.edit()
+        editor.putBoolean(KEY_AUTHENTICATED, authenticated)
+
+        if (authenticated) {
+            editor.putLong(KEY_AUTH_TIMESTAMP, System.currentTimeMillis())
+        }
+
+        editor.apply()
+    }
+
+    // Add a logout method
+    fun logout(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .putBoolean(KEY_AUTHENTICATED, false)
+            .remove(KEY_AUTH_TIMESTAMP)
+            .apply()
+
+        // Clear tokens
+        TokenManager.clearTokens(context)
+    }
+
+    // Update isUserLoggedIn to check for timeout
     fun isUserLoggedIn(context: Context): Boolean {
         val token = AuthUtils.getLoginState(context)
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return token != null && prefs.getBoolean(KEY_AUTHENTICATED, false)
-    }
+        val isAuthenticated = prefs.getBoolean(KEY_AUTHENTICATED, false)
 
-    fun setAuthenticated(context: Context, authenticated: Boolean) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().putBoolean(KEY_AUTHENTICATED, authenticated).apply()
+        if (token == null || !isAuthenticated) return false
+
+        // Check for session timeout
+        return !hasSessionTimedOut(context)
     }
 
     private fun updateLastLoginDate(userRepository: UserRepository, userId: Int) {
@@ -51,10 +92,12 @@ object AuthManager {
         Log.d(TAG, "Starting biometric prompt")
         val biometricManager = BiometricManager.from(activity)
 
-        val canAuthenticateResult = biometricManager.canAuthenticate(
-            BiometricManager.Authenticators.BIOMETRIC_STRONG or
-                    BiometricManager.Authenticators.DEVICE_CREDENTIAL
-        )
+        // Update authenticator types to include both biometrics and device credential
+        val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                BiometricManager.Authenticators.BIOMETRIC_WEAK or
+                BiometricManager.Authenticators.DEVICE_CREDENTIAL
+
+        val canAuthenticateResult = biometricManager.canAuthenticate(authenticators)
 
         Log.d(TAG, "Authentication capability result: $canAuthenticateResult")
 
@@ -73,8 +116,9 @@ object AuthManager {
 
                         override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                             Log.e(TAG, "Authentication error $errorCode: $errString")
-                            if (errorCode == BiometricPrompt.ERROR_NO_BIOMETRICS) {
-                                Log.d(TAG, "No biometrics enrolled, allowing device credentials")
+                            if (errorCode == BiometricPrompt.ERROR_NO_BIOMETRICS ||
+                                errorCode == BiometricPrompt.ERROR_NO_DEVICE_CREDENTIAL) {
+                                Log.d(TAG, "No biometrics or device credentials enrolled, allowing access")
                                 setAuthenticated(activity, true)
                                 updateLastLoginDate(userRepository, userId)
                                 onSuccess()
@@ -92,12 +136,9 @@ object AuthManager {
                     })
 
                 val promptInfo = BiometricPrompt.PromptInfo.Builder()
-                    .setTitle("Unlock Splitter")
-                    .setSubtitle("Use your screen lock to continue")
-                    .setAllowedAuthenticators(
-                        BiometricManager.Authenticators.BIOMETRIC_STRONG or
-                                BiometricManager.Authenticators.DEVICE_CREDENTIAL
-                    )
+                    .setTitle("Unlock Trego")
+                    .setSubtitle("Use your biometrics or screen lock to continue")
+                    .setAllowedAuthenticators(authenticators)
                     .build()
 
                 try {

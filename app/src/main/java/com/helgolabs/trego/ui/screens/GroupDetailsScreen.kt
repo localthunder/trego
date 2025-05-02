@@ -6,7 +6,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
-import android.os.Build
 import android.os.Environment
 import android.util.Log
 import android.widget.Toast
@@ -18,14 +17,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.*
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PhotoLibrary
@@ -45,7 +42,6 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
@@ -54,9 +50,6 @@ import coil3.request.SuccessResult
 import coil3.request.allowHardware
 import coil3.request.crossfade
 import coil3.toBitmap
-import com.google.android.material.color.DynamicColors
-import com.google.android.material.color.DynamicColorsOptions
-import com.helgolabs.trego.MyApplication
 import com.helgolabs.trego.data.local.entities.GroupMemberEntity
 import com.helgolabs.trego.ui.components.GlobalFAB
 import com.helgolabs.trego.ui.components.AddMembersBottomSheet
@@ -66,18 +59,18 @@ import com.helgolabs.trego.ui.components.PaymentItem
 import com.helgolabs.trego.ui.components.UserAvatar
 import com.helgolabs.trego.ui.theme.AnimatedDynamicThemeProvider
 import com.helgolabs.trego.ui.viewmodels.GroupViewModel
-import com.helgolabs.trego.ui.viewmodels.UserViewModel
 import com.helgolabs.trego.utils.ColorSchemeCache
 import com.helgolabs.trego.utils.DateUtils
 import com.helgolabs.trego.utils.FormattingUtils.formatAsCurrency
+import com.helgolabs.trego.utils.ImageOrientationFixer
 import com.helgolabs.trego.utils.ImageUtils
 import com.helgolabs.trego.utils.PlaceholderImageGenerator
 import com.helgolabs.trego.utils.StatusBarHelper.StatusBarProtection
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.time.Instant
 import kotlin.math.absoluteValue
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -168,12 +161,35 @@ fun GroupDetailsScreen(
                 // Close the bottom sheet first
                 showImageOptionsBottomSheet = false
 
-                // Upload the image with the captured URI
-                Log.d("CameraCapture", "Calling uploadGroupImage with URI: $uri")
-                groupViewModel.uploadGroupImage(groupId, uri)
+                // Process the image to fix orientation before uploading
+                coroutineScope.launch {
+                    try {
+                        // Show loading indication
+                        Toast.makeText(context, "Processing image...", Toast.LENGTH_SHORT).show()
 
-                // Also show a Toast for user feedback
-                Toast.makeText(context, "Uploading image...", Toast.LENGTH_SHORT).show()
+                        // Use the ImageOrientationFixer to process and get a corrected URI
+                        val processedUri = ImageOrientationFixer.processAndSaveImage(context, uri)
+
+                        if (processedUri != null) {
+                            // Upload the processed image
+                            Log.d("CameraCapture", "Uploading processed image with URI: $processedUri")
+                            groupViewModel.uploadGroupImage(groupId, processedUri)
+
+                            // Show feedback
+                            Toast.makeText(context, "Uploading image...", Toast.LENGTH_SHORT).show()
+                        } else {
+                            // Fall back to original if processing fails
+                            Log.d("CameraCapture", "Image processing failed, using original URI: $uri")
+                            groupViewModel.uploadGroupImage(groupId, uri)
+                            Toast.makeText(context, "Uploading image (processing failed)...", Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (e: Exception) {
+                        Log.e("CameraCapture", "Error processing image", e)
+                        // Fall back to original if exception occurs
+                        groupViewModel.uploadGroupImage(groupId, uri)
+                        Toast.makeText(context, "Uploading unprocessed image due to error...", Toast.LENGTH_SHORT).show()
+                    }
+                }
             } ?: run {
                 Log.e("CameraCapture", "Error: tempImageUri is null after camera capture")
                 Toast.makeText(context, "Failed to save image", Toast.LENGTH_SHORT).show()
@@ -522,18 +538,11 @@ fun GroupDetailsScreen(
                                 groupDetailsState.payments
                                     .sortedByDescending { payment ->
                                         try {
-                                            // Parse the timestamp - handle both ISO format and unix timestamp
-                                            when {
-                                                payment.updatedAt.toLongOrNull() != null -> payment.updatedAt.toLong()
-                                                else -> {
-                                                    // Try parsing ISO format
-                                                    val instant = java.time.Instant.parse(payment.updatedAt)
-                                                    instant.toEpochMilli()
-                                                }
-                                            }
+                                            // Use your existing parseTimestamp function
+                                            DateUtils.parseTimestamp(payment.paymentDate ?: "")
                                         } catch (e: Exception) {
-                                            // If parsing fails, put it at the end
-                                            0L
+                                            // If parsing fails, use epoch start (will sort to the end)
+                                            Instant.EPOCH
                                         }
                                     }
                             ) { payment ->

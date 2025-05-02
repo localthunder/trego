@@ -62,22 +62,6 @@ fun LogoutDialog(
         }
     }
 
-    fun clearAllPreferences(context: Context) {
-        // Clear AuthUtils preferences
-        context.getSharedPreferences("MyAppPrefs", Context.MODE_PRIVATE).edit().clear().apply()
-
-        // Clear TokenManager preferences
-        context.getSharedPreferences("splitter_prefs", Context.MODE_PRIVATE).edit().clear().apply()
-
-        // Clear user ID preferences
-        context.getSharedPreferences("splitter_preferences", Context.MODE_PRIVATE).edit().clear().apply()
-
-        // Clear AuthManager preferences
-        context.getSharedPreferences("AuthPrefs", Context.MODE_PRIVATE).edit().clear().apply()
-
-        WorkManager.getInstance(context).cancelAllWork()
-    }
-
     if (showDialog) {
         AlertDialog(
             onDismissRequest = onDismiss,
@@ -198,10 +182,8 @@ fun LogoutDialog(
                             try {
                                 database.clearAllTables()
                                 withContext(Dispatchers.Main) {
-                                    clearAllPreferences(context)
-                                    AuthUtils.clearLoginState(context)
-                                    TokenManager.clearTokens(context)
-                                    AuthManager.setAuthenticated(context, false)
+                                    // Use the improved logout method from AuthManager
+                                    AuthManager.logout(context)
                                     logoutSuccess = true
                                 }
                             } finally {

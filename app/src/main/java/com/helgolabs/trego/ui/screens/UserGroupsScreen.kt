@@ -28,6 +28,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
+import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import com.helgolabs.trego.MyApplication
 import com.helgolabs.trego.data.local.dataClasses.UserGroupListItem
@@ -57,21 +58,35 @@ fun UserGroupsScreen(navController: NavController) {
     val error by groupViewModel.error.collectAsStateWithLifecycle()
     val imageUpdateEvent by groupViewModel.imageUpdateEvent.collectAsStateWithLifecycle()
 
-    LaunchedEffect(Unit, imageUpdateEvent) {
-        if (userId > 0) {
-            groupViewModel.loadUserGroupsList(userId)
-        }
-    }
+    // Refresh counter for forcing updates
+    var refreshCounter by remember { mutableStateOf(0) }
 
-    LaunchedEffect(groupItems) {
-        if (userId > 0) {
-            groupViewModel.loadUserGroupsList(userId)
-        }
+    // Force a refresh when screen appears
+    DisposableEffect(Unit) {
+        // Force refresh when screen is shown
+        groupViewModel.loadUserGroupsList(userId, true)
+        onDispose {}
     }
 
     // Add this to preload color schemes when the list is visible
     LaunchedEffect(Unit) {
+        // First load balances for all groups
+        groupViewModel.loadUserGroupsList(userId, true)
+        // Then preload color schemes
         groupViewModel.preloadGroupColorSchemes(context)
+    }
+
+    // This is important - log the refresh counter to check if it's changing
+    LaunchedEffect(refreshCounter) {
+        Log.d("UserGroupsScreen", "refreshCounter updated to: $refreshCounter")
+    }
+
+    // Refresh when we receive updates from elsewhere
+    LaunchedEffect(imageUpdateEvent) {
+        if (imageUpdateEvent > 0) {
+            refreshCounter++
+            groupViewModel.loadUserGroupsList(userId, true)
+        }
     }
 
     GlobalTheme {
@@ -118,7 +133,11 @@ fun UserGroupsScreen(navController: NavController) {
             ){
                 // Active Groups section
                 items(groupItems) { groupItem ->
-                    GroupListItem(groupItem, navController)
+                    GroupListItem(
+                        groupItem = groupItem,
+                        navController = navController,
+                        refreshCounter = refreshCounter
+                    )
                 }
 
                 // Archived Groups section
@@ -174,7 +193,8 @@ fun UserGroupsScreen(navController: NavController) {
 fun GroupListItem(
     groupItem: UserGroupListItem,
     navController: NavController,
-    isArchived: Boolean = false
+    isArchived: Boolean = false,
+    refreshCounter: Int = 0
 ) {
     Card(
         modifier = Modifier
@@ -194,9 +214,8 @@ fun GroupListItem(
             verticalAlignment = Alignment.Top
         ) {
             // Generate a unique key for this image to prevent caching issues
-            val imageKey = remember(groupItem.groupImg) {
-                "${groupItem.groupImg}_${System.currentTimeMillis()}"
-            }
+            val imageKey = "${groupItem.id}_${groupItem.groupImg}_$refreshCounter"
+
 
             val context = LocalContext.current
             val isPlaceholder = PlaceholderImageGenerator.isPlaceholderImage(groupItem.groupImg)
@@ -218,6 +237,9 @@ fun GroupListItem(
                     .data(imageSource)
                     .diskCacheKey(imageKey)  // Force unique cache key
                     .memoryCacheKey(imageKey)  // Force unique memory key
+                    // Disable caching to ensure fresh image loads
+                    .diskCachePolicy(CachePolicy.DISABLED)
+                    .memoryCachePolicy(CachePolicy.DISABLED)
                     .build(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,

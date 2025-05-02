@@ -40,34 +40,46 @@ fun UserInvolvementDisplay(
     ) {
         // Data based on involvement type
         val (tint, text, amount) = when (involvement) {
-            is UserInvolvement.Borrowed -> Triple(
+            // SPENT scenarios
+            is UserInvolvement.YouPaidAndAreOwed -> Triple(
+                Color(0xFF4CAF50),  // Green
+                "You're owed",
+                abs(involvement.amount)
+            )
+            is UserInvolvement.SomeoneElsePaidAndYouOwe -> Triple(
                 Color(0xFFF44336),  // Red
-                "You borrowed",
+                "You owe",
                 abs(involvement.amount)
             )
-            is UserInvolvement.Lent -> Triple(
+
+            // RECEIVED scenarios
+            is UserInvolvement.YouReceivedAndAreSharing -> Triple(
+                Color(0xFFF44336),  // Red
+                "You owe",
+                abs(involvement.amount)
+            )
+            is UserInvolvement.SomeoneElseReceivedAndIsSharing -> Triple(
                 Color(0xFF4CAF50),  // Green
-                "You lent",
+                "You're owed",
                 abs(involvement.amount)
             )
-            is UserInvolvement.Paid -> Triple(
-                Color(0xFF4CAF50),  // Green
-                "You paid",
-                abs(involvement.amount)
-            )
-            is UserInvolvement.SentTransfer -> Triple(
+
+            // TRANSFERRED scenarios
+            is UserInvolvement.YouSentMoney -> Triple(
                 Color(0xFF2196F3),  // Blue
                 "You sent",
                 abs(involvement.amount)
             )
-            is UserInvolvement.ReceivedTransfer -> Triple(
-                Color(0xFF9C27B0),  // Purple
-                "You were sent",
+            is UserInvolvement.YouReceivedMoney -> Triple(
+                Color(0xFF2196F3),  // Blue
+                "You received",
                 abs(involvement.amount)
             )
+
+            // Common scenario
             is UserInvolvement.NotInvolved -> Triple(
                 Color.Gray,
-                "You're not involved",
+                "Not involved",
                 0.0
             )
         }

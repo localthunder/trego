@@ -2,10 +2,13 @@ package com.helgolabs.trego.ui.viewmodels
 
 import android.content.Context
 import android.util.Log
-import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.helgolabs.trego.data.extensions.toModel
+import com.helgolabs.trego.data.local.dataClasses.AccountReauthState
+import com.helgolabs.trego.data.local.dataClasses.RateLimitInfo
+import com.helgolabs.trego.data.local.dataClasses.RefreshMessage
+import com.helgolabs.trego.data.local.dataClasses.RefreshMessageType
 import com.helgolabs.trego.data.repositories.TransactionRepository
 import com.helgolabs.trego.data.model.Transaction
 import com.helgolabs.trego.data.repositories.PaymentRepository
@@ -17,6 +20,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 
 class TransactionViewModel(
     private val transactionRepository: TransactionRepository,
@@ -52,6 +57,8 @@ class TransactionViewModel(
     private val _filteredTransactions = MutableStateFlow<List<Transaction>>(emptyList())
     val filteredTransactions: StateFlow<List<Transaction>> = _filteredTransactions
 
+    private val _rateLimitInfo = MutableStateFlow(RateLimitInfo(0))
+    val rateLimitInfo: StateFlow<RateLimitInfo> = _rateLimitInfo
 
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading
@@ -59,18 +66,27 @@ class TransactionViewModel(
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing
 
+    private val _refreshMessage = MutableStateFlow<RefreshMessage?>(null)
+    val refreshMessage: StateFlow<RefreshMessage?> = _refreshMessage
+
+    // State to track if we need to show the cooldown override confirmation
+    private val _showCooldownOverrideConfirmation = MutableStateFlow(false)
+    val showCooldownOverrideConfirmation: StateFlow<Boolean> = _showCooldownOverrideConfirmation
+
+    // Store cooldown minutes for the dialog
+    private val _cooldownMinutesRemaining = MutableStateFlow(0L)
+    val cooldownMinutesRemaining: StateFlow<Long> = _cooldownMinutesRemaining
+
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
 
-    data class TransactionResponse(
-        val transactions: List<Transaction>,
-        val accountsNeedingReauthentication: List<AccountReauthState>
-    )
+    init {
+        // Initialize by getting the rate limit info from the repository
+        viewModelScope.launch {
+            _rateLimitInfo.value = transactionRepository.rateLimitInfo.value
+        }
+    }
 
-    data class AccountReauthState(
-        val accountId: String,
-        val institutionId: String?
-    )
 
     fun loadTransactions(userId: Int) {
         viewModelScope.launch {
@@ -80,12 +96,154 @@ class TransactionViewModel(
             try {
                 val transactions = fetchTransactions(userId)
                 _transactions.value = transactions ?: emptyList()
+
+                // Update rate limit info after fetching
+                _rateLimitInfo.value = transactionRepository.rateLimitInfo.value
             } catch (e: Exception) {
                 _error.value = "Error loading transactions: ${e.message}"
             } finally {
                 _loading.value = false
             }
         }
+    }
+
+    fun manualRefreshTransactions(forceCooldownOverride: Boolean = false) {
+        viewModelScope.launch {
+            val userId = getUserIdFromPreferences(context) ?: return@launch
+
+            _isRefreshing.value = true
+            _refreshMessage.value = null
+
+            try {
+                // Call the manual refresh in the repository
+                val result = transactionRepository.manualRefreshTransactions(userId, forceCooldownOverride)
+
+                // Update rate limit info
+                _rateLimitInfo.value = transactionRepository.rateLimitInfo.value
+
+                // Process the result
+                when (result) {
+                    is TransactionRepository.ManualRefreshResult.Success -> {
+                        val count = result.count
+                        _refreshMessage.value = RefreshMessage(
+                            type = RefreshMessageType.SUCCESS,
+                            message = "Successfully refreshed $count transactions"
+                        )
+
+                        // Also update the transactions list
+                        val freshTransactions = fetchTransactions(userId)
+                        _transactions.value = freshTransactions ?: emptyList()
+
+                        // Reset confirmation state
+                        _showCooldownOverrideConfirmation.value = false
+                    }
+                    is TransactionRepository.ManualRefreshResult.RateLimited -> {
+                        val resetTime = result.timeUntilReset?.let {
+                            val resetDateTime = LocalDateTime.now().plus(it)
+                            resetDateTime.format(DateTimeFormatter.ofPattern("h:mm a"))
+                        } ?: "soon"
+
+                        _refreshMessage.value = RefreshMessage(
+                            type = RefreshMessageType.WARNING,
+                            message = "You've reached your refresh limit for today. Resets at $resetTime.",
+                            duration = result.timeUntilReset
+                        )
+                    }
+                    is TransactionRepository.ManualRefreshResult.InCooldown -> {
+                        // Instead of showing a message, trigger the cooldown override confirmation
+                        _cooldownMinutesRemaining.value = result.cooldownMinutesRemaining
+                        _showCooldownOverrideConfirmation.value = true
+
+                        // Still show a message in the UI
+                        _refreshMessage.value = RefreshMessage(
+                            type = RefreshMessageType.INFO,
+                            message = "It's only been ${result.cooldownMinutesRemaining} minute(s) since your last refresh."
+                        )
+                    }
+                    is TransactionRepository.ManualRefreshResult.Error -> {
+                        _refreshMessage.value = RefreshMessage(
+                            type = RefreshMessageType.ERROR,
+                            message = "Error refreshing: ${result.message}"
+                        )
+                    }
+                    is TransactionRepository.ManualRefreshResult.AlreadyRefreshing -> {
+                        _refreshMessage.value = RefreshMessage(
+                            type = RefreshMessageType.INFO,
+                            message = "Already refreshing transactions."
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("TransactionViewModel", "Error in manual refresh", e)
+                _refreshMessage.value = RefreshMessage(
+                    type = RefreshMessageType.ERROR,
+                    message = "Error refreshing: ${e.message}"
+                )
+            } finally {
+                _isRefreshing.value = false
+            }
+        }
+    }
+
+    fun confirmCooldownOverride() {
+        _showCooldownOverrideConfirmation.value = false
+        manualRefreshTransactions(forceCooldownOverride = true)
+    }
+
+    fun cancelCooldownOverride() {
+        _showCooldownOverrideConfirmation.value = false
+    }
+
+    fun refreshAccountTransactions(accountId: String) {
+        viewModelScope.launch {
+            val userId = getUserIdFromPreferences(context) ?: return@launch
+
+            _isRefreshing.value = true
+
+            try {
+                val transactions = transactionRepository.fetchAccountTransactions(accountId, userId)
+
+                if (transactions != null && transactions.isNotEmpty()) {
+                    // Merge with existing transactions
+                    val currentTransactions = _transactions.value
+                    val transactionMap = currentTransactions.associateBy { it.transactionId }.toMutableMap()
+
+                    // Add or update transactions from the account
+                    transactions.forEach { transaction ->
+                        transactionMap[transaction.transactionId] = transaction
+                    }
+
+                    // Update the transactions list
+                    _transactions.value = transactionMap.values.toList()
+                        .sortedByDescending { it.bookingDateTime }
+
+                    _refreshMessage.value = RefreshMessage(
+                        type = RefreshMessageType.SUCCESS,
+                        message = "Updated transactions for this account"
+                    )
+                } else {
+                    _refreshMessage.value = RefreshMessage(
+                        type = RefreshMessageType.INFO,
+                        message = "No new transactions found for this account"
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e("TransactionViewModel", "Error refreshing account transactions", e)
+                _refreshMessage.value = RefreshMessage(
+                    type = RefreshMessageType.ERROR,
+                    message = "Error refreshing account: ${e.message}"
+                )
+            } finally {
+                _isRefreshing.value = false
+            }
+        }
+    }
+
+    /**
+     * Clear any displayed refresh messages
+     */
+    fun clearRefreshMessage() {
+        _refreshMessage.value = null
     }
 
     fun refreshTransactions(userId: Int) {

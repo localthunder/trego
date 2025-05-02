@@ -14,6 +14,7 @@ import com.helgolabs.trego.data.local.dataClasses.PaymentSyncResponse
 import com.helgolabs.trego.data.local.dataClasses.RegisterRequest
 import com.helgolabs.trego.data.local.dataClasses.RequisitionRequest
 import com.helgolabs.trego.data.local.dataClasses.RequisitionResponseWithRedirect
+import com.helgolabs.trego.data.local.dataClasses.TransactionsApiResponse
 import com.helgolabs.trego.data.local.dataClasses.UploadResponsed
 import com.helgolabs.trego.data.local.dataClasses.UserBalanceWithCurrency
 import com.helgolabs.trego.data.local.entities.GroupMemberEntity
@@ -109,7 +110,7 @@ interface ApiService {
     suspend fun listUserAccounts(): List<BankAccount>
 
     @GET("/api/gocardless/transactions/{userId}")
-    suspend fun getTransactionsByUserId(@Path("userId") userId: Int): TransactionRepository.TransactionsApiResponse
+    suspend fun getTransactionsByUserId(@Path("userId") userId: Int): TransactionsApiResponse
 
     @GET("api/transactions/{transactionId}")
     suspend fun getTransactionById(@Path("transactionId") transactionId: String): Transaction

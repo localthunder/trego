@@ -224,10 +224,16 @@ class PaymentsViewModel(
             is PaymentAction.UpdateNotes -> updateEditablePayment { it.copy(notes = action.notes) }
             is PaymentAction.UpdatePaymentType -> {
                 Log.d("PaymentsVM", "Updating payment type to: ${action.paymentType}")
+
+                // Check if switching from transferred to another payment type
+                val isChangingFromTransfer = _paymentScreenState.value.editablePayment?.paymentType == "transferred" &&
+                        action.paymentType != "transferred"
+
+                // Update payment type first
                 updateEditablePayment { it.copy(paymentType = action.paymentType) }
 
                 if (action.paymentType == "transferred") {
-                    // Set paidToUser if needed
+                    // Transfer payment handling code (your existing code)
                     val currentPaidToUser = _paymentScreenState.value.paidToUser
                     val currentPaidBy = _paymentScreenState.value.editablePayment?.paidByUserId
 
@@ -249,7 +255,10 @@ class PaymentsViewModel(
                                     users.value.find { it.userId == member.userId }?.username
                                 } ?: "Unknown"
 
-                            // Update description along with other state
+                            // Format description with the new format
+                            val transferDescription = "Transfer: From $paidByUsername to $paidToUsername"
+
+                            // Update state with everything
                             currentState.copy(
                                 paidToUser = newPaidToUser,
                                 selectedMembers = currentState.groupMembers
@@ -257,9 +266,35 @@ class PaymentsViewModel(
                                     .toSet(),
                                 editableSplits = emptyList(),
                                 editablePayment = currentState.editablePayment?.copy(
-                                    description = "$paidByUsername transferred to $paidToUsername"
+                                    description = transferDescription
                                 )
                             )
+                        }
+                    }
+                } else if (isChangingFromTransfer) {
+                    // When changing from transfer to another type, reset the selected members
+                    // and prepare to recalculate splits with group defaults
+                    _paymentScreenState.update { currentState ->
+                        currentState.copy(
+                            // Select all group members when switching away from transfer
+                            selectedMembers = currentState.groupMembers.toSet(),
+                            // Clear the paidToUser to prevent confusion
+                            paidToUser = null,
+                            // Clear existing splits to force recalculation
+                            editableSplits = emptyList(),
+                            // Reset edit history to ensure fresh calculation
+                            editOrderMap = emptyMap()
+                        )
+                    }
+
+                    // Get the group to check default split mode
+                    val groupId = _paymentScreenState.value.group?.id
+                    val defaultSplitMode = _paymentScreenState.value.group?.defaultSplitMode
+
+                    if (groupId != null && defaultSplitMode == "percentage") {
+                        // If the group uses percentage splitting by default, load those
+                        viewModelScope.launch {
+                            loadGroupDefaultSplits(groupId)
                         }
                     }
                 }
@@ -272,9 +307,21 @@ class PaymentsViewModel(
                 updateEditablePayment { it.copy(splitMode = action.splitMode) }
                 recalculateSplits(currentUserId)
             }
-            is PaymentAction.UpdatePaidByUser -> updateEditablePayment { it.copy(paidByUserId = action.userId) }
+            is PaymentAction.UpdatePaidByUser -> {
+                updateEditablePayment { it.copy(paidByUserId = action.userId) }
+
+                // Update the description for transferred payments when paid by changes
+                if (_paymentScreenState.value.editablePayment?.paymentType == "transferred") {
+                    updateTransferDescription(action.userId, _paymentScreenState.value.paidToUser)
+                }
+            }
             is PaymentAction.UpdatePaidToUser -> {
                 _paymentScreenState.value = _paymentScreenState.value.copy(paidToUser = action.userId)
+
+                // Update the description for transferred payments when paid to changes
+                if (_paymentScreenState.value.editablePayment?.paymentType == "transferred") {
+                    updateTransferDescription(_paymentScreenState.value.editablePayment?.paidByUserId, action.userId)
+                }
             }
             is PaymentAction.UpdateSplit -> {
                 updateSplit(action.userId, action.amount)
@@ -327,6 +374,26 @@ class PaymentsViewModel(
                 _paymentScreenState.value = _paymentScreenState.value.copy(showDeleteDialog = false)
             }
         }
+    }
+
+    private fun updateTransferDescription(paidByUserId: Int?, paidToUserId: Int?) {
+        if (paidByUserId == null || paidToUserId == null) return
+
+        val paidByUsername = if (paidByUserId == userId) "I" else
+            _paymentScreenState.value.groupMembers.find { it.userId == paidByUserId }?.let { member ->
+                users.value.find { it.userId == member.userId }?.username
+            } ?: "Unknown"
+
+        val paidToUsername = if (paidToUserId == userId) "me" else
+            _paymentScreenState.value.groupMembers.find { it.userId == paidToUserId }?.let { member ->
+                users.value.find { it.userId == member.userId }?.username
+            } ?: "Unknown"
+
+        // Format description with the new format
+        val transferDescription = "Transfer: From $paidByUsername to $paidToUsername"
+
+        // Update the payment description
+        updateEditablePayment { it.copy(description = transferDescription) }
     }
 
     private fun updateSplitPercentage(userId: Int, percentage: Double) {
@@ -901,6 +968,30 @@ class PaymentsViewModel(
             Log.d("PaymentsVM", "Paid to user: $paidToUser")
             Log.d("PaymentsVM", "Current state: ${_paymentScreenState.value}")
 
+            // Validate transfer payments
+            if (editablePayment.paymentType == "transferred") {
+                // Check if paid by and paid to are the same user
+                if (editablePayment.paidByUserId == paidToUser) {
+                    // Show validation error
+                    _paymentScreenState.value = _paymentScreenState.value.copy(
+                        paymentOperationStatus = PaymentOperationStatus.Error(
+                            "Cannot transfer money to and from the same person"
+                        )
+                    )
+                    return@launch
+                }
+
+                // Check if paid to user is null
+                if (paidToUser == null) {
+                    _paymentScreenState.value = _paymentScreenState.value.copy(
+                        paymentOperationStatus = PaymentOperationStatus.Error(
+                            "Please select a recipient for the transfer"
+                        )
+                    )
+                    return@launch
+                }
+            }
+
             // Use effectiveSplits instead of editableSplits directly
             val splitsToSave = if (editablePayment.paymentType == "transferred") {
                 if (paidToUser != null) {
@@ -1165,79 +1256,109 @@ class PaymentsViewModel(
                 Log.d("PaymentsVM", "Payment type: ${payment.paymentType}")
                 Log.d("PaymentsVM", "Paid by user ID: ${payment.paidByUserId}")
 
-                // Note that in Trego, negative amounts often represent expenses (money going out)
-                // This is important for determining if a user lent or borrowed
-
                 when {
-                    // Case 1: User paid for this expense
-                    payment.paidByUserId == userId -> {
-                        Log.d("PaymentsVM", "User paid for this expense")
+                    // SPENT scenarios
+                    payment.paymentType == "spent" -> {
+                        if (payment.paidByUserId == userId) {
+                            // Scenario a: The user spent the money and is owed by other(s)
+                            Log.d("PaymentsVM", "User paid for this expense")
 
-                        // Find the user's split (if exists)
-                        val userSplit = splits.find { it.userId == userId }
-                        val userSplitAmount = userSplit?.amount ?: 0.0
-                        val totalAmount = Math.abs(payment.amount)
+                            // Find the user's split (if exists)
+                            val userSplit = splits.find { it.userId == userId }
+                            val userSplitAmount = userSplit?.amount ?: 0.0
+                            val totalAmount = Math.abs(payment.amount)
 
-                        // Calculate how much the user actually lent to others
-                        // For negative amounts (expenses), this is: total amount - user's share
-                        // For positive amounts, this would be the reverse
-                        if (payment.amount < 0) {
-                            // For expenses (negative total amount)
+                            // Calculate how much the user actually paid for others
                             val userPortion = Math.abs(userSplitAmount)
-                            val lentAmount = totalAmount - userPortion
+                            val amountPaidForOthers = totalAmount - userPortion
 
-                            Log.d("PaymentsVM", "This is an expense (negative amount)")
                             Log.d("PaymentsVM", "Total amount: $totalAmount")
                             Log.d("PaymentsVM", "User's share: $userPortion")
-                            Log.d("PaymentsVM", "Amount actually lent to others: $lentAmount")
+                            Log.d("PaymentsVM", "Amount paid for others: $amountPaidForOthers")
 
-                            emit(UserInvolvement.Lent(lentAmount))
+                            emit(UserInvolvement.YouPaidAndAreOwed(amountPaidForOthers))
                         } else {
-                            // For income (positive amounts)
-                            Log.d("PaymentsVM", "This is income (positive amount)")
-                            emit(UserInvolvement.Borrowed(totalAmount))
+                            // Check if user has a split
+                            val userSplit = splits.find { it.userId == userId }
+
+                            if (userSplit != null) {
+                                // Scenario b: Another user spent the money and the user owes them
+                                val splitAmount = Math.abs(userSplit.amount)
+                                Log.d("PaymentsVM", "User owes for this expense: $splitAmount")
+                                emit(UserInvolvement.SomeoneElsePaidAndYouOwe(splitAmount))
+                            } else {
+                                // Scenario c: Another user spent the money and the user wasn't involved
+                                Log.d("PaymentsVM", "User is not involved in this expense")
+                                emit(UserInvolvement.NotInvolved)
+                            }
                         }
                     }
 
-                    // Case 2: Transfer payment - separate into sent vs received
+                    // RECEIVED scenarios
+                    payment.paymentType == "received" -> {
+                        if (payment.paidByUserId == userId) {
+                            // Scenario d: The user received the money and is sharing it with other(s)
+                            Log.d("PaymentsVM", "User received this income and is sharing it")
+
+                            val totalAmount = Math.abs(payment.amount)
+                            // Find the user's split to calculate their portion
+                            val userSplit = splits.find { it.userId == userId }
+                            val userPortion = userSplit?.amount?.let { Math.abs(it) } ?: totalAmount
+
+                            // The amount being shared is the total minus the user's portion
+                            val sharingAmount = totalAmount - userPortion
+
+                            Log.d("PaymentsVM", "Total received: $totalAmount")
+                            Log.d("PaymentsVM", "User's portion: $userPortion")
+                            Log.d("PaymentsVM", "Amount sharing with others: $sharingAmount")
+
+                            // FIX: Use sharingAmount instead of totalAmount to show what the user is sharing
+                            emit(UserInvolvement.YouReceivedAndAreSharing(sharingAmount))
+                        } else {
+                            // Check if user has a split
+                            val userSplit = splits.find { it.userId == userId }
+
+                            if (userSplit != null) {
+                                // Scenario e: Another user received the money and is sharing it with the user
+                                val shareAmount = Math.abs(userSplit.amount)
+                                Log.d("PaymentsVM", "User's share of received money: $shareAmount")
+                                emit(UserInvolvement.SomeoneElseReceivedAndIsSharing(shareAmount))
+                            } else {
+                                // Scenario f: Another user received the money and the user isn't involved
+                                Log.d("PaymentsVM", "User is not involved in this received payment")
+                                emit(UserInvolvement.NotInvolved)
+                            }
+                        }
+                    }
+
+                    // TRANSFERRED scenarios
                     payment.paymentType == "transferred" -> {
-                        Log.d("PaymentsVM", "This is a transfer payment")
                         val transferAmount = Math.abs(payment.amount)
 
                         if (payment.paidByUserId == userId) {
-                            // User is the sender of the transfer
-                            Log.d("PaymentsVM", "User sent this transfer")
-                            emit(UserInvolvement.SentTransfer(transferAmount))
-                        } else if (splits.any { it.userId == userId }) {
-                            // User is the recipient of the transfer
-                            Log.d("PaymentsVM", "User received this transfer")
-                            emit(UserInvolvement.ReceivedTransfer(transferAmount))
+                            // Scenario g: The user transferred money to another user
+                            Log.d("PaymentsVM", "User sent this transfer: $transferAmount")
+                            emit(UserInvolvement.YouSentMoney(transferAmount))
                         } else {
-                            Log.d("PaymentsVM", "User is not involved in this transfer")
-                            emit(UserInvolvement.NotInvolved)
+                            // Check if user has a split (indicating they received the transfer)
+                            val userSplit = splits.find { it.userId == userId }
+
+                            if (userSplit != null) {
+                                // Scenario h: Another user transferred money to the user
+                                Log.d("PaymentsVM", "User received this transfer: $transferAmount")
+                                emit(UserInvolvement.YouReceivedMoney(transferAmount))
+                            } else {
+                                // Scenario i: Another user transferred money to another, different user
+                                Log.d("PaymentsVM", "User is not involved in this transfer")
+                                emit(UserInvolvement.NotInvolved)
+                            }
                         }
                     }
 
-                    // Case 3: Regular expense or income with split
+                    // Default case
                     else -> {
-                        val userSplit = splits.find { it.userId == userId }
-
-                        if (userSplit != null) {
-                            val splitAmount = userSplit.amount
-                            Log.d("PaymentsVM", "User has a split in this payment with amount: $splitAmount")
-
-                            // In Trego, negative split amounts indicate the user owes money
-                            if (splitAmount < 0) {
-                                Log.d("PaymentsVM", "User borrowed (owes money)")
-                                emit(UserInvolvement.Borrowed(Math.abs(splitAmount)))
-                            } else {
-                                Log.d("PaymentsVM", "User lent (is owed money)")
-                                emit(UserInvolvement.Lent(Math.abs(splitAmount)))
-                            }
-                        } else {
-                            Log.d("PaymentsVM", "User is not involved in this payment")
-                            emit(UserInvolvement.NotInvolved)
-                        }
+                        Log.d("PaymentsVM", "Unknown payment type or user not involved")
+                        emit(UserInvolvement.NotInvolved)
                     }
                 }
             } else {

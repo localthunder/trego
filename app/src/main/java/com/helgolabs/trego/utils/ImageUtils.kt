@@ -51,7 +51,7 @@ object ImageUtils {
         }
     }
 
-    private fun resizeBitmap(original: Bitmap): Bitmap {
+    fun resizeBitmap(original: Bitmap): Bitmap {
         val width = original.width
         val height = original.height
         if (width <= MAX_IMAGE_SIZE && height <= MAX_IMAGE_SIZE) {

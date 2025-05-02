@@ -176,5 +176,7 @@ dependencies {
     implementation ("com.google.android.play:app-update:2.1.0")
     implementation ("com.google.android.play:app-update-ktx:2.1.0")
 
+    //Pull to refresh
+    implementation("com.google.accompanist:accompanist-swiperefresh:0.36.0")
 
 }

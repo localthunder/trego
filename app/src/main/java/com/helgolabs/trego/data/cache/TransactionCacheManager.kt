@@ -4,9 +4,9 @@ import android.content.Context
 import android.util.Log
 import com.helgolabs.trego.data.extensions.toJson
 import com.helgolabs.trego.data.local.dao.CachedTransactionDao
+import com.helgolabs.trego.data.local.dataClasses.RateLimitInfo
 import com.helgolabs.trego.data.local.entities.CachedTransactionEntity
 import com.helgolabs.trego.data.model.Transaction
-import com.helgolabs.trego.utils.DateUtils
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDateTime
@@ -21,8 +21,9 @@ class TransactionCacheManager(
         private const val CACHE_DURATION_HOURS = 23L // Slightly less than 24h to be safe
         private const val MAX_API_CALLS_PER_DAY = 4
         private const val RATE_LIMIT_KEY = "transaction_api_calls"
-        private const val LAST_API_CALL_KEY = "last_api_call_timestamp"  // New constant
-        private const val COOLDOWN_MINUTES = 30L  // New constant
+        private const val LAST_API_CALL_KEY = "last_api_call_timestamp"
+        private const val FIRST_API_CALL_KEY = "first_api_call_timestamp" // New key for tracking first call
+        private const val COOLDOWN_MINUTES = 30L
         private const val PREFERENCES_NAME = "transaction_cache_prefs"
         private val LOW_ACTIVITY_HOURS = 0..6 // Midnight to 6 AM
         private const val REFRESH_PRIORITY_THRESHOLD = 50.0
@@ -114,10 +115,36 @@ class TransactionCacheManager(
         return priority
     }
 
-    private fun getTimeUntilApiReset(): Duration {
-        val now = LocalDateTime.now()
-        val tomorrow = now.plusDays(1).truncatedTo(ChronoUnit.DAYS)
-        return Duration.between(now, tomorrow)
+    /**
+     * Get detailed information about the current rate limit status
+     */
+    fun getRateLimitInfo(): RateLimitInfo {
+        val remainingCalls = getRemainingApiCalls()
+        val cooldownMinutesRemaining = getCooldownTimeRemaining()
+        val timeUntilReset = getTimeUntilApiReset()
+
+        return RateLimitInfo(
+            remainingCalls = remainingCalls,
+            maxCalls = MAX_API_CALLS_PER_DAY,
+            cooldownMinutesRemaining = cooldownMinutesRemaining,
+            timeUntilReset = timeUntilReset
+        )
+    }
+
+    /**
+     * Get time until API call counter resets (24 hours from first call)
+     */
+    fun getTimeUntilApiReset(): Duration {
+        val firstCallTimestamp = preferences.getLong(FIRST_API_CALL_KEY, 0)
+
+        // If no calls yet made today, return zero duration
+        if (firstCallTimestamp == 0L) {
+            return Duration.ZERO
+        }
+
+        // Calculate reset time (24 hours after first call)
+        val resetTime = Instant.ofEpochMilli(firstCallTimestamp).plus(24, ChronoUnit.HOURS)
+        return Duration.between(Instant.now(), resetTime)
     }
 
     private suspend fun getRecentUserActivity(userId: Int): Boolean {
@@ -142,6 +169,9 @@ class TransactionCacheManager(
                 getTimeUntilApiReset().toMinutes() < 30
     }
 
+    /**
+     * Cache transactions and increment API call count
+     */
     suspend fun cacheTransactions(userId: Int, transactions: List<Transaction>) {
         val currentTime = System.currentTimeMillis()
         val expiryTime = currentTime + Duration.ofHours(CACHE_DURATION_HOURS).toMillis()
@@ -158,20 +188,58 @@ class TransactionCacheManager(
 
         cachedTransactionDao.insertCachedTransactions(cachedEntities)
         incrementApiCallCount()
+
         // Update last API call timestamp
         preferences.edit().putLong(LAST_API_CALL_KEY, currentTime).apply()
         Log.d(TAG, "Cached ${transactions.size} transactions for user $userId")
     }
 
+    /**
+     * Cache account-specific transactions without affecting the rate limit
+     */
+    suspend fun cacheAccountTransactions(userId: Int, transactions: List<Transaction>, isAccountSpecific: Boolean = false) {
+        val currentTime = System.currentTimeMillis()
+        val expiryTime = currentTime + Duration.ofHours(CACHE_DURATION_HOURS).toMillis()
 
+        val cachedEntities = transactions.map { transaction ->
+            CachedTransactionEntity(
+                transactionId = transaction.transactionId,
+                userId = userId,
+                transactionData = transaction.toJson(),
+                fetchTimestamp = currentTime,
+                expiryTimestamp = expiryTime
+            )
+        }
+
+        cachedTransactionDao.insertCachedTransactions(cachedEntities)
+
+        // Only increment API call count if it's not an account-specific fetch
+        if (!isAccountSpecific) {
+            incrementApiCallCount()
+        }
+
+        // Always update last API call timestamp for cooldown purposes
+        preferences.edit().putLong(LAST_API_CALL_KEY, currentTime).apply()
+        Log.d(TAG, "Cached ${transactions.size} transactions for user $userId" +
+                if (isAccountSpecific) " (account-specific fetch, no rate limit impact)" else "")
+    }
+
+    /**
+     * Get the number of API calls made today in the rolling 24-hour window
+     */
     private fun getApiCallsToday(): Int {
-        val currentDate = DateUtils.getCurrentDate()
-        val lastCallDate = preferences.getString("last_call_date", "")
+        val firstCallTimestamp = preferences.getLong(FIRST_API_CALL_KEY, 0)
+        val currentTime = System.currentTimeMillis()
 
-        if (lastCallDate != currentDate) {
-            // Reset counter for new day
+        // If first call is more than 24 hours ago or no calls yet, reset counter
+        if (firstCallTimestamp == 0L ||
+            Duration.between(
+                Instant.ofEpochMilli(firstCallTimestamp),
+                Instant.ofEpochMilli(currentTime)
+            ).toHours() >= 24) {
+
             preferences.edit()
-                .putString("last_call_date", currentDate)
+                .putLong(FIRST_API_CALL_KEY, 0)
                 .putInt(RATE_LIMIT_KEY, 0)
                 .apply()
             return 0
@@ -180,14 +248,27 @@ class TransactionCacheManager(
         return preferences.getInt(RATE_LIMIT_KEY, 0)
     }
 
+    /**
+     * Increment the API call count and update first call timestamp if needed
+     */
     private fun incrementApiCallCount() {
-        val currentDate = DateUtils.getCurrentDate()
         val currentCount = getApiCallsToday()
+        val currentTime = System.currentTimeMillis()
+        val firstCallTimestamp = preferences.getLong(FIRST_API_CALL_KEY, 0)
 
-        preferences.edit()
-            .putString("last_call_date", currentDate)
-            .putInt(RATE_LIMIT_KEY, currentCount + 1)
-            .apply()
+        // If this is the first call in the window, set the first call timestamp
+        if (currentCount == 0 || firstCallTimestamp == 0L) {
+            preferences.edit()
+                .putLong(FIRST_API_CALL_KEY, currentTime)
+                .putInt(RATE_LIMIT_KEY, 1)
+                .apply()
+            Log.d(TAG, "First API call of the window at: ${Instant.ofEpochMilli(currentTime)}")
+        } else {
+            preferences.edit()
+                .putInt(RATE_LIMIT_KEY, currentCount + 1)
+                .apply()
+            Log.d(TAG, "API call count incremented to: ${currentCount + 1}")
+        }
     }
 
     suspend fun clearExpiredCache() {
@@ -212,5 +293,15 @@ class TransactionCacheManager(
             Instant.now()
         )
         return maxOf(0L, COOLDOWN_MINUTES - timeSinceLastCall.toMinutes())
+    }
+
+    /**
+     * Check if refresh is allowed for specific account transactions
+     * This is always allowed regardless of rate limit for newly added accounts
+     */
+    fun isAccountSpecificRefreshAllowed(): Boolean {
+        // Account-specific refreshes don't count toward the rate limit
+        // but we still enforce the cooldown period to prevent excessive calls
+        return getCooldownTimeRemaining() == 0L
     }
 }

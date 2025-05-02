@@ -330,6 +330,35 @@ class MainActivity : FragmentActivity() {
             Log.d("MainActivity", "Update is downloaded and ready to install")
             // This will be handled in the Compose UI with the snackbar
         }
+
+        // Check if user is authenticated and prompt for biometrics if needed
+        val userId = getUserIdFromPreferences(this)
+        if (userId != null && !AuthManager.isUserLoggedIn(this)) {
+            Log.d("MainActivity", "User returning to app, prompting for biometrics")
+            // Only prompt for biometrics if user exists but isn't authenticated
+            AuthManager.promptForBiometrics(
+                this,
+                userRepository = userRepository,
+                userId = userId,
+                onSuccess = {
+                    Log.d("MainActivity", "Biometric authentication succeeded")
+                    // User is already on the correct screen, just update authentication state
+                    AuthManager.setAuthenticated(this, true)
+                },
+                onFailure = {
+                    Log.e("MainActivity", "Biometric authentication failed")
+                    // Navigate to login screen
+                    lifecycleScope.launch {
+                        setContent {
+                            val navController = rememberNavController()
+                            navController.navigate("login") {
+                                popUpTo("home") { inclusive = true }
+                            }
+                        }
+                    }
+                }
+            )
+        }
     }
 
     override fun onDestroy() {
@@ -471,27 +500,44 @@ class MainActivity : FragmentActivity() {
         apiService: ApiService
     ) {
         LaunchedEffect(Unit) {
-            if (AuthManager.isUserLoggedIn(context)) {
-                AuthManager.promptForBiometrics(
-                    this@MainActivity,
-                    userRepository = userRepository,
-                    userId = userId,
-                    onSuccess = {
-                        Log.d("MainActivity", "Biometric authentication succeeded")
-                        navController.navigate("home") {
-                            popUpTo("login") { inclusive = true }
-                        }
-                    },
-                    onFailure = {
-                        Log.e("MainActivity", "Biometric authentication failed")
-                        navController.navigate("login") {
-                            popUpTo("home") { inclusive = true }
-                        }
+            val isLoggedIn = AuthManager.isUserLoggedIn(context)
+            val hasTimedOut = AuthManager.hasSessionTimedOut(context)
+
+            when {
+                // User is logged in and session is valid
+                isLoggedIn && !hasTimedOut -> {
+                    Log.d("MainActivity", "User is authenticated and session is valid")
+                    navController.navigate("home") {
+                        popUpTo("login") { inclusive = true }
                     }
-                )
-            } else {
-                navController.navigate("login") {
-                    popUpTo("home") { inclusive = true }
+                }
+
+                // User was logged in but session timed out
+                !isLoggedIn && userId != -1 -> {
+                    Log.d("MainActivity", "Session timed out, prompting for biometrics")
+                    AuthManager.promptForBiometrics(
+                        this@MainActivity,
+                        userRepository = userRepository,
+                        userId = userId,
+                        onSuccess = {
+                            navController.navigate("home") {
+                                popUpTo("login") { inclusive = true }
+                            }
+                        },
+                        onFailure = {
+                            navController.navigate("login") {
+                                popUpTo("home") { inclusive = true }
+                            }
+                        }
+                    )
+                }
+
+                // User is not logged in
+                else -> {
+                    Log.d("MainActivity", "User is not logged in")
+                    navController.navigate("login") {
+                        popUpTo("home") { inclusive = true }
+                    }
                 }
             }
         }
