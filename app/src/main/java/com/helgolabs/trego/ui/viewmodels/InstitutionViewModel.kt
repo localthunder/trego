@@ -1,5 +1,6 @@
 package com.helgolabs.trego.ui.viewmodels
 
+import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -98,8 +99,7 @@ class InstitutionViewModel(
             _loading.value = true
             _error.value = null
             try {
-                // Include current route in requisition request
-                val encodedRoute = URLEncoder.encode(currentRoute, "UTF-8")
+                val encodedRoute = Uri.encode(currentRoute)
                 val baseUrlWithReturn = "$baseUrl?returnRoute=$encodedRoute"
 
                 val result = institutionRepository.createRequisitionAndGetLink(
@@ -107,7 +107,6 @@ class InstitutionViewModel(
                     baseUrl = baseUrlWithReturn
                 )
                 _requisitionLink.value = Result.success(result)
-                Log.d("InstitutionViewModel", "Requisition link created: ${result.link}") // Changed from redirectUrl to link
             } catch (e: Exception) {
                 Log.e("InstitutionViewModel", "Error creating requisition", e)
                 _requisitionLink.value = Result.failure(e)

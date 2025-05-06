@@ -11,6 +11,7 @@ import com.helgolabs.trego.data.extensions.toModel
 import com.helgolabs.trego.data.local.entities.BankAccountEntity
 import com.helgolabs.trego.data.repositories.BankAccountRepository
 import com.helgolabs.trego.data.model.BankAccount
+import com.helgolabs.trego.data.network.ApiService
 import com.helgolabs.trego.data.repositories.TransactionRepository
 import com.helgolabs.trego.utils.CoroutineDispatchers
 import com.helgolabs.trego.utils.getUserIdFromPreferences
@@ -24,12 +25,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class BankAccountViewModel(
     private val bankAccountRepository: BankAccountRepository,
     private val transactionRepository: TransactionRepository,
     private val dispatchers: CoroutineDispatchers,
-    val context: Context
+    val context: Context,
 ) : ViewModel() {
     private val _bankAccounts = MutableStateFlow<List<BankAccount>>(emptyList())
     val bankAccounts: StateFlow<List<BankAccount>> = _bankAccounts
@@ -65,71 +67,34 @@ class BankAccountViewModel(
             WorkManager.getInstance(context)
                 .enqueueUniqueWork("fetch_accounts_$requisitionId", ExistingWorkPolicy.REPLACE, workRequest)
 
-            // Set a timeout to update UI state after some time
-            delay(1500) // Give UI time to render before changing states
+            // Now also directly fetch accounts through the repository
+            viewModelScope.launch(dispatchers.io) {
+                // Give time for the worker to run but also directly fetch data
+                delay(2000)
+
+                try {
+                    // Get accounts through the repository
+                    val result = bankAccountRepository.getBankAccounts(requisitionId)
+                    result.onSuccess { accounts ->
+                        Log.d("BankAccountViewModel", "Repository returned ${accounts.size} accounts")
+                        if (accounts.isNotEmpty()) {
+                            _bankAccounts.value = accounts
+                        }
+                    }.onFailure { error ->
+                        Log.e("BankAccountViewModel", "Error fetching accounts from repository", error)
+                        _error.value = "Failed to load accounts: ${error.message}"
+                    }
+                } catch (e: Exception) {
+                    Log.e("BankAccountViewModel", "Exception in repository call", e)
+                    _error.value = "Failed to load accounts: ${e.message}"
+                }
+            }
+
+            // Set a timeout to ensure loading state is updated
+            delay(5000) // Increased from 1500ms to give more time for API responses
             _loading.value = false
         }
     }
-
-//    fun loadAccountsForRequisition(requisitionId: String, userId: Int) {
-//        Log.d("BankAccountViewModel", "Loading accounts for requisition: $requisitionId")
-//        // Use viewModelScope for UI-related operations
-//        viewModelScope.launch {
-//            _loading.value = true
-//            _error.value = null
-//
-//            try {
-//                // Start a background task that won't be cancelled by navigation
-//                applicationBackgroundScope.launch {
-//                    try {
-//                        Log.d("BankAccountViewModel", "Background task: Fetching accounts for requisition: $requisitionId")
-//                        val result = bankAccountRepository.getBankAccounts(requisitionId)
-//
-//                        result.onSuccess { accounts ->
-//                            Log.d("BankAccountViewModel", "Background task: Successfully loaded ${accounts.size} accounts")
-//
-//                            // Update UI state from the background scope
-//                            viewModelScope.launch {
-//                                _bankAccounts.value = accounts
-//                                _loading.value = false
-//                            }
-//
-//                            // Continue with background processing
-//                            if (accounts.isNotEmpty()) {
-//                                try {
-//                                    Log.d("BankAccountViewModel", "Background task: Loading all user accounts")
-//                                    bankAccountRepository.getUserAccounts(userId)
-//
-//                                    Log.d("BankAccountViewModel", "Background task: Fetching transactions for account: ${accounts.first().accountId}")
-//                                    transactionRepository.fetchAccountTransactions(accounts.first().accountId, userId)
-//
-//                                    Log.d("BankAccountViewModel", "Background tasks completed successfully")
-//                                } catch (e: Exception) {
-//                                    Log.e("BankAccountViewModel", "Error in background processing", e)
-//                                }
-//                            }
-//                        }.onFailure { e ->
-//                            Log.e("BankAccountViewModel", "Background task: Failed to load accounts", e)
-//                            viewModelScope.launch {
-//                                _error.value = "Failed to load accounts: ${e.message}"
-//                                _loading.value = false
-//                            }
-//                        }
-//                    } catch (e: Exception) {
-//                        Log.e("BankAccountViewModel", "Background task error", e)
-//                        viewModelScope.launch {
-//                            _error.value = "Error: ${e.message}"
-//                            _loading.value = false
-//                        }
-//                    }
-//                }
-//            } catch (e: Exception) {
-//                Log.e("BankAccountViewModel", "Error starting background task", e)
-//                _error.value = "Error: ${e.message}"
-//                _loading.value = false
-//            }
-//        }
-//    }
 
     // Keep existing functions but add logging
     fun loadBankAccounts(userId: Int) {
@@ -211,6 +176,13 @@ class BankAccountViewModel(
             } finally {
                 _loading.value = false
             }
+        }
+    }
+
+    suspend fun checkIfAccountExists(accountId: String): Boolean {
+        return withContext(dispatchers.io) {
+            val existingAccount = bankAccountRepository.getAccountById(accountId)
+            existingAccount != null
         }
     }
 

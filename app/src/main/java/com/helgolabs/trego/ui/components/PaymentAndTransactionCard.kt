@@ -113,7 +113,7 @@ fun PaymentAndTransactionCard(
                 } else {
                     "+${currencySymbol}${decimalFormat.format(amount)}"
                 }
-                val amountColor = if (amount < 0) Color.Black else Color.Green
+                val amountColor = if (amount < 0) MaterialTheme.colorScheme.onSurface else Color.Green
 
                 Text(
                     text = formattedAmount,

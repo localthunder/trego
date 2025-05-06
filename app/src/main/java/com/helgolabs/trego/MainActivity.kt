@@ -29,6 +29,7 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import androidx.navigation.NavController
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
 import androidx.room.Database
@@ -398,7 +399,7 @@ class MainActivity : FragmentActivity() {
         Log.d("MainActivity", "handleIntent called with data: $data")
         if (data != null) {
             val uriString = data.toString().replace("&amp;", "&")
-            val decodedUri = Uri.parse(URLDecoder.decode(uriString, StandardCharsets.UTF_8.name()))
+            val decodedUri = data
             val scheme = decodedUri.scheme
             val host = decodedUri.host
             val path = decodedUri.path
@@ -449,7 +450,6 @@ class MainActivity : FragmentActivity() {
                     "bankaccounts" -> {
                         // Check for both reference (from GoCardless) and ref (from our app)
                         val reference = decodedUri.getQueryParameter("reference")
-                            ?: decodedUri.getQueryParameter("ref")
                         val returnRoute = decodedUri.getQueryParameter("returnRoute")
 
                         Log.d(
@@ -687,7 +687,7 @@ class MainActivity : FragmentActivity() {
 
     private suspend fun fetchRequisitionAndNavigate(
         reference: String,
-        navController: NavHostController,
+        navController: NavController,
         context: Context
     ) {
         Log.d("fetchRequisitionAndNavigate", "Fetching requisition for reference: $reference")
@@ -697,18 +697,16 @@ class MainActivity : FragmentActivity() {
 
             if (requisition != null) {
                 // First navigate to bank accounts screen
-                Log.d(
-                    "fetchRequisitionAndNavigate",
-                    "Navigating to bankaccounts/${requisition.requisitionId}"
-                )
+                Log.d("fetchRequisitionAndNavigate", "Navigating to bankaccounts/${requisition.requisitionId}")
                 navController.navigate("bankaccounts/${requisition.requisitionId}")
 
-                // Get return route from the deep link data
-                val returnRoute = intent?.data?.getQueryParameter("returnRoute")
-                Log.d("fetchRequisitionAndNavigate", "Return route from deep link: $returnRoute")
+                // IMPORTANT: Only process return route if explicitly requested by user
+                // Otherwise, we let the BankAccountsScreen handle the navigation flow
+                val returnRoute = intent?.data?.getQueryParameter("manualReturn")
+                Log.d("fetchRequisitionAndNavigate", "Manual return route from deep link: $returnRoute")
 
                 if (!returnRoute.isNullOrEmpty()) {
-                    // Give more time for bank account processing
+                    // Only give more time for bank account processing if manual return is requested
                     kotlinx.coroutines.delay(1500)
 
                     val decodedRoute = Uri.decode(returnRoute)
@@ -721,9 +719,8 @@ class MainActivity : FragmentActivity() {
                         // Pop up the bank accounts screen from the back stack
                         popUpTo("bankaccounts/${requisition.requisitionId}") { inclusive = true }
                     }
-                } else {
-                    Log.d("fetchRequisitionAndNavigate", "No return route found")
                 }
+                // Otherwise, let the account selection flow complete naturally
             } else {
                 Log.e(
                     "fetchRequisitionAndNavigate",

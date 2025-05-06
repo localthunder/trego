@@ -1,8 +1,11 @@
 package com.helgolabs.trego.ui.navigation
 
+import BankAccountViewModel
 import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -19,6 +22,7 @@ import com.helgolabs.trego.data.local.dataClasses.PreferenceKeys
 import com.helgolabs.trego.data.repositories.TransactionRepository
 import com.helgolabs.trego.data.network.ApiService
 import com.helgolabs.trego.data.sync.SyncManagerProvider
+import com.helgolabs.trego.ui.screens.AccountSelectionScreen
 import com.helgolabs.trego.ui.screens.AddExpenseScreen
 import com.helgolabs.trego.ui.screens.AddGroupScreen
 import com.helgolabs.trego.ui.screens.BankAccountsScreen
@@ -187,6 +191,19 @@ fun NavGraph(
             val requisitionId = backStackEntry.arguments?.getString("requisitionId") ?: return@composable
             BankAccountsScreen(navController, context, requisitionId, userId)
         }
+
+        composable(
+            route = "accountSelection/{requisitionId}",
+            arguments = listOf(navArgument("requisitionId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val requisitionId = backStackEntry.arguments?.getString("requisitionId") ?: return@composable
+            AccountSelectionScreen(
+                navController = navController,
+                requisitionId = requisitionId,
+                userId = userId
+            )
+        }
+
         composable(
             route = "transactions/{userId}",
             arguments = listOf(navArgument("userId") { type = NavType.IntType })

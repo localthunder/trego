@@ -35,6 +35,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.ui.text.style.TextOverflow
 import com.helgolabs.trego.data.local.dataClasses.InstitutionGroup
 import com.helgolabs.trego.data.local.dataClasses.PreferenceKeys
 import com.helgolabs.trego.data.local.dataClasses.RequisitionRequest
@@ -44,9 +46,11 @@ import com.helgolabs.trego.ui.components.SectionHeader
 import com.helgolabs.trego.ui.theme.GlobalTheme
 import com.helgolabs.trego.ui.viewmodels.PaymentsViewModel.PaymentAction
 import com.helgolabs.trego.ui.viewmodels.UserPreferencesViewModel
+import com.helgolabs.trego.utils.BankNameDictionary
 import isLogoSaved
 import java.io.File
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GroupedInstitutionsScreen(
     navController: NavController,
@@ -62,58 +66,59 @@ fun GroupedInstitutionsScreen(
     val error by institutionViewModel.error.collectAsStateWithLifecycle()
     var searchQuery by remember { mutableStateOf("") }
 
+    // State to track if there are no search results
+    var noSearchResults by remember { mutableStateOf(false) }
+
+    // State to track search suggestions
+    var searchSuggestions by remember { mutableStateOf<List<String>>(emptyList()) }
+
     val groupedInstitutions = remember(institutions, searchQuery) {
-        val filteredInstitutions = institutions.filter {
-            it.name.contains(searchQuery, ignoreCase = true)
-        }
+        // If search query is empty, show all institutions
+        if (searchQuery.isBlank()) {
+            noSearchResults = false
+            searchSuggestions = emptyList()
+            groupInstitutions(institutions)
+        } else {
+            // First, get a list of all institution names for expanded search
+            val allInstitutionNames = institutions.map { it.name }
 
-        // List of popular UK banks (you can adjust this list as needed)
-        val popularBanks = setOf(
-            "Barclays", "HSBC", "Lloyds", "NatWest", "Santander",
-            "Monzo", "Revolut", "Starling", "Metro Bank", "First Direct",
-            "Nationwide", "Halifax", "Royal Bank of Scotland", "TSB Bank",
-            "Chase", "Barclaycard", "Bank of Scotland", "American Express"
-        )
+            // Use the dictionary to get expanded search results
+            val matchingBankNames = BankNameDictionary.getExpandedSearchResults(allInstitutionNames, searchQuery)
 
-        // Create a mapping to identify main institution names (stripped of qualifiers)
-        val institutionGroups = filteredInstitutions.groupBy { institution ->
-            // Extract the main bank name by removing qualifiers like "Personal", "Business", etc.
-            val baseName = institution.name
-                .replace(Regex("(?i)\\s+(Personal|Business|Corporate|Commercial|Retail|Private|Online|Bankline|ClearSpend|net|Kinetic|Wealth|International)$"), "")
-                .replace(Regex("(?i)\\s+-\\s+sort\\s+code\\s+starts\\s+with.*$"), "")  // Handle Virgin Money variants
-                .trim()
+            // Filter institutions based on expanded search results
+            val filteredInstitutions = institutions.filter { institution ->
+                // Check direct name matching
+                if (institution.name.contains(searchQuery, ignoreCase = true)) {
+                    return@filter true
+                }
 
-            // Special handling for specific bank groups
-            when {
-                institution.name.contains("HSBC", ignoreCase = true) -> "HSBC"
-                institution.name.contains("Virgin Money", ignoreCase = true) -> "Virgin Money"
-                institution.name.contains("Allied Irish Banks", ignoreCase = true) -> "Allied Irish Banks"
-                institution.name.contains("Barclaycard", ignoreCase = true) -> "Barclaycard"
-                else -> baseName
-            }
-        }
-
-        // Convert to InstitutionGroup objects
-        institutionGroups.map { (mainName, groupInstitutions) ->
-            // Determine if this is a popular bank
-            val isPopular = popularBanks.any { popularBank ->
-                mainName.contains(popularBank, ignoreCase = true)
+                // Check against expanded search results
+                matchingBankNames.any { bankName ->
+                    institution.name.contains(bankName, ignoreCase = true)
+                }
             }
 
-            // Choose the "main" institution from the group - prioritize personal accounts
-            val mainInst = groupInstitutions.find { it.name.contains("Personal", ignoreCase = true) }
-                ?: groupInstitutions.first()
+            // Check if we have no results and should suggest alternatives
+            if (filteredInstitutions.isEmpty() && searchQuery.length >= 2) {
+                // Find closest bank names for suggestions
+                noSearchResults = true
+                val suggestions = allInstitutionNames
+                    .filter { name ->
+                        BankNameDictionary.levenshteinDistance(
+                            name.lowercase(),
+                            searchQuery.lowercase()
+                        ) <= (searchQuery.length / 2)
+                    }
+                    .take(3)
+                searchSuggestions = suggestions
+            } else {
+                noSearchResults = false
+                searchSuggestions = emptyList()
+            }
 
-            InstitutionGroup(
-                mainName = mainName,
-                institutions = groupInstitutions,
-                mainInstitution = mainInst,
-                isPopular = isPopular
-            )
-        }.sortedWith(
-            compareByDescending<InstitutionGroup> { it.isPopular }
-                .thenBy { it.mainName }
-        )
+            // Return grouped filtered institutions
+            groupInstitutions(filteredInstitutions)
+        }
     }
 
     GlobalTheme(themeMode = themeMode) {
@@ -137,47 +142,82 @@ fun GroupedInstitutionsScreen(
                     } else if (error != null) {
                         Text(error!!, color = MaterialTheme.colorScheme.error)
                     } else {
-
-                        // Search Bar
-                        TextField(
+                        // Search Bar with icon
+                        OutlinedTextField(
                             value = searchQuery,
                             onValueChange = { newQuery -> searchQuery = newQuery },
                             placeholder = { Text("Search banks") },
                             modifier = Modifier.fillMaxWidth(),
-                            colors = TextFieldDefaults.colors(
-                                focusedIndicatorColor = MaterialTheme.colorScheme.primary,
-                                unfocusedIndicatorColor = Color.Transparent
-                            )
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = "Search"
+                                )
+                            },
+                            trailingIcon = {
+                                if (searchQuery.isNotEmpty()) {
+                                    IconButton(onClick = { searchQuery = "" }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "Clear search"
+                                        )
+                                    }
+                                }
+                            },
+                            singleLine = true,
+                            shape = MaterialTheme.shapes.medium
                         )
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // Section headers
-                        if (groupedInstitutions.any { it.isPopular }) {
-                            LazyColumn {
-                                // Popular banks section
-                                item {
-                                    SectionHeader(title = "Popular Banks")
+                        // Display "No results found" message with suggestions
+                        if (noSearchResults) {
+                            NoSearchResultsMessage(
+                                searchQuery = searchQuery,
+                                suggestions = searchSuggestions,
+                                onSuggestionClick = { suggestion ->
+                                    searchQuery = suggestion
                                 }
-
-                                // List popular banks
-                                items(groupedInstitutions.filter { it.isPopular }) { group ->
-                                    InstitutionGroupItem(
-                                        institutionGroup = group,
-                                        navController = navController,
-                                        returnRoute = returnRoute
-                                    )
-                                }
-
-                                // Other banks section (if there are any non-popular banks)
-                                if (groupedInstitutions.any { !it.isPopular }) {
+                            )
+                        } else {
+                            // Section headers and institution lists
+                            if (groupedInstitutions.any { it.isPopular }) {
+                                LazyColumn {
+                                    // Popular banks section
                                     item {
-                                        Spacer(modifier = Modifier.height(16.dp))
-                                        SectionHeader(title = "Other Banks")
+                                        SectionHeader(title = "Popular Banks")
                                     }
 
-                                    // List other banks
-                                    items(groupedInstitutions.filter { !it.isPopular }) { group ->
+                                    // List popular banks
+                                    items(groupedInstitutions.filter { it.isPopular }) { group ->
+                                        InstitutionGroupItem(
+                                            institutionGroup = group,
+                                            navController = navController,
+                                            returnRoute = returnRoute
+                                        )
+                                    }
+
+                                    // Other banks section (if there are any non-popular banks)
+                                    if (groupedInstitutions.any { !it.isPopular }) {
+                                        item {
+                                            Spacer(modifier = Modifier.height(16.dp))
+                                            SectionHeader(title = "Other Banks")
+                                        }
+
+                                        // List other banks
+                                        items(groupedInstitutions.filter { !it.isPopular }) { group ->
+                                            InstitutionGroupItem(
+                                                institutionGroup = group,
+                                                navController = navController,
+                                                returnRoute = returnRoute
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                // If no popular banks match the search, just show all results
+                                LazyColumn {
+                                    items(groupedInstitutions) { group ->
                                         InstitutionGroupItem(
                                             institutionGroup = group,
                                             navController = navController,
@@ -186,23 +226,121 @@ fun GroupedInstitutionsScreen(
                                     }
                                 }
                             }
-                        } else {
-                            // If no popular banks match the search, just show all results
-                            LazyColumn {
-                                items(groupedInstitutions) { group ->
-                                    InstitutionGroupItem(
-                                        institutionGroup = group,
-                                        navController = navController,
-                                        returnRoute = returnRoute
-                                    )
-                                }
-                            }
                         }
                     }
                 }
             }
         )
     }
+}
+
+@Composable
+fun NoSearchResultsMessage(
+    searchQuery: String,
+    suggestions: List<String>,
+    onSuggestionClick: (String) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "No banks found for \"$searchQuery\"",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (suggestions.isNotEmpty()) {
+            Text(
+                text = "Did you mean:",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            suggestions.forEach { suggestion ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .clickable { onSuggestionClick(suggestion) },
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    )
+                ) {
+                    Text(
+                        text = suggestion,
+                        modifier = Modifier
+                            .padding(12.dp)
+                            .fillMaxWidth(),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Groups institutions by name with improved handling of bank name variants
+ */
+private fun groupInstitutions(institutions: List<Institution>): List<InstitutionGroup> {
+    // List of popular UK banks
+    val popularBanks = setOf(
+        "Barclays", "HSBC", "Lloyds", "NatWest", "Santander",
+        "Monzo", "Revolut", "Starling", "Metro Bank", "First Direct",
+        "Nationwide", "Halifax", "Royal Bank of Scotland", "TSB Bank",
+        "Chase", "Barclaycard", "Bank of Scotland", "American Express",
+        "Co-operative Bank"
+    )
+
+    // Create a mapping to identify main institution names (stripped of qualifiers)
+    val institutionGroups = institutions.groupBy { institution ->
+        // Extract the main bank name by removing qualifiers like "Personal", "Business", etc.
+        val baseName = institution.name
+            .replace(Regex("(?i)\\s+(Personal|Business|Corporate|Commercial|Retail|Private|Online|Bankline|ClearSpend|net|Kinetic|Wealth|International)$"), "")
+            .replace(Regex("(?i)\\s+-\\s+sort\\s+code\\s+starts\\s+with.*$"), "")  // Handle Virgin Money variants
+            .trim()
+
+        // Special handling for specific bank groups
+        when {
+            institution.name.contains("HSBC", ignoreCase = true) -> "HSBC"
+            institution.name.contains("Virgin Money", ignoreCase = true) -> "Virgin Money"
+            institution.name.contains("Allied Irish Banks", ignoreCase = true) -> "Allied Irish Banks"
+            institution.name.contains("Barclaycard", ignoreCase = true) -> "Barclaycard"
+            institution.name.contains("Co-operative", ignoreCase = true) -> "Co-operative Bank"
+            institution.name.contains("Nationwide Building", ignoreCase = true) -> "Nationwide"
+            else -> baseName
+        }
+    }
+
+    // Convert to InstitutionGroup objects
+    return institutionGroups.map { (mainName, groupInstitutions) ->
+        // Determine if this is a popular bank
+        val isPopular = popularBanks.any { popularBank ->
+            mainName.contains(popularBank, ignoreCase = true)
+        }
+
+        // Choose the "main" institution from the group - prioritize personal accounts
+        val mainInst = groupInstitutions.find { it.name.contains("Personal", ignoreCase = true) }
+            ?: groupInstitutions.first()
+
+        InstitutionGroup(
+            mainName = mainName,
+            institutions = groupInstitutions,
+            mainInstitution = mainInst,
+            isPopular = isPopular
+        )
+    }.sortedWith(
+        compareByDescending<InstitutionGroup> { it.isPopular }
+            .thenBy { it.mainName }
+    )
 }
 
 @Composable
@@ -367,10 +505,14 @@ fun InstitutionGroupItem(
                 }
             }
             Spacer(modifier = Modifier.width(16.dp))
-            Column {
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
                 Text(
                     text = institutionGroup.mainName,
-                    style = MaterialTheme.typography.bodyLarge
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 if (institutionGroup.institutions.size > 1) {
                     Text(

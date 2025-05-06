@@ -145,6 +145,15 @@ class BankAccountRepository(
         }
     }
 
+    suspend fun getAccountById(accountId: String): BankAccount? = withContext(dispatchers.io) {
+        try {
+            val account = bankAccountDao.getAccountById(accountId)
+            return@withContext account?.toModel()
+        } catch (e: Exception) {
+            Log.e("BankAccountRepository", "Error checking if account exists", e)
+            return@withContext null
+        }
+    }
 
     suspend fun addAccount(account: BankAccountEntity): Result<BankAccountEntity> = withContext(dispatchers.io) {
         try {
