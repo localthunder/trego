@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.helgolabs.trego.data.local.dataClasses.PreferenceKeys
 import com.helgolabs.trego.data.repositories.UserPreferencesRepository
+import com.helgolabs.trego.ui.theme.ThemeManager
 import com.helgolabs.trego.utils.CoroutineDispatchers
 import com.helgolabs.trego.utils.getUserIdFromPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -69,6 +70,9 @@ class UserPreferencesViewModel(
 
                 userPreferencesRepository.setThemeMode(userId, mode)
                 _themeMode.value = mode
+
+                // Update the ThemeManager to trigger app-wide recomposition
+                ThemeManager.setThemeMode(mode)
             } catch (e: Exception) {
                 _error.value = "Failed to set theme mode: ${e.message}"
             } finally {

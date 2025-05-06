@@ -15,6 +15,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.helgolabs.trego.MyApplication
 import com.helgolabs.trego.data.local.AppDatabase
+import com.helgolabs.trego.data.local.dataClasses.PreferenceKeys
 import com.helgolabs.trego.data.repositories.TransactionRepository
 import com.helgolabs.trego.data.network.ApiService
 import com.helgolabs.trego.data.sync.SyncManagerProvider
@@ -46,7 +47,14 @@ import com.helgolabs.trego.ui.viewmodels.UserViewModel
 import com.helgolabs.trego.utils.getUserIdFromPreferences
 
 @Composable
-fun NavGraph(navController: NavHostController, context: Context, userId: Int, apiService: ApiService, modifier: Modifier = Modifier, viewModelFactory: ViewModelProvider.Factory
+fun NavGraph(
+    navController: NavHostController,
+    context: Context,
+    userId: Int,
+    apiService: ApiService,
+    modifier: Modifier = Modifier,
+    viewModelFactory: ViewModelProvider.Factory,
+    themeMode: String = PreferenceKeys.ThemeMode.SYSTEM
 ) {
     val database: AppDatabase by lazy {
         AppDatabase.getDatabase(context)
@@ -204,7 +212,8 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
             GroupDetailsScreen(
                 navController = navController,
                 groupId = groupId,
-                groupViewModel = groupViewModel
+                groupViewModel = groupViewModel,
+                themeMode = themeMode  // Pass the theme mode here
             )
         }
         composable(
@@ -256,7 +265,7 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
             )
         ){backStackEntry ->
             val groupId = backStackEntry.arguments?.getInt("groupId") ?: return@composable
-            GroupBalancesScreen(navController, context, groupId, groupViewModel)
+            GroupBalancesScreen(navController, context, groupId, groupViewModel, themeMode)
         }
         composable(
             route = "groupSettings/{groupId}",
@@ -265,7 +274,12 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
             )
         ){backStackEntry ->
             val groupId = backStackEntry.arguments?.getInt("groupId") ?: return@composable
-            GroupSettingsScreen(navController, groupId, groupViewModel)
+            GroupSettingsScreen(
+                navController = navController,
+                groupId = groupId,
+                groupViewModel = groupViewModel,
+                themeMode = themeMode
+            )
         }
         composable(
             route = "groupTotals/{groupId}",
@@ -276,7 +290,8 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
                 navController = navController,
                 context = context,
                 groupId = groupId,
-                groupViewModel = groupViewModel
+                groupViewModel = groupViewModel,
+                themeMode = themeMode  // Pass the theme mode here
             )
         }
         composable(
@@ -287,7 +302,8 @@ fun NavGraph(navController: NavHostController, context: Context, userId: Int, ap
             SettleUpScreen(
                 navController = navController,
                 groupId = groupId,
-                groupViewModel = groupViewModel
+                groupViewModel = groupViewModel,
+                themeMode = themeMode  // Pass the theme mode here
             )
         }
         composable(

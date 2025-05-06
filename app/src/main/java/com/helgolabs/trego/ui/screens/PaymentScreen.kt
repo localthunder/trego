@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.helgolabs.trego.MyApplication
+import com.helgolabs.trego.data.local.dataClasses.PreferenceKeys
 import com.helgolabs.trego.data.model.GroupMember
 import com.helgolabs.trego.data.model.Transaction
 import com.helgolabs.trego.ui.components.ConvertCurrencyButton
@@ -68,6 +69,7 @@ import com.helgolabs.trego.ui.components.SplitModeDropdown
 import com.helgolabs.trego.ui.theme.GlobalTheme
 import com.helgolabs.trego.ui.viewmodels.PaymentsViewModel
 import com.helgolabs.trego.ui.viewmodels.PaymentsViewModel.PaymentAction
+import com.helgolabs.trego.ui.viewmodels.UserPreferencesViewModel
 import com.helgolabs.trego.ui.viewmodels.UserViewModel
 import com.helgolabs.trego.utils.ConfigureForNumericInput
 import com.helgolabs.trego.utils.CurrencyUtils
@@ -98,6 +100,8 @@ fun PaymentScreen(
 
     // Get Activity context safely
     val activity = LocalContext.current as? ComponentActivity
+    val userPreferencesViewModel: UserPreferencesViewModel = viewModel(factory = myApplication.viewModelFactory)
+    val themeMode by userPreferencesViewModel.themeMode.collectAsState(initial = PreferenceKeys.ThemeMode.SYSTEM)
 
     val userId = getUserIdFromPreferences(context)
     val screenState by paymentsViewModel.paymentScreenState.collectAsState()
@@ -312,7 +316,7 @@ fun PaymentScreen(
     }
 
 
-    GlobalTheme {
+    GlobalTheme(themeMode = themeMode) {
         Scaffold(
             topBar = {
                 GlobalTopAppBar(

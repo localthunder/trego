@@ -51,6 +51,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.helgolabs.trego.MyApplication
+import com.helgolabs.trego.data.local.dataClasses.PreferenceKeys
 import com.helgolabs.trego.ui.components.GlobalTopAppBar
 import com.helgolabs.trego.ui.theme.AnimatedDynamicThemeProvider
 import com.helgolabs.trego.ui.viewmodels.GroupViewModel
@@ -76,7 +77,8 @@ fun GroupTotalsScreen(
     navController: NavController,
     context: Context,
     groupId: Int,
-    groupViewModel: GroupViewModel
+    groupViewModel: GroupViewModel,
+    themeMode: String = PreferenceKeys.ThemeMode.SYSTEM,
 ) {
     val myApplication = context.applicationContext as MyApplication
     val paymentViewModel: PaymentsViewModel = viewModel(factory = myApplication.viewModelFactory)
@@ -230,7 +232,7 @@ fun GroupTotalsScreen(
         it.payment.paymentDate
     }
 
-    AnimatedDynamicThemeProvider(groupId, groupColorScheme) {
+    AnimatedDynamicThemeProvider(groupId, groupColorScheme, themeMode) {
         Scaffold(
             topBar = {
                 GlobalTopAppBar(

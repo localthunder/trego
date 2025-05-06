@@ -35,18 +35,25 @@ import androidx.room.Database
 import com.google.android.play.core.install.model.AppUpdateType
 import com.google.firebase.messaging.FirebaseMessaging
 import com.helgolabs.trego.data.local.AppDatabase
+import com.helgolabs.trego.data.local.dataClasses.PreferenceKeys
 import com.helgolabs.trego.data.managers.InAppUpdateManager
 import com.helgolabs.trego.data.repositories.RequisitionRepository
 import com.helgolabs.trego.data.network.ApiService
+import com.helgolabs.trego.data.repositories.UserPreferencesRepository
 import com.helgolabs.trego.data.repositories.UserRepository
 import com.helgolabs.trego.ui.navigation.NavGraph
 import com.helgolabs.trego.ui.theme.GlobalTheme
+import com.helgolabs.trego.ui.theme.LocalThemeChangeCounter
+import com.helgolabs.trego.ui.theme.LocalThemeMode
+import com.helgolabs.trego.ui.theme.ThemeManager
+import com.helgolabs.trego.ui.viewmodels.UserPreferencesViewModel
 import com.helgolabs.trego.utils.AuthManager
 import com.helgolabs.trego.utils.TokenManager
 import com.helgolabs.trego.utils.TokenManager.getRefreshToken
 import com.helgolabs.trego.utils.TokenManager.isTokenExpired
 import com.helgolabs.trego.utils.getUserIdFromPreferences
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
@@ -57,6 +64,7 @@ class MainActivity : FragmentActivity() {
     private lateinit var requisitionRepository: RequisitionRepository
     private lateinit var apiService: ApiService
     private lateinit var userRepository: UserRepository
+    private lateinit var userPreferencesRepository: UserPreferencesRepository
     private lateinit var updateManager: InAppUpdateManager
 
     private var referenceState: MutableState<String?> = mutableStateOf(null)
@@ -170,11 +178,12 @@ class MainActivity : FragmentActivity() {
             handleIntent(intent)
         }
 
-        val myApplication = applicationContext as com.helgolabs.trego.MyApplication
+        val myApplication = applicationContext as MyApplication
         viewModelFactory = myApplication.viewModelFactory
         requisitionRepository = myApplication.requisitionRepository
         apiService = myApplication.apiService
         userRepository = myApplication.userRepository
+        userPreferencesRepository = myApplication.userPreferencesRepository
 
         // Ask for notification permission
         askNotificationPermission()
@@ -186,114 +195,111 @@ class MainActivity : FragmentActivity() {
         checkForAppUpdates()
 
         setContent {
-            GlobalTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    val navController = rememberNavController()
-                    val context = LocalContext.current
-                    val userId = getUserIdFromPreferences(context)
+            val navController = rememberNavController()
+            val context = LocalContext.current
+            val userId = getUserIdFromPreferences(context)
 
-                    Log.d("MainActivity", "User ID: $userId")
+            // Get the userPreferencesViewModel
+            val userPreferencesViewModel: UserPreferencesViewModel =
+                viewModelFactory.create(UserPreferencesViewModel::class.java)
 
-                    LaunchedEffect(Unit) {
-                        Log.d("MainActivity", "LaunchedEffect triggered")
-                        if (userId != null) {
-                            Log.d("MainActivity", "User exists, prompting for biometrics")
-                            AuthManager.promptForBiometrics(
-                                this@MainActivity,
-                                userRepository = userRepository,
-                                userId = userId,
-                                onSuccess = {
-                                    Log.d(
-                                        "MainActivity",
-                                        "Biometric authentication succeeded, navigating to home"
-                                    )
-                                    navController.navigate("home") {
-                                        popUpTo(navController.graph.startDestinationId) {
-                                            inclusive = true
-                                        }
+            // Collect the theme mode
+            val themeMode by ThemeManager.themeMode.collectAsState()
+            val themeChangeCounter by ThemeManager.themeChangeCounter.collectAsState()
+
+            // Load the initial theme from preferences
+            LaunchedEffect(Unit) {
+                val userId = getUserIdFromPreferences(context)
+                if (userId != null) {
+                    val savedTheme = userPreferencesRepository.getThemeModeFlow(userId).first()
+                    ThemeManager.setThemeMode(savedTheme)
+                }
+            }
+
+            // Load preferences when the app starts
+            LaunchedEffect(Unit) {
+                userPreferencesViewModel.loadPreferences()
+            }
+            // Apply theme without recreating navigation
+            CompositionLocalProvider(
+                LocalThemeMode provides themeMode,
+                LocalThemeChangeCounter provides themeChangeCounter
+            ) {
+                GlobalTheme(themeMode = themeMode) {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background
+                    ) {
+                        Log.d("MainActivity", "User ID: $userId")
+
+                        // Show update progress for flexible updates
+                        val updateProgress by updateManager.updateProgress.collectAsState()
+                        if (updateProgress in 1..99) {
+                            LinearProgressIndicator(
+                                progress = { updateProgress / 100f },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp)
+                            )
+                        }
+
+                        // Show install prompt when download is complete
+                        var showUpdateReadySnackbar by remember { mutableStateOf(false) }
+
+                        // Check if update is downloaded and waiting for install
+                        LaunchedEffect(Unit) {
+                            updateManager.checkIfUpdateDownloaded {
+                                showUpdateReadySnackbar = true
+                            }
+                        }
+
+                        // Show snackbar when update is ready to install
+                        if (showUpdateReadySnackbar) {
+                            Snackbar(
+                                modifier = Modifier
+                                    .padding(16.dp),
+                                action = {
+                                    TextButton(onClick = {
+                                        updateManager.completeUpdate()
+                                        showUpdateReadySnackbar = false
+                                    }) {
+                                        Text("INSTALL")
                                     }
                                 },
-                                onFailure = {
-                                    Log.e("MainActivity", "Biometric authentication failed")
-                                    // Stay on current screen
+                                dismissAction = {
+                                    IconButton(onClick = { showUpdateReadySnackbar = false }) {
+                                        // You would need to add an icon here
+                                        Text("×")
+                                    }
                                 }
-                            )
-                        } else {
-                            Log.d("MainActivity", "No user found, navigating to login")
-                            navController.navigate("login")
+                            ) {
+                                Text("An update has been downloaded and is ready to install.")
+                            }
                         }
-                    }
 
-                    // Show update progress for flexible updates
-                    val updateProgress by updateManager.updateProgress.collectAsState()
-                    if (updateProgress in 1..99) {
-                        LinearProgressIndicator(
-                            progress = { updateProgress / 100f },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp)
+                        NavigationSetup(
+                            navController = navController,
+                            context = context,
+                            userId = userId ?: -1,
+                            viewModelFactory = viewModelFactory,
+                            apiService = apiService
+                        )
+                        HandleDeepLink(
+                            navController = navController,
+                            referenceState = referenceState,
+                            previousRoute = previousRoute
+                        )
+
+                        HandleInvite(
+                            navController = navController,
+                            pendingInvite = pendingInvite
+                        )
+
+                        HandleDeepLinkTarget(
+                            navController = navController,
+                            pendingDeepLink = pendingDeepLink
                         )
                     }
-
-                    // Show install prompt when download is complete
-                    var showUpdateReadySnackbar by remember { mutableStateOf(false) }
-
-                    // Check if update is downloaded and waiting for install
-                    LaunchedEffect(Unit) {
-                        updateManager.checkIfUpdateDownloaded {
-                            showUpdateReadySnackbar = true
-                        }
-                    }
-
-                    // Show snackbar when update is ready to install
-                    if (showUpdateReadySnackbar) {
-                        Snackbar(
-                            modifier = Modifier
-                                .padding(16.dp),
-                            action = {
-                                TextButton(onClick = {
-                                    updateManager.completeUpdate()
-                                    showUpdateReadySnackbar = false
-                                }) {
-                                    Text("INSTALL")
-                                }
-                            },
-                            dismissAction = {
-                                IconButton(onClick = { showUpdateReadySnackbar = false }) {
-                                    // You would need to add an icon here
-                                    Text("×")
-                                }
-                            }
-                        ) {
-                            Text("An update has been downloaded and is ready to install.")
-                        }
-                    }
-
-                    NavigationSetup(
-                        navController = navController,
-                        context = context,
-                        userId = userId ?: -1,
-                        viewModelFactory = viewModelFactory,
-                        apiService = apiService
-                    )
-                    HandleDeepLink(
-                        navController = navController,
-                        referenceState = referenceState,
-                        previousRoute = previousRoute
-                    )
-
-                    HandleInvite(
-                        navController = navController,
-                        pendingInvite = pendingInvite
-                    )
-
-                    HandleDeepLinkTarget(
-                        navController = navController,
-                        pendingDeepLink = pendingDeepLink
-                    )
                 }
             }
         }
@@ -492,14 +498,23 @@ class MainActivity : FragmentActivity() {
     }
 
     @Composable
-    private fun NavigationSetup(
+    fun NavigationSetup(
         navController: NavHostController,
         context: Context,
         userId: Int,
         viewModelFactory: ViewModelProvider.Factory,
         apiService: ApiService
     ) {
+        // Get the userPreferencesViewModel
+        val userPreferencesViewModel = viewModelFactory.create(UserPreferencesViewModel::class.java)
+
+        // Collect the theme mode
+        val themeMode by userPreferencesViewModel.themeMode.collectAsState(initial = PreferenceKeys.ThemeMode.SYSTEM)
+
         LaunchedEffect(Unit) {
+            // Load preferences on startup
+            userPreferencesViewModel.loadPreferences()
+
             val isLoggedIn = AuthManager.isUserLoggedIn(context)
             val hasTimedOut = AuthManager.hasSessionTimedOut(context)
 
@@ -553,7 +568,8 @@ class MainActivity : FragmentActivity() {
             context = context,
             userId = userId,
             viewModelFactory = viewModelFactory,
-            apiService = apiService
+            apiService = apiService,
+            themeMode = themeMode
         )
     }
 

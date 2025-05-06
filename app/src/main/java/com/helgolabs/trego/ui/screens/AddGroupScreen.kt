@@ -22,10 +22,14 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.helgolabs.trego.MyApplication
+import com.helgolabs.trego.data.local.dataClasses.PreferenceKeys
 import com.helgolabs.trego.data.local.entities.GroupEntity
 import com.helgolabs.trego.ui.components.GlobalTopAppBar
 import com.helgolabs.trego.data.model.Group
+import com.helgolabs.trego.data.model.User
+import com.helgolabs.trego.ui.theme.GlobalTheme
 import com.helgolabs.trego.ui.viewmodels.GroupViewModel
+import com.helgolabs.trego.ui.viewmodels.UserPreferencesViewModel
 import com.helgolabs.trego.utils.getUserIdFromPreferences
 import java.text.SimpleDateFormat
 import java.util.*
@@ -34,12 +38,13 @@ import java.util.*
 fun AddGroupScreen(navController: NavController, context: Context) {
     val myApplication = context.applicationContext as MyApplication
     val groupViewModel: GroupViewModel = viewModel(factory = myApplication.viewModelFactory)
-
+    val userPreferencesViewModel: UserPreferencesViewModel = viewModel(factory = myApplication.viewModelFactory)
 
     var name by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }  // Changed to mutable state
+    val themeMode by userPreferencesViewModel.themeMode.collectAsState(initial = PreferenceKeys.ThemeMode.SYSTEM)
 
     val groupCreationStatus by groupViewModel.groupCreationStatus.observeAsState()
 
@@ -65,81 +70,94 @@ fun AddGroupScreen(navController: NavController, context: Context) {
         }
     }
 
-    Scaffold(
-        topBar = {
-            GlobalTopAppBar(title = { Text("Add New Group") })
-        },
-        content = { padding ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                TextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Group Name") },
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                    keyboardOptions = KeyboardOptions.Default.copy(
-                        capitalization = KeyboardCapitalization.Sentences,
-                        imeAction = ImeAction.Next
+    GlobalTheme(themeMode = themeMode) {
+        Scaffold(
+            topBar = {
+                GlobalTopAppBar(title = { Text("Add New Group") })
+            },
+            content = { padding ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    TextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("Group Name") },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        keyboardOptions = KeyboardOptions.Default.copy(
+                            capitalization = KeyboardCapitalization.Sentences,
+                            imeAction = ImeAction.Next
+                        )
                     )
-                )
-                TextField(
-                    value = description,
-                    onValueChange = { description = it },
-                    label = { Text("Group Description") },
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
-                )
+                    TextField(
+                        value = description,
+                        onValueChange = { description = it },
+                        label = { Text("Group Description") },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                    )
 
-                if (loading) {
-                    CircularProgressIndicator(modifier = Modifier.padding(vertical = 16.dp))
-                } else {
-                    Button(
-                        onClick = {
-                            if (name.isBlank()) {
-                                Toast.makeText(context, "Group name cannot be empty", Toast.LENGTH_SHORT).show()
-                                return@Button
-                            }
+                    if (loading) {
+                        CircularProgressIndicator(modifier = Modifier.padding(vertical = 16.dp))
+                    } else {
+                        Button(
+                            onClick = {
+                                if (name.isBlank()) {
+                                    Toast.makeText(
+                                        context,
+                                        "Group name cannot be empty",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                    return@Button
+                                }
 
-                            Log.d("AddGroupScreen", "Creating group: $name")
-                            loading = true
-                            val userId = getUserIdFromPreferences(context)
-                            if (userId == null) {
-                                Log.e("AddGroupScreen", "User ID not found")
-                                loading = false
-                                error = "User ID not found"
-                                return@Button
-                            }
+                                Log.d("AddGroupScreen", "Creating group: $name")
+                                loading = true
+                                val userId = getUserIdFromPreferences(context)
+                                if (userId == null) {
+                                    Log.e("AddGroupScreen", "User ID not found")
+                                    loading = false
+                                    error = "User ID not found"
+                                    return@Button
+                                }
 
-                            val newGroup = GroupEntity(
-                                name = name,
-                                description = description,
-                                groupImg = null,
-                                createdAt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.getDefault()).format(Date()),
-                                updatedAt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.getDefault()).format(Date()),
-                                inviteLink = null,
-                                imageLastModified = null,
-                                localImagePath = null
-                            )
-                            Log.d("AddGroupScreen", "Calling createGroup with userId: $userId")
-                            groupViewModel.createGroup(newGroup, userId)
-                        },
-                        modifier = Modifier
-                            .align(Alignment.CenterHorizontally)
-                            .padding(vertical = 16.dp)
-                    ) {
-                        Text("Create Group")
+                                val newGroup = GroupEntity(
+                                    name = name,
+                                    description = description,
+                                    groupImg = null,
+                                    createdAt = SimpleDateFormat(
+                                        "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+                                        Locale.getDefault()
+                                    ).format(Date()),
+                                    updatedAt = SimpleDateFormat(
+                                        "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+                                        Locale.getDefault()
+                                    ).format(Date()),
+                                    inviteLink = null,
+                                    imageLastModified = null,
+                                    localImagePath = null
+                                )
+                                Log.d("AddGroupScreen", "Calling createGroup with userId: $userId")
+                                groupViewModel.createGroup(newGroup, userId)
+                            },
+                            modifier = Modifier
+                                .align(Alignment.CenterHorizontally)
+                                .padding(vertical = 16.dp)
+                        ) {
+                            Text("Create Group")
+                        }
+                    }
+
+                    error?.let {
+                        Text("Error: $it", color = MaterialTheme.colorScheme.error)
                     }
                 }
-
-                error?.let {
-                    Text("Error: $it", color = MaterialTheme.colorScheme.error)
-                }
             }
-        }
-    )
+        )
+
+    }
 }

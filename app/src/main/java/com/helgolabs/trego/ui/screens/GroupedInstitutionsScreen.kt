@@ -36,12 +36,14 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import com.helgolabs.trego.data.local.dataClasses.InstitutionGroup
+import com.helgolabs.trego.data.local.dataClasses.PreferenceKeys
 import com.helgolabs.trego.data.local.dataClasses.RequisitionRequest
 import com.helgolabs.trego.ui.components.GlobalFAB
 import com.helgolabs.trego.ui.components.GlobalTopAppBar
 import com.helgolabs.trego.ui.components.SectionHeader
 import com.helgolabs.trego.ui.theme.GlobalTheme
 import com.helgolabs.trego.ui.viewmodels.PaymentsViewModel.PaymentAction
+import com.helgolabs.trego.ui.viewmodels.UserPreferencesViewModel
 import isLogoSaved
 import java.io.File
 
@@ -53,6 +55,8 @@ fun GroupedInstitutionsScreen(
 ) {
     val myApplication = context.applicationContext as MyApplication
     val institutionViewModel: InstitutionViewModel = viewModel(factory = myApplication.viewModelFactory)
+    val userPreferencesViewModel: UserPreferencesViewModel = viewModel(factory = myApplication.viewModelFactory)
+    val themeMode by userPreferencesViewModel.themeMode.collectAsState(initial = PreferenceKeys.ThemeMode.SYSTEM)
     val institutions by institutionViewModel.institutions.collectAsStateWithLifecycle()
     val loading by institutionViewModel.loading.collectAsStateWithLifecycle()
     val error by institutionViewModel.error.collectAsStateWithLifecycle()
@@ -112,7 +116,7 @@ fun GroupedInstitutionsScreen(
         )
     }
 
-    GlobalTheme {
+    GlobalTheme(themeMode = themeMode) {
         Scaffold(
             topBar = {
                 GlobalTopAppBar(

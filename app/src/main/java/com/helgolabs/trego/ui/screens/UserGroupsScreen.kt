@@ -31,11 +31,13 @@ import coil3.compose.AsyncImage
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import com.helgolabs.trego.MyApplication
+import com.helgolabs.trego.data.local.dataClasses.PreferenceKeys
 import com.helgolabs.trego.data.local.dataClasses.UserGroupListItem
 import com.helgolabs.trego.ui.components.GlobalFAB
 import com.helgolabs.trego.ui.components.GlobalTopAppBar
 import com.helgolabs.trego.ui.theme.GlobalTheme
 import com.helgolabs.trego.ui.viewmodels.GroupViewModel
+import com.helgolabs.trego.ui.viewmodels.UserPreferencesViewModel
 import com.helgolabs.trego.utils.FormattingUtils.formatAsCurrency
 import com.helgolabs.trego.utils.ImageUtils
 import com.helgolabs.trego.utils.PlaceholderImageGenerator
@@ -47,6 +49,10 @@ fun UserGroupsScreen(navController: NavController) {
     val context = LocalContext.current
     val myApplication = context.applicationContext as MyApplication
     val groupViewModel: GroupViewModel = viewModel(factory = myApplication.viewModelFactory)
+    val userPreferencesViewModel: UserPreferencesViewModel = viewModel(factory = myApplication.viewModelFactory)
+
+    // Get the theme mode from the preferences
+    val themeMode by userPreferencesViewModel.themeMode.collectAsState(initial = PreferenceKeys.ThemeMode.SYSTEM)
 
     // Add state for archived groups expansion
     var showArchivedGroups by remember { mutableStateOf(false) }
@@ -74,6 +80,11 @@ fun UserGroupsScreen(navController: NavController) {
         groupViewModel.loadUserGroupsList(userId, true)
         // Then preload color schemes
         groupViewModel.preloadGroupColorSchemes(context)
+    }
+
+    // Load preferences when screen is shown
+    LaunchedEffect(Unit) {
+        userPreferencesViewModel.loadPreferences()
     }
 
     // This is important - log the refresh counter to check if it's changing
@@ -105,7 +116,7 @@ fun UserGroupsScreen(navController: NavController) {
         }
     }
 
-    GlobalTheme {
+    GlobalTheme(themeMode = themeMode) {
         Scaffold(
             topBar = {
                 GlobalTopAppBar(

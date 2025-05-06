@@ -41,6 +41,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.helgolabs.trego.MyApplication
 import com.helgolabs.trego.data.local.dataClasses.AccountReauthState
+import com.helgolabs.trego.data.local.dataClasses.PreferenceKeys
 import com.helgolabs.trego.data.local.dataClasses.RefreshMessageType
 import com.helgolabs.trego.data.model.Transaction
 import com.helgolabs.trego.data.repositories.TransactionRepository
@@ -52,9 +53,11 @@ import com.helgolabs.trego.ui.components.ReauthorizeBankAccountCard
 import com.helgolabs.trego.ui.components.ScrollToTopButton
 import com.helgolabs.trego.ui.components.TransactionItem
 import com.helgolabs.trego.ui.components.TransactionPullToRefresh
+import com.helgolabs.trego.ui.theme.GlobalTheme
 import com.helgolabs.trego.ui.viewmodels.InstitutionViewModel
 import com.helgolabs.trego.ui.viewmodels.PaymentsViewModel
 import com.helgolabs.trego.ui.viewmodels.TransactionViewModel
+import com.helgolabs.trego.ui.viewmodels.UserPreferencesViewModel
 import com.helgolabs.trego.utils.getUserIdFromPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
@@ -94,6 +97,7 @@ fun AddExpenseScreen(
     val institutionViewModel: InstitutionViewModel = viewModel(factory = myApplication.viewModelFactory)
     val bankAccountViewModel: BankAccountViewModel = viewModel(factory = myApplication.viewModelFactory)
     val paymentsViewModel: PaymentsViewModel = viewModel(factory = myApplication.viewModelFactory)
+    val userPreferencesViewModel: UserPreferencesViewModel = viewModel(factory = myApplication.viewModelFactory)
     val coroutineScope = rememberCoroutineScope()
     val userId = getUserIdFromPreferences(context)
     val hapticFeedback = LocalHapticFeedback.current
@@ -101,6 +105,9 @@ fun AddExpenseScreen(
     val addedTransactionIds by transactionViewModel.addedTransactionIds.collectAsState(emptySet())
     val showAlreadyAdded by transactionViewModel.showAlreadyAdded.collectAsState(true)
     val filteredTransactions by transactionViewModel.filteredTransactions.collectAsState(emptyList())
+
+    // Get the theme mode from the preferences
+    val themeMode by userPreferencesViewModel.themeMode.collectAsState(initial = PreferenceKeys.ThemeMode.SYSTEM)
 
     // Get rate limit info
     val rateLimitInfo by transactionViewModel.rateLimitInfo.collectAsState(
@@ -353,399 +360,417 @@ fun AddExpenseScreen(
         }
     }
 
-    // Custom top app bar based on selection mode
-    val topBar: @Composable () -> Unit = {
-        if (isSelectionMode) {
-            TopAppBar(
-                title = {
-                    Text(
-                        "${selectedTransactions.size} selected",
-                        style = MaterialTheme.typography.titleLarge
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = { exitSelectionMode() }) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Exit selection mode"
+    GlobalTheme(themeMode = themeMode) {
+        // Custom top app bar based on selection mode
+        val topBar: @Composable () -> Unit = {
+            if (isSelectionMode) {
+                TopAppBar(
+                    title = {
+                        Text(
+                            "${selectedTransactions.size} selected",
+                            style = MaterialTheme.typography.titleLarge
                         )
-                    }
-                },
-                actions = {
-                    // Toggle between select all and deselect all
-                    IconButton(
-                        onClick = {
-                            if (selectedTransactions.size < transactions.size) {
-                                selectAll()
-                            } else {
-                                deselectAll()
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { exitSelectionMode() }) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Exit selection mode"
+                            )
+                        }
+                    },
+                    actions = {
+                        // Toggle between select all and deselect all
+                        IconButton(
+                            onClick = {
+                                if (selectedTransactions.size < transactions.size) {
+                                    selectAll()
+                                } else {
+                                    deselectAll()
+                                }
                             }
-                        }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.SelectAll,
-                            contentDescription = if (selectedTransactions.size < transactions.size)
-                                "Select all" else "Deselect all"
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            )
-        } else {
-            GlobalTopAppBar(
-                title = { Text("Add Expense", style = MaterialTheme.typography.headlineSmall) },
-                actions = {
-                    // Manual refresh button
-                    IconButton(
-                        onClick = { transactionViewModel.manualRefreshTransactions() },
-                        enabled = !isRefreshing
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Refresh transactions",
-                            tint = if (rateLimitInfo.remainingCalls > 0)
-                                MaterialTheme.colorScheme.primary
-                            else
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-                        )
-                    }
-
-                    // Add filter toggle
-                    IconButton(
-                        onClick = { transactionViewModel.toggleShowAlreadyAdded() }
-                    ) {
-                        Icon(
-                            imageVector = if (showAlreadyAdded)
-                                Icons.Default.FilterAlt
-                            else
-                                Icons.Default.FilterAltOff,
-                            contentDescription = if (showAlreadyAdded)
-                                "Filter out already added transactions"
-                            else
-                                "Show all transactions"
-                        )
-                    }
-                }
-            )
-        }
-    }
-
-    Scaffold(
-        topBar = topBar,
-        floatingActionButton = {
-            // Only show FAB in selection mode when items are selected
-            AnimatedVisibility(
-                visible = isSelectionMode && selectedTransactions.isNotEmpty(),
-                enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
-                exit = fadeOut() + slideOutVertically(targetOffsetY = { it })
-            ) {
-                FloatingActionButton(
-                    onClick = { addSelectedTransactions() },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "Add selected expenses"
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Add Selected")
-                    }
-                }
-            }
-        }
-    ) { padding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
-            // Use our custom pull-to-refresh component with the rate limit info
-            TransactionPullToRefresh(
-                isRefreshing = isRefreshing,
-                onRefresh = { transactionViewModel.manualRefreshTransactions() },
-                rateLimitInfo = rateLimitInfo
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp),
-                    horizontalAlignment = Alignment.Start,
-                    verticalArrangement = Arrangement.Top
-                ) {
-                    // Display rate limit info at the top
-                    RateLimitInfoWithHelp(
-                        rateLimitInfo = rateLimitInfo,
-                        modifier = Modifier.padding(vertical = 8.dp)
-                    )
-
-                    // Always show action buttons regardless of selection mode
-                    ActionButtons(
-                        onAddCustom = { navController.navigate("paymentDetails/$groupId/0") },
-                        groupId = groupId,
-                        navController = navController
-                    )
-
-                    // Show filter indicator when filter is active
-                    if (!showAlreadyAdded) {
-                        FilterChip(
-                            selected = true,
-                            onClick = { transactionViewModel.toggleShowAlreadyAdded() },
-                            label = { Text("Hiding already added") },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Default.FilterAlt,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            },
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Show refresh message if present
-                    refreshMessage?.let { message ->
-                        val backgroundColor = when (message.type) {
-                            RefreshMessageType.SUCCESS -> MaterialTheme.colorScheme.primaryContainer
-                            RefreshMessageType.WARNING -> MaterialTheme.colorScheme.errorContainer
-                            RefreshMessageType.ERROR -> MaterialTheme.colorScheme.errorContainer
-                            RefreshMessageType.INFO -> MaterialTheme.colorScheme.secondaryContainer
-                        }
-                        val textColor = when (message.type) {
-                            RefreshMessageType.SUCCESS -> MaterialTheme.colorScheme.onPrimaryContainer
-                            RefreshMessageType.WARNING -> MaterialTheme.colorScheme.onErrorContainer
-                            RefreshMessageType.ERROR -> MaterialTheme.colorScheme.onErrorContainer
-                            RefreshMessageType.INFO -> MaterialTheme.colorScheme.onSecondaryContainer
-                        }
-
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = backgroundColor),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 8.dp)
                         ) {
-                            Text(
-                                text = message.message,
-                                color = textColor,
-                                modifier = Modifier.padding(16.dp)
+                            Icon(
+                                imageVector = Icons.Default.SelectAll,
+                                contentDescription = if (selectedTransactions.size < transactions.size)
+                                    "Select all" else "Deselect all"
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                )
+            } else {
+                GlobalTopAppBar(
+                    title = { Text("Add Expense", style = MaterialTheme.typography.headlineSmall) },
+                    actions = {
+                        // Manual refresh button
+                        IconButton(
+                            onClick = { transactionViewModel.manualRefreshTransactions() },
+                            enabled = !isRefreshing
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Refresh transactions",
+                                tint = if (rateLimitInfo.remainingCalls > 0)
+                                    MaterialTheme.colorScheme.primary
+                                else
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                            )
+                        }
+
+                        // Add filter toggle
+                        IconButton(
+                            onClick = { transactionViewModel.toggleShowAlreadyAdded() }
+                        ) {
+                            Icon(
+                                imageVector = if (showAlreadyAdded)
+                                    Icons.Default.FilterAlt
+                                else
+                                    Icons.Default.FilterAltOff,
+                                contentDescription = if (showAlreadyAdded)
+                                    "Filter out already added transactions"
+                                else
+                                    "Show all transactions"
                             )
                         }
                     }
+                )
+            }
+        }
 
-                    // Reauthorization Cards
-                    if (accountsNeedingReauth.isNotEmpty()) {
+        Scaffold(
+            topBar = topBar,
+            floatingActionButton = {
+                // Only show FAB in selection mode when items are selected
+                AnimatedVisibility(
+                    visible = isSelectionMode && selectedTransactions.isNotEmpty(),
+                    enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
+                    exit = fadeOut() + slideOutVertically(targetOffsetY = { it })
+                ) {
+                    FloatingActionButton(
+                        onClick = { addSelectedTransactions() },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "Add selected expenses"
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Add Selected")
+                        }
+                    }
+                }
+            }
+        ) { padding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+            ) {
+                // Use our custom pull-to-refresh component with the rate limit info
+                TransactionPullToRefresh(
+                    isRefreshing = isRefreshing,
+                    onRefresh = { transactionViewModel.manualRefreshTransactions() },
+                    rateLimitInfo = rateLimitInfo
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp),
+                        horizontalAlignment = Alignment.Start,
+                        verticalArrangement = Arrangement.Top
+                    ) {
+                        // Display rate limit info at the top
+                        RateLimitInfoWithHelp(
+                            rateLimitInfo = rateLimitInfo,
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+
+                        // Always show action buttons regardless of selection mode
+                        ActionButtons(
+                            onAddCustom = { navController.navigate("paymentDetails/$groupId/0") },
+                            groupId = groupId,
+                            navController = navController
+                        )
+
+                        // Show filter indicator when filter is active
+                        if (!showAlreadyAdded) {
+                            FilterChip(
+                                selected = true,
+                                onClick = { transactionViewModel.toggleShowAlreadyAdded() },
+                                label = { Text("Hiding already added") },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.FilterAlt,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                },
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+                        }
+
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        if (accountsNeedingReauth.size == 1) {
-                            val account = accountsNeedingReauth.first()
-                            ReauthorizeBankAccountCard(
-                                institutionId = account.institutionId ?: "Unknown Bank",
-                                onReconnectClick = {
-                                    account.institutionId?.let { id ->
+                        // Show refresh message if present
+                        refreshMessage?.let { message ->
+                            val backgroundColor = when (message.type) {
+                                RefreshMessageType.SUCCESS -> MaterialTheme.colorScheme.primaryContainer
+                                RefreshMessageType.WARNING -> MaterialTheme.colorScheme.errorContainer
+                                RefreshMessageType.ERROR -> MaterialTheme.colorScheme.errorContainer
+                                RefreshMessageType.INFO -> MaterialTheme.colorScheme.secondaryContainer
+                            }
+                            val textColor = when (message.type) {
+                                RefreshMessageType.SUCCESS -> MaterialTheme.colorScheme.onPrimaryContainer
+                                RefreshMessageType.WARNING -> MaterialTheme.colorScheme.onErrorContainer
+                                RefreshMessageType.ERROR -> MaterialTheme.colorScheme.onErrorContainer
+                                RefreshMessageType.INFO -> MaterialTheme.colorScheme.onSecondaryContainer
+                            }
+
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = backgroundColor),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 8.dp)
+                            ) {
+                                Text(
+                                    text = message.message,
+                                    color = textColor,
+                                    modifier = Modifier.padding(16.dp)
+                                )
+                            }
+                        }
+
+                        // Reauthorization Cards
+                        if (accountsNeedingReauth.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            if (accountsNeedingReauth.size == 1) {
+                                val account = accountsNeedingReauth.first()
+                                ReauthorizeBankAccountCard(
+                                    institutionId = account.institutionId ?: "Unknown Bank",
+                                    onReconnectClick = {
+                                        account.institutionId?.let { id ->
+                                            institutionViewModel.createRequisitionLink(
+                                                institutionId = id,
+                                                baseUrl = "trego://bankaccounts",
+                                                currentRoute = "addExpense/$groupId"
+                                            )
+                                        }
+                                    }
+                                )
+                            } else {
+                                MultipleReauthorizationCard(
+                                    institutions = accountsNeedingReauth.mapNotNull { it.institutionId }
+                                        .ifEmpty { listOf("Unknown Bank") },
+                                    onReconnectClick = { institutionId ->
                                         institutionViewModel.createRequisitionLink(
-                                            institutionId = id,
+                                            institutionId = institutionId,
                                             baseUrl = "trego://bankaccounts",
                                             currentRoute = "addExpense/$groupId"
                                         )
                                     }
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Handle requisition link processing
+                        requisitionLink?.getOrNull()?.let { response ->
+                            LaunchedEffect(response) {
+                                response.link?.let { url ->
+                                    try {
+                                        // Extract the requisition ID from the URL
+                                        // The URL format is: https://ob.gocardless.com/ob-psd2/start/{requisitionId}/{institutionId}
+                                        val requisitionId = url.split("/").dropLast(1).last()
+
+                                        // First update the account's reauthentication status and requisition ID
+                                        accountsNeedingReauth.firstOrNull()?.let { account ->
+                                            account.accountId?.let { accountId ->
+                                                bankAccountViewModel.updateAccountAfterReauth(
+                                                    accountId = accountId,
+                                                    newRequisitionId = requisitionId // Now passing the extracted requisitionId
+                                                )
+                                                // Refresh the accounts needing reauth
+                                                userId?.let { id ->
+                                                    accountsNeedingReauth =
+                                                        transactionViewModel.getAccountsNeedingReauth(
+                                                            id
+                                                        )
+                                                }
+                                            }
+                                        }
+
+                                        // Then launch the bank's authentication page
+                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        context.startActivity(intent)
+
+                                        // Clear the requisition link after use
+                                        institutionViewModel.clearRequisitionLink()
+                                    } catch (e: Exception) {
+                                        Log.e(
+                                            "AddExpenseScreen",
+                                            "Error updating reauth status or launching URL",
+                                            e
+                                        )
+                                    }
                                 }
-                            )
-                        } else {
-                            MultipleReauthorizationCard(
-                                institutions = accountsNeedingReauth.mapNotNull { it.institutionId }
-                                    .ifEmpty { listOf("Unknown Bank") },
-                                onReconnectClick = { institutionId ->
-                                    institutionViewModel.createRequisitionLink(
-                                        institutionId = institutionId,
-                                        baseUrl = "trego://bankaccounts",
-                                        currentRoute = "addExpense/$groupId"
+                            }
+                        }
+
+                        val displayedTransactions =
+                            remember(transactions, addedTransactionIds, showAlreadyAdded) {
+                                if (showAlreadyAdded) {
+                                    transactions
+                                } else {
+                                    transactions.filter { it.transactionId !in addedTransactionIds }
+                                }
+                            }
+
+                        // Transactions Section
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                        ) {
+                            when {
+                                isLoading -> {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.align(Alignment.Center)
                                     )
                                 }
-                            )
-                        }
-                    }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                                error != null -> {
+                                    Text(
+                                        text = "Error: $error",
+                                        color = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier
+                                            .padding(16.dp)
+                                            .align(Alignment.Center)
+                                    )
+                                }
 
-                    // Handle requisition link processing
-                    requisitionLink?.getOrNull()?.let { response ->
-                        LaunchedEffect(response) {
-                            response.link?.let { url ->
-                                try {
-                                    // Extract the requisition ID from the URL
-                                    // The URL format is: https://ob.gocardless.com/ob-psd2/start/{requisitionId}/{institutionId}
-                                    val requisitionId = url.split("/").dropLast(1).last()
+                                transactions.isEmpty() -> {
+                                    Text(
+                                        text = "No transactions available",
+                                        modifier = Modifier
+                                            .padding(16.dp)
+                                            .align(Alignment.Center)
+                                    )
+                                }
 
-                                    // First update the account's reauthentication status and requisition ID
-                                    accountsNeedingReauth.firstOrNull()?.let { account ->
-                                        account.accountId?.let { accountId ->
-                                            bankAccountViewModel.updateAccountAfterReauth(
-                                                accountId = accountId,
-                                                newRequisitionId = requisitionId // Now passing the extracted requisitionId
-                                            )
-                                            // Refresh the accounts needing reauth
-                                            userId?.let { id ->
-                                                accountsNeedingReauth = transactionViewModel.getAccountsNeedingReauth(id)
+                                else -> {
+                                    LazyColumn(
+                                        state = listState,
+                                        modifier = Modifier.fillMaxSize()
+                                    ) {
+                                        if (displayedTransactions.isEmpty() && !isLoading) {
+                                            item {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(vertical = 32.dp),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        text = if (transactions.isEmpty())
+                                                            "No transactions available"
+                                                        else
+                                                            "No matching transactions found",
+                                                        style = MaterialTheme.typography.bodyLarge,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+                                        } else {
+                                            items(
+                                                items = displayedTransactions,
+                                                key = { it.transactionId }
+                                            ) { transaction ->
+                                                val isSelected =
+                                                    selectedTransactions.contains(transaction.transactionId)
+                                                val isAlreadyAdded =
+                                                    transaction.transactionId in addedTransactionIds
+
+                                                TransactionItem(
+                                                    transaction = transaction,
+                                                    context = context,
+                                                    isSelected = isSelected,
+                                                    isAlreadyAdded = isAlreadyAdded,
+                                                    onClick = {
+                                                        if (isSelectionMode) {
+                                                            toggleSelection(transaction.transactionId)
+                                                        } else {
+                                                            handleTransactionClick(
+                                                                transaction,
+                                                                groupId,
+                                                                navController,
+                                                                transactionViewModel,
+                                                                coroutineScope
+                                                            )
+                                                        }
+                                                    },
+                                                    onLongClick = {
+                                                        hapticFeedback.performHapticFeedback(
+                                                            HapticFeedbackType.LongPress
+                                                        )
+                                                        if (!isSelectionMode) {
+                                                            isSelectionMode = true
+                                                            selectedTransactions =
+                                                                setOf(transaction.transactionId)
+                                                        } else {
+                                                            toggleSelection(transaction.transactionId)
+                                                        }
+                                                    }
+                                                )
+
+                                                Spacer(modifier = Modifier.height(4.dp))
                                             }
                                         }
                                     }
 
-                                    // Then launch the bank's authentication page
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    context.startActivity(intent)
+                                    // Add scroll to top button in the top-right corner
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .wrapContentSize(align = Alignment.TopEnd)
+                                    ) {
+                                        ScrollToTopButton(
+                                            listState = listState,
+                                            modifier = Modifier.padding(top = 4.dp, end = 4.dp)
+                                        )
+                                    }
 
-                                    // Clear the requisition link after use
-                                    institutionViewModel.clearRequisitionLink()
-                                } catch (e: Exception) {
-                                    Log.e("AddExpenseScreen", "Error updating reauth status or launching URL", e)
-                                }
-                            }
-                        }
-                    }
-
-                    val displayedTransactions = remember(transactions, addedTransactionIds, showAlreadyAdded) {
-                        if (showAlreadyAdded) {
-                            transactions
-                        } else {
-                            transactions.filter { it.transactionId !in addedTransactionIds }
-                        }
-                    }
-
-                    // Transactions Section
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                    ) {
-                        when {
-                            isLoading -> {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.align(Alignment.Center)
-                                )
-                            }
-                            error != null -> {
-                                Text(
-                                    text = "Error: $error",
-                                    color = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier
-                                        .padding(16.dp)
-                                        .align(Alignment.Center)
-                                )
-                            }
-                            transactions.isEmpty() -> {
-                                Text(
-                                    text = "No transactions available",
-                                    modifier = Modifier
-                                        .padding(16.dp)
-                                        .align(Alignment.Center)
-                                )
-                            }
-                            else -> {
-                                LazyColumn(
-                                    state = listState,
-                                    modifier = Modifier.fillMaxSize()
-                                ) {
-                                    if (displayedTransactions.isEmpty() && !isLoading) {
-                                        item {
-                                            Box(
+                                    // If in selection mode, show a help text at the bottom
+                                    if (isSelectionMode) {
+                                        Card(
+                                            modifier = Modifier
+                                                .align(Alignment.BottomCenter)
+                                                .fillMaxWidth()
+                                                .padding(bottom = 16.dp),
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = MaterialTheme.colorScheme.secondaryContainer
+                                            )
+                                        ) {
+                                            Text(
+                                                text = "Tap to select/deselect • Long-press to add more • Back to exit selection",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                textAlign = TextAlign.Center,
                                                 modifier = Modifier
                                                     .fillMaxWidth()
-                                                    .padding(vertical = 32.dp),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Text(
-                                                    text = if (transactions.isEmpty())
-                                                        "No transactions available"
-                                                    else
-                                                        "No matching transactions found",
-                                                    style = MaterialTheme.typography.bodyLarge,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                            }
-                                        }
-                                    } else {
-                                        items(
-                                            items = displayedTransactions,
-                                            key = { it.transactionId }
-                                        ) { transaction ->
-                                            val isSelected = selectedTransactions.contains(transaction.transactionId)
-                                            val isAlreadyAdded = transaction.transactionId in addedTransactionIds
-
-                                            TransactionItem(
-                                                transaction = transaction,
-                                                context = context,
-                                                isSelected = isSelected,
-                                                isAlreadyAdded = isAlreadyAdded,
-                                                onClick = {
-                                                    if (isSelectionMode) {
-                                                        toggleSelection(transaction.transactionId)
-                                                    } else {
-                                                        handleTransactionClick(
-                                                            transaction,
-                                                            groupId,
-                                                            navController,
-                                                            transactionViewModel,
-                                                            coroutineScope
-                                                        )
-                                                    }
-                                                },
-                                                onLongClick = {
-                                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                    if (!isSelectionMode) {
-                                                        isSelectionMode = true
-                                                        selectedTransactions = setOf(transaction.transactionId)
-                                                    } else {
-                                                        toggleSelection(transaction.transactionId)
-                                                    }
-                                                }
+                                                    .padding(8.dp)
                                             )
-
-                                            Spacer(modifier = Modifier.height(4.dp))
                                         }
-                                    }
-                                }
-
-                                // Add scroll to top button in the top-right corner
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .wrapContentSize(align = Alignment.TopEnd)
-                                ) {
-                                    ScrollToTopButton(
-                                        listState = listState,
-                                        modifier = Modifier.padding(top = 4.dp, end = 4.dp)
-                                    )
-                                }
-
-                                // If in selection mode, show a help text at the bottom
-                                if (isSelectionMode) {
-                                    Card(
-                                        modifier = Modifier
-                                            .align(Alignment.BottomCenter)
-                                            .fillMaxWidth()
-                                            .padding(bottom = 16.dp),
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = MaterialTheme.colorScheme.secondaryContainer
-                                        )
-                                    ) {
-                                        Text(
-                                            text = "Tap to select/deselect • Long-press to add more • Back to exit selection",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            textAlign = TextAlign.Center,
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(8.dp)
-                                        )
                                     }
                                 }
                             }

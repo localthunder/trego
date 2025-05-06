@@ -176,7 +176,7 @@ class UserRepository(
                         }
                     } else {
                         // No token and user data available, return failure
-                        Result.failure(IOException("No internet connection and no cached login state"))
+                        Result.failure(IOException("You need an internet connection to login for the first time"))
                     }
                 }
             } catch (e: Exception) {

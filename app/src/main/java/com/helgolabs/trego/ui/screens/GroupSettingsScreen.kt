@@ -28,6 +28,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import com.helgolabs.trego.data.local.dataClasses.PreferenceKeys
 import com.helgolabs.trego.data.local.entities.GroupDefaultSplitEntity
 import com.helgolabs.trego.ui.components.AddMembersBottomSheet
 import com.helgolabs.trego.ui.components.CurrencySelectionBottomSheet
@@ -49,7 +50,8 @@ import kotlinx.coroutines.launch
 fun GroupSettingsScreen(
     navController: NavController,
     groupId: Int,
-    groupViewModel: GroupViewModel
+    groupViewModel: GroupViewModel,
+    themeMode: String = PreferenceKeys.ThemeMode.SYSTEM,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -256,7 +258,7 @@ fun GroupSettingsScreen(
         }
     }
 
-    AnimatedDynamicThemeProvider(groupId, groupColorScheme) {
+    AnimatedDynamicThemeProvider(groupId, groupColorScheme, themeMode) {
         // Main scaffold
         Scaffold(
             topBar = {

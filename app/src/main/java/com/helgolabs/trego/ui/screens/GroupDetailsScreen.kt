@@ -51,6 +51,7 @@ import coil3.request.SuccessResult
 import coil3.request.allowHardware
 import coil3.request.crossfade
 import coil3.toBitmap
+import com.helgolabs.trego.data.local.dataClasses.PreferenceKeys
 import com.helgolabs.trego.data.local.entities.GroupMemberEntity
 import com.helgolabs.trego.ui.components.GlobalFAB
 import com.helgolabs.trego.ui.components.AddMembersBottomSheet
@@ -79,7 +80,8 @@ import kotlin.math.absoluteValue
 fun GroupDetailsScreen(
     navController: NavController,
     groupId: Int,
-    groupViewModel: GroupViewModel
+    groupViewModel: GroupViewModel,
+    themeMode: String = PreferenceKeys.ThemeMode.SYSTEM
 ) {
     val context = LocalContext.current
     var showArchiveConfirmDialog by remember { mutableStateOf(false) }
@@ -278,7 +280,11 @@ fun GroupDetailsScreen(
 
 
     // Apply the dynamic theme
-    AnimatedDynamicThemeProvider(groupId, groupColorScheme) {
+    AnimatedDynamicThemeProvider(
+        groupId = groupId,
+        dynamicColorScheme = groupColorScheme,
+        themeMode = themeMode
+    ) {
         // Get Window instance and control system bars
         val activity = LocalContext.current as Activity
         val windowInsets = WindowInsets.systemBars

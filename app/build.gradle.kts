@@ -179,4 +179,7 @@ dependencies {
     //Pull to refresh
     implementation("com.google.accompanist:accompanist-swiperefresh:0.36.0")
 
+    //Theme recomposition
+    implementation ("com.google.accompanist:accompanist-systemuicontroller:0.27.0")
+
 }

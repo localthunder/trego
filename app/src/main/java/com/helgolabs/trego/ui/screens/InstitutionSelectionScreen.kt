@@ -31,9 +31,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.helgolabs.trego.MyApplication
+import com.helgolabs.trego.data.local.dataClasses.PreferenceKeys
 import com.helgolabs.trego.data.local.dataClasses.RequisitionRequest
 import com.helgolabs.trego.data.model.Institution
+import com.helgolabs.trego.ui.theme.GlobalTheme
 import com.helgolabs.trego.ui.viewmodels.InstitutionViewModel
+import com.helgolabs.trego.ui.viewmodels.UserPreferencesViewModel
 import downloadAndSaveImage
 import isLogoSaved
 import java.io.File
@@ -49,6 +52,8 @@ fun InstitutionSelectionScreen(
     val myApplication = context.applicationContext as MyApplication
     val institutionViewModel: InstitutionViewModel = viewModel(factory = myApplication.viewModelFactory)
     val institutions by institutionViewModel.institutions.collectAsStateWithLifecycle()
+    val userPreferencesViewModel: UserPreferencesViewModel = viewModel(factory = myApplication.viewModelFactory)
+    val themeMode by userPreferencesViewModel.themeMode.collectAsState(initial = PreferenceKeys.ThemeMode.SYSTEM)
 
     // Filter institutions by the bank name
     val filteredInstitutions = remember(institutions, bankName) {
@@ -73,45 +78,47 @@ fun InstitutionSelectionScreen(
         }.sortedBy { it.name } // Sort alphabetically
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = bankName,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowBack,
-                            contentDescription = "Go back"
+    GlobalTheme(themeMode = themeMode) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = bankName,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { navController.popBackStack() }) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowBack,
+                                contentDescription = "Go back"
+                            )
+                        }
+                    }
+                )
+            }
+        ) { paddingValues ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .padding(16.dp),
+            ) {
+                Text(
+                    text = "Select Account Type",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+
+                LazyColumn {
+                    items(filteredInstitutions) { institution ->
+                        InstitutionItem(
+                            institution = institution,
+                            returnRoute = returnRoute
                         )
                     }
-                }
-            )
-        }
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(16.dp),
-        ) {
-            Text(
-                text = "Select Account Type",
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
-
-            LazyColumn {
-                items(filteredInstitutions) { institution ->
-                    InstitutionItem(
-                        institution = institution,
-                        returnRoute = returnRoute
-                    )
                 }
             }
         }

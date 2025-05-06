@@ -25,6 +25,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.helgolabs.trego.MyApplication
+import com.helgolabs.trego.data.local.dataClasses.PreferenceKeys
 import com.helgolabs.trego.data.local.dataClasses.UserBalanceWithCurrency
 import com.helgolabs.trego.ui.components.GlobalTopAppBar
 import com.helgolabs.trego.ui.theme.AnimatedDynamicThemeProvider
@@ -39,7 +40,8 @@ fun GroupBalancesScreen(
     navController: NavController,
     context: Context,
     groupId: Int,
-    groupViewModel: GroupViewModel
+    groupViewModel: GroupViewModel,
+    themeMode: String = PreferenceKeys.ThemeMode.SYSTEM,
 ) {
     val balances by groupViewModel.groupBalances.collectAsStateWithLifecycle()
     val loading by groupViewModel.loading.collectAsStateWithLifecycle()
@@ -50,7 +52,7 @@ fun GroupBalancesScreen(
     LaunchedEffect(groupId) {
         groupViewModel.fetchGroupBalances(groupId)
     }
-    AnimatedDynamicThemeProvider(groupId, groupColorScheme) {
+    AnimatedDynamicThemeProvider(groupId, groupColorScheme, themeMode) {
 
         Scaffold(
             topBar = {

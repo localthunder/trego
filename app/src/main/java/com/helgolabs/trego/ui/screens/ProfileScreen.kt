@@ -498,7 +498,7 @@ fun AppearanceSettingsItem(
     onThemeSelected: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val themes = listOf("Light", "Dark", "System")
+    val themes = listOf("Light", "Dark", "System settings (recommended)")
     var expanded by remember { mutableStateOf(false) }
 
     SettingsListItem(
@@ -519,6 +519,14 @@ fun AppearanceSettingsItem(
                         onClick = {
                             onThemeSelected(theme)
                             expanded = false
+                        },
+                        trailingIcon = {
+                            if (theme == selectedTheme) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "Selected"
+                                )
+                            }
                         }
                     )
                 }

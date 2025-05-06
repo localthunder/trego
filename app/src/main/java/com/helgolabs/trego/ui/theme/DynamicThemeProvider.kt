@@ -24,6 +24,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -36,8 +37,14 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import com.google.android.material.color.DynamicColors
 import com.google.android.material.color.DynamicColorsOptions
+import com.helgolabs.trego.MyApplication
+import com.helgolabs.trego.data.local.dataClasses.PreferenceKeys
+import com.helgolabs.trego.ui.viewmodels.UserPreferencesViewModel
 import com.helgolabs.trego.utils.ImagePaletteExtractor
 import com.helgolabs.trego.utils.ImagePaletteExtractor.extractSeedColor
 import com.helgolabs.trego.utils.ImagePaletteExtractor.generateMaterialColorScheme
@@ -58,19 +65,29 @@ val LocalDynamicColorScheme = compositionLocalOf<ImagePaletteExtractor.GroupColo
 fun AnimatedDynamicThemeProvider(
     groupId: Int?,
     dynamicColorScheme: ImagePaletteExtractor.GroupColorScheme?,
+    themeMode: String = PreferenceKeys.ThemeMode.SYSTEM,
     content: @Composable () -> Unit
 ) {
-
-    Log.d("ThemeDebug", "AnimatedDynamicThemeProvider called for group $groupId with scheme: ${dynamicColorScheme != null}")
-
     val context = LocalContext.current
     val view = LocalView.current
     val activity = context as? Activity
-    val isDarkTheme = isSystemInDarkTheme()
+
+    // Get userPreferencesViewModel and themeMode
+    val viewModelStore = LocalViewModelStoreOwner.current?.viewModelStore ?: ViewModelStore()
+    val factory = (context.applicationContext as MyApplication).viewModelFactory
+    val userPreferencesViewModel: UserPreferencesViewModel = ViewModelProvider(viewModelStore, factory)
+        .get(UserPreferencesViewModel::class.java)
+
+    // Determine dark theme based on user preference
+    val isDarkTheme = when (themeMode) {
+        PreferenceKeys.ThemeMode.LIGHT -> false
+        PreferenceKeys.ThemeMode.DARK -> true
+        else -> isSystemInDarkTheme()
+    }
+
+    Log.d("ThemeDebug", "AnimatedDynamicThemeProvider called for group $groupId with scheme: ${dynamicColorScheme != null}")
 
     key(groupId) {
-
-
         // Configure system UI
         DisposableEffect(view) {
             if (activity != null) {

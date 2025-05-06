@@ -21,6 +21,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.helgolabs.trego.MyApplication
 import com.helgolabs.trego.data.local.dataClasses.CurrencySettlingInstructions
+import com.helgolabs.trego.data.local.dataClasses.PreferenceKeys
 import com.helgolabs.trego.data.local.dataClasses.SettlingInstruction
 import com.helgolabs.trego.ui.components.GlobalTopAppBar
 import com.helgolabs.trego.ui.components.SettleUpButton
@@ -35,6 +36,7 @@ fun SettleUpScreen(
     navController: NavController,
     groupId: Int,
     groupViewModel: GroupViewModel,
+    themeMode: String = PreferenceKeys.ThemeMode.SYSTEM,
 ) {
     val context = LocalContext.current
     val myApplication = context.applicationContext as MyApplication
@@ -101,7 +103,7 @@ fun SettleUpScreen(
         Pair(userOwes, userIsOwed)
     }
 
-    AnimatedDynamicThemeProvider(groupId, groupColorScheme) {
+    AnimatedDynamicThemeProvider(groupId, groupColorScheme, themeMode) {
         Scaffold(
             topBar = {
                 GlobalTopAppBar(
