@@ -1,5 +1,6 @@
 package com.helgolabs.trego.ui.components
 
+import android.annotation.SuppressLint
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -11,11 +12,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CompareArrows
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -29,7 +29,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -42,14 +42,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.helgolabs.trego.utils.CurrencyUtils
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
+@SuppressLint("DefaultLocale")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConvertCurrencyButton(
@@ -71,6 +69,7 @@ fun ConvertCurrencyButton(
     var showSheet by remember { mutableStateOf(false) }
     var isCustomRate by remember { mutableStateOf(false) }
     var customRate by remember { mutableStateOf("") }
+    var showRateInfoTooltip by remember { mutableStateOf(false) }
 
     // React to the trigger
     LaunchedEffect(showSheetTrigger) {
@@ -201,22 +200,58 @@ fun ConvertCurrencyButton(
                         if (!isCustomRate) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
                                     "Exchange Rate:",
                                     style = MaterialTheme.typography.labelLarge
                                 )
-                                if (exchangeRate != null) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    if (exchangeRate != null) {
+                                        Text(
+                                            "1 ${currentCurrency.uppercase()} = ${String.format("%.4f", exchangeRate)} ${targetCurrency.uppercase()}",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                        )
+                                    } else {
+                                        Text(
+                                            "Loading...",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.outline
+                                        )
+                                    }
+
+                                    IconButton(
+                                        onClick = { showRateInfoTooltip = !showRateInfoTooltip },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Info,
+                                            contentDescription = "Exchange Rate Information",
+                                            modifier = Modifier.size(16.dp),
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Tooltip for exchange rate info
+                            if (showRateInfoTooltip) {
+                                Surface(
+                                    modifier = Modifier
+                                        .padding(top = 4.dp)
+                                        .fillMaxWidth(),
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.surfaceTint.copy(alpha = 0.1f),
+                                    tonalElevation = 2.dp
+                                ) {
                                     Text(
-                                        "1 ${currentCurrency.uppercase()} = ${String.format("%.4f", exchangeRate)} ${targetCurrency.uppercase()}",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                    )
-                                } else {
-                                    Text(
-                                        "Loading...",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.outline
+                                        "Daily exchange rates are provided by the European Central Bank. The exchange rate displayed is based on the date for this payment. Alternative reliable sources are used for daily exchange rates for less common currencies.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.padding(8.dp)
                                     )
                                 }
                             }
