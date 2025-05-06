@@ -9,8 +9,10 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import android.Manifest
+import android.app.Activity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -26,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
@@ -49,15 +52,10 @@ import com.helgolabs.trego.ui.theme.LocalThemeMode
 import com.helgolabs.trego.ui.theme.ThemeManager
 import com.helgolabs.trego.ui.viewmodels.UserPreferencesViewModel
 import com.helgolabs.trego.utils.AuthManager
-import com.helgolabs.trego.utils.TokenManager
-import com.helgolabs.trego.utils.TokenManager.getRefreshToken
-import com.helgolabs.trego.utils.TokenManager.isTokenExpired
 import com.helgolabs.trego.utils.getUserIdFromPreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import java.net.URLDecoder
-import java.nio.charset.StandardCharsets
 
 class MainActivity : FragmentActivity() {
 
@@ -108,6 +106,7 @@ class MainActivity : FragmentActivity() {
             // Maybe show a message to the user about the failed update
         }
     }
+
 
     private fun checkForAppUpdates() {
         updateManager.checkForUpdates(
@@ -510,6 +509,43 @@ class MainActivity : FragmentActivity() {
 
         // Collect the theme mode
         val themeMode by userPreferencesViewModel.themeMode.collectAsState(initial = PreferenceKeys.ThemeMode.SYSTEM)
+
+        // Determine if we're in dark theme
+        val isDarkTheme = when (themeMode) {
+            PreferenceKeys.ThemeMode.LIGHT -> false
+            PreferenceKeys.ThemeMode.DARK -> true
+            else -> isSystemInDarkTheme()
+        }
+
+        // Apply status bar settings - ADD THE SIDE EFFECT HERE
+        val activity = LocalContext.current as? Activity
+
+        SideEffect {
+            activity?.let { act ->
+                Log.d("StatusBarDebug", "NavigationSetup: Setting status bar with isDarkTheme=$isDarkTheme, themeMode=$themeMode")
+
+                // Set status bar to transparent for edge-to-edge layout
+                act.window.statusBarColor = android.graphics.Color.TRANSPARENT
+
+                // Apply the correct status bar icon color based on the theme
+                val insetsController = WindowCompat.getInsetsController(act.window, act.window.decorView)
+                val currentState = insetsController.isAppearanceLightStatusBars
+
+                // In dark theme we want light icons (isAppearanceLightStatusBars = false)
+                // In light theme we want dark icons (isAppearanceLightStatusBars = true)
+                val targetState = !isDarkTheme
+
+                Log.d("StatusBarDebug", "NavigationSetup: current=$currentState, target=$targetState")
+
+                if (currentState != targetState) {
+                    Log.d("StatusBarDebug", "NavigationSetup: CHANGING status bar icons from " +
+                            "${if (currentState) "DARK" else "LIGHT"} to ${if (targetState) "DARK" else "LIGHT"}")
+                    insetsController.isAppearanceLightStatusBars = targetState
+                } else {
+                    Log.d("StatusBarDebug", "NavigationSetup: No change needed for status bar icons")
+                }
+            }
+        }
 
         LaunchedEffect(Unit) {
             // Load preferences on startup

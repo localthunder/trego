@@ -67,6 +67,7 @@ import com.helgolabs.trego.utils.FormattingUtils.formatAsCurrency
 import com.helgolabs.trego.utils.ImageOrientationFixer
 import com.helgolabs.trego.utils.ImageUtils
 import com.helgolabs.trego.utils.PlaceholderImageGenerator
+import com.helgolabs.trego.utils.StatusBarHelper
 import com.helgolabs.trego.utils.StatusBarHelper.StatusBarProtection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -843,13 +844,8 @@ fun GroupImageFullWidth(
         }
     }
 
-    // Update status bar based on viewModel analysis
-    LaunchedEffect(statusBarShouldBeDark) {
-        activity?.window?.let { window ->
-            val insetsController = WindowCompat.getInsetsController(window, window.decorView)
-            insetsController.isAppearanceLightStatusBars = !statusBarShouldBeDark
-        }
-    }
+    // Do not update status bar here - we don't want to override theme settings
+    // The global theme already handles this properly based on theme mode
 
     Box(
         modifier = modifier
@@ -959,7 +955,8 @@ fun GroupImageFullWidth(
             }
         }
 
-        StatusBarProtection(
+        // Use the StatusBarProtection from your existing StatusBarHelper
+        StatusBarHelper.StatusBarProtection(
             color = if (statusBarShouldBeDark) {
                 // For dark image tops, use darker protection
                 Color.Black.copy(alpha = 0.4f)

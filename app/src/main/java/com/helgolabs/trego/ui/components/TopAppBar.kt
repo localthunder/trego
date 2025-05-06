@@ -50,11 +50,11 @@ fun GlobalTopAppBar(
     val backgroundColor = if (isTransparent) Color.Transparent else MaterialTheme.colorScheme.surface
     val contentColor = MaterialTheme.colorScheme.onSurface
 
-    // Update status bar appearance
+    // REMOVE THE STATUS BAR MANIPULATION - this is now handled by the theme provider
+    // Just set edge-to-edge if needed
     SideEffect {
         WindowCompat.setDecorFitsSystemWindows(activity.window, false)
-        val insetsController = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
-        insetsController.isAppearanceLightStatusBars = !isAppInDarkTheme
+        // Remove the line that sets isAppearanceLightStatusBars
     }
 
     // Transparent Top App Bar

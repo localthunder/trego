@@ -1,20 +1,13 @@
 package com.helgolabs.trego.ui.theme
 
-import android.R.attr
-import android.annotation.SuppressLint
 import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
-import android.graphics.Bitmap
 import android.os.Build
 import android.util.Log
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -22,36 +15,22 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
-import com.google.android.material.color.DynamicColors
-import com.google.android.material.color.DynamicColorsOptions
 import com.helgolabs.trego.MyApplication
 import com.helgolabs.trego.data.local.dataClasses.PreferenceKeys
 import com.helgolabs.trego.ui.viewmodels.UserPreferencesViewModel
 import com.helgolabs.trego.utils.ImagePaletteExtractor
-import com.helgolabs.trego.utils.ImagePaletteExtractor.extractSeedColor
-import com.helgolabs.trego.utils.ImagePaletteExtractor.generateMaterialColorScheme
-import com.materialkolor.PaletteStyle
-import com.materialkolor.dynamicColorScheme
-import com.materialkolor.hct.Hct
-import com.materialkolor.ktx.rememberThemeColor
 
 
 // Create composition local for dynamic color scheme
@@ -85,21 +64,48 @@ fun AnimatedDynamicThemeProvider(
         else -> isSystemInDarkTheme()
     }
 
-    Log.d("ThemeDebug", "AnimatedDynamicThemeProvider called for group $groupId with scheme: ${dynamicColorScheme != null}")
-
     key(groupId) {
-        // Configure system UI
-        DisposableEffect(view) {
-            if (activity != null) {
-                WindowCompat.setDecorFitsSystemWindows(activity.window, false)
+        // Configure system UI - NOTE: We need to make sure this consistently applies
+        // across all screens
+        if (activity != null) {
+            // Apply the status bar configuration
+            SideEffect {
+                Log.d("StatusBarDebug", "DynamicTheme: Setting status bar for group $groupId, isDarkTheme=$isDarkTheme")
                 val insetsController = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
-                val shouldUseDarkIcons = dynamicColorScheme?.let { !isDarkTheme } ?: !isDarkTheme
-                insetsController.isAppearanceLightStatusBars = shouldUseDarkIcons
-            }
+                val currentState = insetsController.isAppearanceLightStatusBars
 
-            onDispose {
-                if (activity != null) {
-                    WindowCompat.setDecorFitsSystemWindows(activity.window, true)
+                // In dark theme, we want light status bar icons (white)
+                // In light theme, we want dark status bar icons (black)
+                // isAppearanceLightStatusBars = true means dark icons, false means light icons
+                val targetState = !isDarkTheme
+
+                Log.d("StatusBarDebug", "DynamicTheme: current=$currentState, target=$targetState, " +
+                        "isDarkTheme=$isDarkTheme, groupId=$groupId")
+
+                if (currentState != targetState) {
+                    Log.d("StatusBarDebug", "DynamicTheme: CHANGING status bar icons from " +
+                            "${if (currentState) "DARK" else "LIGHT"} to ${if (targetState) "DARK" else "LIGHT"}")
+                    insetsController.isAppearanceLightStatusBars = targetState
+
+                    // Force update by setting window flags directly
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        Log.d("StatusBarDebug", "DynamicTheme: Using direct Window decor flags as backup")
+                        val window = activity.window
+                        val decorView = window.decorView
+                        var flags = decorView.systemUiVisibility
+
+                        if (targetState) {
+                            // For light status bar (dark icons)
+                            flags = flags or android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+                        } else {
+                            // For dark status bar (light icons)
+                            flags = flags and android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
+                        }
+
+                        decorView.systemUiVisibility = flags
+                    }
+                } else {
+                    Log.d("StatusBarDebug", "DynamicTheme: No change needed for status bar icons")
                 }
             }
         }
@@ -266,163 +272,3 @@ fun AnimatedDynamicThemeProvider(
         }
     }
 }
-
-//// Helper function to access dynamic color scheme
-//@Composable
-//fun useDynamicColorScheme(): ImagePaletteExtractor.GroupColorScheme? {
-//    return LocalDynamicColorScheme.current
-//}
-//
-//// In your Material3Theme.kt or similar file
-//@Composable
-//fun GroupDetailsTheme(
-//    groupImageBitmap: Bitmap?,
-//    content: @Composable () -> Unit
-//) {
-//    val context = LocalContext.current
-//    val isDarkTheme = isSystemInDarkTheme()
-//
-//    // Extract colors using your custom implementation
-//    val customColorScheme = remember(groupImageBitmap) {
-//        if (groupImageBitmap != null) {
-//            ImagePaletteExtractor.extractColorsFromBitmap(groupImageBitmap)
-//        } else {
-//            null
-//        }
-//    }
-//
-//    // Choose the color scheme
-//    val colorScheme = when {
-//        // Use custom extraction if available
-//        customColorScheme != null && customColorScheme.extracted -> {
-//            if (isDarkTheme) customColorScheme.darkScheme else customColorScheme.lightScheme
-//        }
-//        // Fall back to system dynamic colors on Android 12+
-//        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-//            if (isDarkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-//        }
-//        // Fallback to default
-//        else -> {
-//            if (isDarkTheme) darkColorScheme() else lightColorScheme()
-//        }
-//    }
-//
-//    MaterialTheme(
-//        colorScheme = colorScheme,
-//        typography = MaterialTheme.typography,
-//        content = content
-//    )
-//}
-//
-//@SuppressLint("RestrictedApi")
-//@Composable
-//fun CustomDynamicTheme(bitmap: Bitmap, content: @Composable () -> Unit) {
-//    val seedColor = remember(bitmap) { extractSeedColor(bitmap) }
-//    val palette = remember(seedColor) { generateMaterialColorScheme(seedColor) }
-//
-//    val lightScheme = lightColorScheme(
-//        primary = Color(palette.a1.tone(50)),
-//        secondary = Color(palette.a2.tone(50)),
-//        tertiary = Color(palette.a3.tone(50)),
-//        background = Color(palette.n1.tone(90)),
-//        surface = Color(palette.n2.tone(98))
-//    )
-//
-//    val darkScheme = darkColorScheme(
-//        primary = Color(palette.a1.tone(80)),
-//        secondary = Color(palette.a2.tone(80)),
-//        tertiary = Color(palette.a3.tone(80)),
-//        background = Color(palette.n1.tone(20)),
-//        surface = Color(palette.n2.tone(10))
-//    )
-//
-//    val isDark = isSystemInDarkTheme()
-//    MaterialTheme(
-//        colorScheme = if (isDark) darkScheme else lightScheme,
-//        typography = Typography(),
-//        content = content
-//    )
-//}
-//
-//@Composable
-//fun MaterialDynamicTheme(
-//    bitmap: Bitmap,
-//    isDarkTheme: Boolean = isSystemInDarkTheme(),
-//    content: @Composable () -> Unit
-//) {
-//    val context = LocalContext.current
-//    val view = LocalView.current
-//    val activity = context.findActivity()
-//    val imageBitmap = bitmap.asImageBitmap()
-//    val seedColor = rememberThemeColor(imageBitmap, fallback = MaterialTheme.colorScheme.primary)
-//
-//    // Generate MaterialKolor scheme directly from bitmap
-//    val customColorScheme = remember(bitmap, isDarkTheme) {
-//        bitmap.let {
-//            try {
-//                // Generate dynamic color scheme directly
-//                dynamicColorScheme(
-//                    primary = seedColor,
-//                    isDark = isDarkTheme,
-//                    style = PaletteStyle.TonalSpot,
-//                    isAmoled = false
-//                )
-//            } catch (e: Exception) {
-//                Log.e("MaterialDynamicTheme", "Error generating MaterialKolor scheme", e)
-//                null
-//            }
-//        }
-//    }
-//
-//    // Handle system UI
-//    DisposableEffect(view, isDarkTheme) {
-//        if (activity != null) {
-//            WindowCompat.setDecorFitsSystemWindows(activity.window, false)
-//            val insetsController = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
-//            insetsController.isAppearanceLightStatusBars = !isDarkTheme
-//        }
-//
-//        onDispose {
-//            if (activity != null) {
-//                WindowCompat.setDecorFitsSystemWindows(activity.window, true)
-//            }
-//        }
-//    }
-//
-//    // Choose color scheme
-//    val colorScheme = when {
-//        // Use our material-color-utilities based scheme if available
-//        customColorScheme != null -> {
-//            customColorScheme
-//        }
-//        // Use system dynamic colors on Android 12+
-//        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-//            if (isDarkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-//        }
-//        // Fall back to default Material 3 colors
-//        else -> {
-//            if (isDarkTheme) darkColorScheme() else lightColorScheme()
-//        }
-//    }
-//
-//    // Apply the theme
-//    MaterialTheme(
-//        colorScheme = colorScheme,
-//        typography = MaterialTheme.typography,
-//        content = content
-//    )
-//}
-//
-///**
-// * Find the Activity from a Context
-// */
-//private fun Context.findActivity(): Activity? {
-//    var currentContext = this
-//    while (currentContext is ContextWrapper) {
-//        if (currentContext is Activity) {
-//            return currentContext
-//        }
-//        currentContext = currentContext.baseContext
-//    }
-//    return null
-//}

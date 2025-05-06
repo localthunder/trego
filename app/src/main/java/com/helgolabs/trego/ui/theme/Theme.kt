@@ -1,6 +1,7 @@
 package com.helgolabs.trego.ui.theme
 import android.app.Activity
 import android.os.Build
+import android.util.Log
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -9,12 +10,8 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource.Companion.SideEffect
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
-import com.google.accompanist.systemuicontroller.rememberSystemUiController
 import com.helgolabs.trego.data.local.dataClasses.PreferenceKeys
 
 val lightScheme = lightColorScheme(
@@ -274,15 +271,39 @@ fun GlobalTheme(
     // Remember the dark theme state
     val isDarkTheme by rememberUpdatedState(darkTheme)
 
-    // Get the SystemUiController
-    val systemUiController = rememberSystemUiController()
+    // Get current context and check if it's an activity
+    val context = LocalContext.current
+    val activity = context as? Activity
 
-    // Update the system bars
+    // Apply system bars configuration
     SideEffect {
-        systemUiController.setSystemBarsColor(
-            color = Color.Transparent,
-            darkIcons = !isDarkTheme
-        )
+        activity?.let { act ->
+            Log.d("StatusBarDebug", "GlobalTheme: Setting status bar appearance with isDarkTheme=$isDarkTheme")
+            val window = act.window
+
+            // Set status bar to transparent
+            window.statusBarColor = android.graphics.Color.TRANSPARENT
+
+            // Apply and log status bar settings
+            val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+            val currentState = insetsController.isAppearanceLightStatusBars
+
+            // In dark theme, use light icons (isAppearanceLightStatusBars = false)
+            // In light theme, use dark icons (isAppearanceLightStatusBars = true)
+            val targetState = !isDarkTheme
+
+            Log.d("StatusBarDebug", "GlobalTheme: current=$currentState, target=$targetState, " +
+                    "isDarkTheme=$isDarkTheme, themeMode=$themeMode")
+
+            // Only change if different to avoid unnecessary updates
+            if (currentState != targetState) {
+                Log.d("StatusBarDebug", "GlobalTheme: CHANGING status bar icons from " +
+                        "${if (currentState) "DARK" else "LIGHT"} to ${if (targetState) "DARK" else "LIGHT"}")
+                insetsController.isAppearanceLightStatusBars = targetState
+            } else {
+                Log.d("StatusBarDebug", "GlobalTheme: No change needed for status bar icons")
+            }
+        }
     }
 
     val colorScheme = when {
@@ -293,14 +314,6 @@ fun GlobalTheme(
 
         darkTheme -> darkScheme
         else -> lightScheme
-    }
-    val view = LocalView.current
-    if (!view.isInEditMode) {
-        SideEffect {
-            val window = (view.context as Activity).window
-            window.statusBarColor = colorScheme.primary.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = darkTheme
-        }
     }
 
     MaterialTheme(
