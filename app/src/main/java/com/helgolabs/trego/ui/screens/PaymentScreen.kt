@@ -376,8 +376,9 @@ fun PaymentScreen(
                             ) {
                                 CurrencyButton(
                                     currencyCode = editablePayment?.currency ?: "GBP",
-                                    onClick = { showCurrencySheet = true }
-                                )
+                                    onClick = { showCurrencySheet = true },
+                                    enabled = !screenState.shouldLockUI,
+                                    )
 
                                 PaymentAmountField(
                                     amount = editablePayment?.amount ?: 0.0,
@@ -406,14 +407,32 @@ fun PaymentScreen(
                                 TextField(
                                     value = editablePayment?.description ?: "",
                                     onValueChange = {
-                                        paymentsViewModel.processAction(
-                                            PaymentAction.UpdateDescription(it)
-                                        )
+                                        if (!screenState.isTransaction) {
+                                            paymentsViewModel.processAction(
+                                                PaymentAction.UpdateDescription(it)
+                                            )
+                                        }
                                     },
                                     label = { Text("Description") },
                                     modifier = Modifier
                                         .weight(3f)
-                                        .focusRequester(focusRequesterDescription),
+                                        .focusRequester(focusRequesterDescription)
+                                        .clickable(
+                                            enabled = screenState.isTransaction,
+                                            indication = null,
+                                            interactionSource = remember { MutableInteractionSource() }
+                                        ) {
+                                            // Show toast when disabled but clicked
+                                            if (screenState.isTransaction) {
+                                                coroutineScope.launch {
+                                                    Toast.makeText(
+                                                        context,
+                                                        "Cannot change description for imported transactions",
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
+                                                }
+                                            }
+                                        },
                                     enabled = !screenState.isTransaction,
                                     keyboardOptions = KeyboardOptions.Default.copy(
                                         capitalization = KeyboardCapitalization.Sentences,
@@ -423,6 +442,11 @@ fun PaymentScreen(
                                         onNext = {
                                             focusManager.moveFocus(FocusDirection.Next)
                                         }
+                                    ),
+                                    colors = TextFieldDefaults.colors(
+                                        disabledTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                        disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
                                     )
                                 )
 
@@ -430,7 +454,7 @@ fun PaymentScreen(
 
                                 GlobalDatePickerDialog(
                                     date = DateUtils.extractDatePart(editablePayment?.paymentDate),
-                                    enabled = !screenState.isTransaction,
+                                    enabled = !screenState.shouldLockUI,
                                     onDateChange = { newDate ->
                                         paymentsViewModel.processAction(
                                             PaymentAction.UpdatePaymentDate(newDate)
@@ -779,17 +803,46 @@ fun CurrencyConvertedCard(
 fun CurrencyButton(
     currencyCode: String,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
 ) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
+    // Create base modifier
+    val clickableModifier = if (enabled) {
+        // When enabled, use standard clickable with provided onClick
+        Modifier.clickable(onClick = onClick)
+    } else {
+        // When disabled, use alternate clickable that shows toast
+        Modifier.clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null
+        ) {
+            coroutineScope.launch {
+                Toast.makeText(
+                    context,
+                    "Cannot change currency for imported transactions",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
 
     Surface(
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        color = if (enabled)
+            MaterialTheme.colorScheme.primaryContainer
+        else
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+        contentColor = if (enabled)
+            MaterialTheme.colorScheme.onPrimaryContainer
+        else
+            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
         shape = RoundedCornerShape(12.dp),
-        shadowElevation = 2.dp, // Add subtle elevation
+        shadowElevation = if (enabled) 2.dp else 0.dp,
         modifier = modifier
-            .clickable(onClick = onClick)
-            .padding(end = 8.dp) // Add spacing between currency and amount
+            .then(clickableModifier)
+            .padding(end = 8.dp)
     ) {
         Text(
             text = getCurrencySymbol(currencyCode),
@@ -812,9 +865,12 @@ fun PaymentAmountField(
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused = interactionSource.collectIsFocusedAsState().value
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
     // Define maximum value constant
     val MAX_AMOUNT = 9_999_999.99
+
+    val disabledAlpha = 0.7f
 
     // State to show error message
     var showErrorMessage by remember { mutableStateOf(false) }
@@ -907,106 +963,136 @@ fun PaymentAmountField(
         }
     }
 
+    // Listen for taps when disabled
+    val clickModifier = if (!enabled) {
+        Modifier.clickable(
+            enabled = true,
+            indication = null,
+            interactionSource = remember { MutableInteractionSource() }
+        ) {
+            coroutineScope.launch {
+                Toast.makeText(
+                    context,
+                    "Cannot change amount for imported transactions",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    } else {
+        Modifier
+    }
+
     // The main text field
     BasicTextField(
         value = textFieldValue,
         onValueChange = { newValue ->
-            // Store original cursor position and text
-            val originalPosition = newValue.selection.start
-            val originalText = newValue.text
+            if (enabled) {
+                // Store original cursor position and text
+                val originalPosition = newValue.selection.start
+                val originalText = newValue.text
 
-            // Only allow digits, decimal point and commas in the input
-            val cleanInput = originalText.filter { it.isDigit() || it == '.' || it == ',' }
+                // Only allow digits, decimal point and commas in the input
+                val cleanInput = originalText.filter { it.isDigit() || it == '.' || it == ',' }
 
-            // Split by decimal point for validation
-            val parts = cleanInput.split(".")
+                // Split by decimal point for validation
+                val parts = cleanInput.split(".")
 
-            if (parts.size <= 2) { // Ensure only one decimal point
-                val integerPartWithCommas = parts[0]
-                val decimalPart = if (parts.size > 1) parts[1].take(2) else ""
+                if (parts.size <= 2) { // Ensure only one decimal point
+                    val integerPartWithCommas = parts[0]
+                    val decimalPart = if (parts.size > 1) parts[1].take(2) else ""
 
-                // Extract just digits from integer part
-                val integerDigitsOnly = integerPartWithCommas.filter { it.isDigit() }
+                    // Extract just digits from integer part
+                    val integerDigitsOnly = integerPartWithCommas.filter { it.isDigit() }
 
-                // Format integer part with proper commas
-                val formattedInteger = if (integerDigitsOnly.isEmpty()) "" else {
-                    try {
-                        NumberFormat.getNumberInstance(Locale.US).format(integerDigitsOnly.toLong())
-                    } catch (e: Exception) {
-                        integerPartWithCommas // Keep existing value on error
+                    // Format integer part with proper commas
+                    val formattedInteger = if (integerDigitsOnly.isEmpty()) "" else {
+                        try {
+                            NumberFormat.getNumberInstance(Locale.US).format(integerDigitsOnly.toLong())
+                        } catch (e: Exception) {
+                            integerPartWithCommas // Keep existing value on error
+                        }
                     }
-                }
 
-                // Construct the new formatted input
-                val validInput = if (decimalPart.isEmpty()) {
-                    if (cleanInput.endsWith(".")) {
-                        "$formattedInteger."
+                    // Construct the new formatted input
+                    val validInput = if (decimalPart.isEmpty()) {
+                        if (cleanInput.endsWith(".")) {
+                            "$formattedInteger."
+                        } else {
+                            formattedInteger
+                        }
                     } else {
-                        formattedInteger
+                        "$formattedInteger.$decimalPart"
                     }
-                } else {
-                    "$formattedInteger.$decimalPart"
-                }
 
-                // Calculate cursor adjustment based on comma differences
-                val beforeCursorOriginal = originalText.take(originalPosition)
-                val beforeCursorValidated = validInput.take(minOf(originalPosition, validInput.length))
+                    // Calculate cursor adjustment based on comma differences
+                    val beforeCursorOriginal = originalText.take(originalPosition)
+                    val beforeCursorValidated = validInput.take(minOf(originalPosition, validInput.length))
 
-                // Count commas in both before-cursor segments
-                val originalCommas = beforeCursorOriginal.count { it == ',' }
-                val newCommas = beforeCursorValidated.count { it == ',' }
-                val commaDifference = newCommas - originalCommas
+                    // Count commas in both before-cursor segments
+                    val originalCommas = beforeCursorOriginal.count { it == ',' }
+                    val newCommas = beforeCursorValidated.count { it == ',' }
+                    val commaDifference = newCommas - originalCommas
 
-                // Adjust cursor position for added/removed commas
-                val adjustedPosition = minOf(
-                    originalPosition + commaDifference,
-                    validInput.length
-                )
-
-                // Update with new text and adjusted cursor position
-                textFieldValue = TextFieldValue(
-                    text = validInput,
-                    selection = TextRange(adjustedPosition)
-                )
-
-                // Extract numeric value without commas for the callback
-                val numericString = validInput.replace(",", "")
-                val numericValue = if (numericString.isEmpty() || numericString == ".") 0.0 else {
-                    try {
-                        numericString.toDouble()
-                    } catch (e: NumberFormatException) {
-                        0.0
-                    }
-                }
-
-                // Check if the value exceeds the maximum
-                if (numericValue > MAX_AMOUNT) {
-                    // Show error message
-                    showErrorMessage = true
-
-                    // Format the maximum allowed value
-                    val maxValueStr = NumberFormat.getNumberInstance(Locale.US).apply {
-                        maximumFractionDigits = 2
-                        minimumFractionDigits = 2
-                    }.format(MAX_AMOUNT)
-
-                    // Update text field with max value
-                    textFieldValue = TextFieldValue(
-                        text = maxValueStr,
-                        selection = TextRange(maxValueStr.length)
+                    // Adjust cursor position for added/removed commas
+                    val adjustedPosition = minOf(
+                        originalPosition + commaDifference,
+                        validInput.length
                     )
 
-                    // Notify listener with max value
-                    onAmountChange(MAX_AMOUNT)
-                } else {
                     // Update with new text and adjusted cursor position
                     textFieldValue = TextFieldValue(
                         text = validInput,
                         selection = TextRange(adjustedPosition)
                     )
 
-                    // Notify listener with the new value
-                    onAmountChange(numericValue)
+                    // Extract numeric value without commas for the callback
+                    val numericString = validInput.replace(",", "")
+                    val numericValue = if (numericString.isEmpty() || numericString == ".") 0.0 else {
+                        try {
+                            numericString.toDouble()
+                        } catch (e: NumberFormatException) {
+                            0.0
+                        }
+                    }
+
+                    // Check if the value exceeds the maximum
+                    if (numericValue > MAX_AMOUNT) {
+                        // Show error message
+                        showErrorMessage = true
+
+                        // Format the maximum allowed value
+                        val maxValueStr = NumberFormat.getNumberInstance(Locale.US).apply {
+                            maximumFractionDigits = 2
+                            minimumFractionDigits = 2
+                        }.format(MAX_AMOUNT)
+
+                        // Update text field with max value
+                        textFieldValue = TextFieldValue(
+                            text = maxValueStr,
+                            selection = TextRange(maxValueStr.length)
+                        )
+
+                        // Notify listener with max value
+                        onAmountChange(MAX_AMOUNT)
+                    } else {
+                        // Update with new text and adjusted cursor position
+                        textFieldValue = TextFieldValue(
+                            text = validInput,
+                            selection = TextRange(adjustedPosition)
+                        )
+
+                        // Notify listener with the new value
+                        onAmountChange(numericValue)
+                    }
+                }
+            } else {
+                // Show toast if disabled but user tries to edit
+                coroutineScope.launch {
+                    Toast.makeText(
+                        context,
+                        "Cannot change amount for imported transactions",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
             }
         },
@@ -1027,10 +1113,12 @@ fun PaymentAmountField(
         enabled = enabled,
         modifier = modifier
             .wrapContentWidth()
-            .focusRequester(focusRequester),
+            .focusRequester(focusRequester)
+            .then(clickModifier),
         decorationBox = { innerTextField ->
             Box(
-                modifier = Modifier.width(textWidth),
+                modifier = Modifier
+                    .width(textWidth),
                 contentAlignment = Alignment.CenterStart
             ) {
                 // Display formatted text based on state
@@ -1040,7 +1128,12 @@ fun PaymentAmountField(
                         Text(
                             text = "0.00",
                             style = textStyle,
-                            color = if (isFocused) Color.LightGray else MaterialTheme.colorScheme.onSurface
+                            color = if (isFocused)
+                                Color.LightGray
+                            else if (!enabled)
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = disabledAlpha)
+                            else
+                                MaterialTheme.colorScheme.onSurface
                         )
                     }
 
@@ -1056,19 +1149,27 @@ fun PaymentAmountField(
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.wrapContentSize(),
-                            ) {
+                        ) {
                             // Integer part (with commas already included)
                             Text(
                                 text = integerPart,
                                 style = textStyle,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = if (!enabled)
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = disabledAlpha)
+                                else
+                                    MaterialTheme.colorScheme.onSurface
                             )
 
                             // Decimal point
                             Text(
                                 text = ".",
                                 style = textStyle,
-                                color = if (hasDecimalPoint) MaterialTheme.colorScheme.onSurface else Color.LightGray
+                                color = if (!enabled)
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = disabledAlpha)
+                                else if (hasDecimalPoint)
+                                    MaterialTheme.colorScheme.onSurface
+                                else
+                                    Color.LightGray
                             )
 
                             // First decimal place
@@ -1076,13 +1177,19 @@ fun PaymentAmountField(
                                 Text(
                                     text = decimalPart.first().toString(),
                                     style = textStyle,
-                                    color = MaterialTheme.colorScheme.onSurface
+                                    color = if (!enabled)
+                                        MaterialTheme.colorScheme.onSurface.copy(alpha = disabledAlpha)
+                                    else
+                                        MaterialTheme.colorScheme.onSurface
                                 )
                             } else {
                                 Text(
                                     text = "0",
                                     style = textStyle,
-                                    color = Color.LightGray
+                                    color = if (!enabled)
+                                        MaterialTheme.colorScheme.onSurface.copy(alpha = disabledAlpha)
+                                    else
+                                        Color.LightGray
                                 )
                             }
 
@@ -1091,13 +1198,19 @@ fun PaymentAmountField(
                                 Text(
                                     text = decimalPart[1].toString(),
                                     style = textStyle,
-                                    color = MaterialTheme.colorScheme.onSurface
+                                    color = if (!enabled)
+                                        MaterialTheme.colorScheme.onSurface.copy(alpha = disabledAlpha)
+                                    else
+                                        MaterialTheme.colorScheme.onSurface
                                 )
                             } else {
                                 Text(
                                     text = "0",
                                     style = textStyle,
-                                    color = Color.LightGray
+                                    color = if (!enabled)
+                                        MaterialTheme.colorScheme.onSurface.copy(alpha = disabledAlpha)
+                                    else
+                                        Color.LightGray
                                 )
                             }
                         }
@@ -1107,7 +1220,7 @@ fun PaymentAmountField(
                 // The actual invisible input field
                 Box (
                     modifier = Modifier.wrapContentSize(),
-                    ) {
+                ) {
                     innerTextField()
                 }
             }
@@ -1116,7 +1229,7 @@ fun PaymentAmountField(
 
     // Request focus on initial display ONLY for new payments
     LaunchedEffect(Unit) {
-        if (isNewPayment) {
+        if (isNewPayment && enabled) {
             focusRequester.requestFocus()
         }
     }
