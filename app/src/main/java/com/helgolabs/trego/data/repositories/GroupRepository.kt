@@ -86,6 +86,10 @@ class GroupRepository(
     val myApplication = context.applicationContext as MyApplication
     val userRepository = myApplication.syncManagerProvider.provideUserRepository()
 
+    fun getAllGroupMembersIncludingArchived(groupId: Int): Flow<List<GroupMemberEntity>> {
+        return groupMemberDao.getAllGroupMembersIncludingArchived(groupId)
+    }
+
     fun getGroupListItems(userId: Int): Flow<List<UserGroupListItem>> =
         groupDao.getGroupsByUserId(userId)
             .catch { e ->
@@ -434,8 +438,12 @@ class GroupRepository(
     }
 
     fun getGroupMembers(groupId: Int): Flow<List<GroupMemberEntity>> = flow {
+        // Log for debugging
+        Log.d("GroupRepository", "Getting active members for group $groupId")
+
         // Emit local data first
-        val localMembers = groupMemberDao.getMembersOfGroup(groupId).first()
+        val localMembers = groupMemberDao.getActiveGroupMembers(groupId).first()
+        Log.d("GroupRepository", "Local active members: ${localMembers.size}")
         emit(localMembers)
 
         if (NetworkUtils.isOnline()) {
@@ -448,6 +456,7 @@ class GroupRepository(
 
                 // Fetch members from server
                 val remoteMembers = apiService.getMembersOfGroup(serverGroupId)
+                Log.d("GroupRepository", "Remote members: ${remoteMembers.size}")
 
                 groupMemberDao.runInTransaction {
                     // Process each remote member
@@ -469,7 +478,10 @@ class GroupRepository(
                     }
                 }
 
-                emit(groupMemberDao.getMembersOfGroup(groupId).first())
+                // Re-emit after sync - only active members for this method
+                val updatedLocalMembers = groupMemberDao.getActiveGroupMembers(groupId).first()
+                Log.d("GroupRepository", "Updated active members: ${updatedLocalMembers.size}")
+                emit(updatedLocalMembers)
             } catch (e: Exception) {
                 Log.e("GroupRepository", "Error fetching members", e)
                 // Don't throw - we still have valid local data
@@ -477,44 +489,240 @@ class GroupRepository(
         }
     }
 
+    suspend fun checkMemberHasPaymentsOrSplits(userId: Int, groupId: Int): Boolean = withContext(dispatchers.io) {
+        try {
+            // Check if the user has any payments in this group
+            val hasPayments = paymentDao.getPaymentsByUser(userId)
+                .any { payment -> payment.groupId == groupId }
+
+            // Check if the user has any splits in this group
+            val hasSplits = paymentSplitDao.getPaymentSplitsByUser(userId)
+                .any { split ->
+                    val payment = paymentDao.getPaymentById(split.paymentId)
+                    payment.first()?.groupId == groupId
+                }
+
+            Log.d("GroupRepository", "Member $userId in group $groupId - hasPayments: $hasPayments, hasSplits: $hasSplits")
+
+            hasPayments || hasSplits
+        } catch (e: Exception) {
+            Log.e("GroupRepository", "Error checking member payments/splits", e)
+            // Default to true to be safe - this will archive rather than remove
+            true
+        }
+    }
+
+    suspend fun removeOrArchiveGroupMember(memberId: Int): Result<Unit> = withContext(dispatchers.io) {
+        try {
+            // First get the member to find their group and user ID
+            val member = groupMemberDao.getGroupMemberByIdSync(memberId)
+                ?: return@withContext Result.failure(Exception("Member not found"))
+
+            // Check if the user has any payments or splits in this group
+            val hasPayments = paymentDao.getPaymentsByUser(member.userId)
+                .any { payment -> payment.groupId == member.groupId }
+
+            val hasSplits = paymentSplitDao.getPaymentSplitsByUser(member.userId)
+                .any { split ->
+                    val payment = paymentDao.getPaymentById(split.paymentId)
+                    payment?.first()?.groupId == member.groupId
+                }
+
+            if (hasPayments || hasSplits) {
+                // User has payments/splits, so archive them instead of removing
+                return@withContext archiveGroupMember(memberId)
+            } else {
+                // User has no payments/splits, so we can remove them completely
+                return@withContext removeGroupMemberCompletely(memberId)
+            }
+        } catch (e: Exception) {
+            Log.e("GroupRepository", "Error in removeOrArchiveGroupMember", e)
+            Result.failure(e)
+        }
+    }
+
+    private suspend fun archiveGroupMember(memberId: Int): Result<Unit> = withContext(dispatchers.io) {
+        try {
+            val currentTime = DateUtils.getCurrentTimestamp()
+
+            // Update the member's removedAt field to archive them
+            val member = groupMemberDao.getGroupMemberByIdSync(memberId)
+                ?: return@withContext Result.failure(Exception("Member not found"))
+
+            val archivedMember = member.copy(
+                removedAt = currentTime,
+                updatedAt = currentTime,
+                syncStatus = SyncStatus.PENDING_SYNC
+            )
+
+            groupMemberDao.updateGroupMember(archivedMember)
+
+            // Sync with server if online
+            if (NetworkUtils.isOnline()) {
+                try {
+                    member.serverId?.let { serverId ->
+                        // Convert to server model and update on server
+                        val serverModel = myApplication.entityServerConverter.convertGroupMemberToServer(archivedMember)
+                            .getOrThrow()
+
+                        // Use the existing removeMemberFromGroup API to archive on server
+                        apiService.removeMemberFromGroup(serverId)
+
+                        // Update local sync status
+                        groupMemberDao.updateGroupMember(archivedMember.copy(syncStatus = SyncStatus.SYNCED))
+                    }
+                } catch (e: Exception) {
+                    Log.e("GroupRepository", "Failed to archive member on server", e)
+                    // Keep local archive status even if server sync fails
+                }
+            }
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("GroupRepository", "Error archiving group member", e)
+            Result.failure(e)
+        }
+    }
+
+    private suspend fun removeGroupMemberCompletely(memberId: Int): Result<Unit> = withContext(dispatchers.io) {
+        try {
+            val member = groupMemberDao.getGroupMemberByIdSync(memberId)
+                ?: return@withContext Result.failure(Exception("Member not found"))
+
+            // Delete from local database completely
+            groupMemberDao.deleteGroupMember(memberId)
+
+            // Delete from server if online
+            if (NetworkUtils.isOnline()) {
+                try {
+                    member.serverId?.let { serverId ->
+                        apiService.removeMemberFromGroup(serverId)
+                    }
+                } catch (e: Exception) {
+                    Log.e("GroupRepository", "Failed to remove member from server", e)
+                    // Don't fail the operation if server sync fails
+                }
+            }
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("GroupRepository", "Error removing group member", e)
+            Result.failure(e)
+        }
+    }
+
+    // Update the existing removeMemberFromGroup method to use the new logic
     suspend fun removeMemberFromGroup(memberId: Int): Result<Unit> = withContext(dispatchers.io) {
         try {
             // First get the member to find their group
             val member = groupMemberDao.getGroupMemberByIdSync(memberId)
                 ?: return@withContext Result.failure(Exception("Member not found"))
 
-            // Calculate user's balance in the group
-            val balances = calculateGroupBalances(member.groupId).getOrElse {
-                return@withContext Result.failure(Exception("Failed to calculate balances: ${it.message}"))
+            // Check if it's a provisional user
+            val user = userDao.getUserByIdSync(member.userId)
+            val isProvisional = user?.isProvisional ?: false
+
+            if (isProvisional) {
+                // For provisional users, use the new remove/archive logic
+                return@withContext removeOrArchiveGroupMember(memberId)
+            } else {
+                // For regular users, keep the existing balance check logic
+                // Calculate user's balance in the group
+                val balances = calculateGroupBalances(member.groupId).getOrElse {
+                    return@withContext Result.failure(Exception("Failed to calculate balances: ${it.message}"))
+                }
+
+                // Find this member's balance
+                val memberBalance = balances.find { it.userId == member.userId }
+
+                // Check if user has any non-zero balances
+                val hasNonZeroBalance = memberBalance?.balances?.any { (_, amount) ->
+                    // Use a small epsilon for floating point comparison
+                    Math.abs(amount) > 0.01
+                } ?: false
+
+                if (hasNonZeroBalance) {
+                    return@withContext Result.failure(Exception("Cannot remove member with non-zero balance"))
+                }
+
+                // If balance is zero, proceed with archiving (keeping existing behavior)
+                val currentTime = DateUtils.getCurrentTimestamp()
+                val archivedMember = member.copy(
+                    removedAt = currentTime,
+                    updatedAt = currentTime,
+                    syncStatus = SyncStatus.PENDING_SYNC
+                )
+
+                groupMemberDao.updateGroupMember(archivedMember)
+
+                // Sync with server if online
+                if (NetworkUtils.isOnline()) {
+                    member.serverId?.let { serverId ->
+                        apiService.removeMemberFromGroup(serverId)
+                        groupMemberDao.updateGroupMember(archivedMember.copy(syncStatus = SyncStatus.SYNCED))
+                    }
+                }
+
+                Result.success(Unit)
+            }
+        } catch (e: Exception) {
+            Log.e("GroupRepository", "Failed to remove member", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun restoreGroupMember(memberId: Int): Result<Unit> = withContext(dispatchers.io) {
+        try {
+            val member = groupMemberDao.getGroupMemberByIdSync(memberId)
+                ?: return@withContext Result.failure(Exception("Member not found"))
+
+            // Check if member is actually archived
+            if (member.removedAt == null) {
+                return@withContext Result.failure(Exception("Member is not archived"))
             }
 
-            // Find this member's balance
-            val memberBalance = balances.find { it.userId == member.userId }
+            // Restore the member by clearing the removedAt field
+            val restoredMember = member.copy(
+                removedAt = null,
+                updatedAt = DateUtils.getCurrentTimestamp(),
+                syncStatus = SyncStatus.PENDING_SYNC
+            )
 
-            // Check if user has any non-zero balances
-            val hasNonZeroBalance = memberBalance?.balances?.any { (_, amount) ->
-                // Use a small epsilon for floating point comparison
-                Math.abs(amount) > 0.01
-            } ?: false
-
-            if (hasNonZeroBalance) {
-                return@withContext Result.failure(Exception("Cannot remove member with non-zero balance"))
-            }
-
-            // If balance is zero, proceed with removal
-            groupMemberDao.removeGroupMember(memberId)
+            groupMemberDao.updateGroupMember(restoredMember)
 
             // Sync with server if online
             if (NetworkUtils.isOnline()) {
-                val localMember = groupMemberDao.getGroupMemberByIdSync(memberId)
-                localMember?.serverId?.let {
-                    apiService.removeMemberFromGroup(it)
+                try {
+                    // Re-add member to group on server
+                    member.serverId?.let { serverMemberId ->
+                        val user = userDao.getUserByIdSync(member.userId)
+                        val group = groupDao.getGroupByIdSync(member.groupId)
+
+                        if (user != null && group != null) {
+                            val serverMemberRequest = GroupMember(
+                                id = 0,
+                                groupId = group.serverId ?: 0,
+                                userId = user.serverId ?: 0,
+                                createdAt = member.createdAt,
+                                updatedAt = restoredMember.updatedAt,
+                                removedAt = null
+                            )
+
+                            apiService.addMemberToGroup(group.serverId ?: 0, serverMemberRequest)
+
+                            // Update local sync status
+                            groupMemberDao.updateGroupMember(restoredMember.copy(syncStatus = SyncStatus.SYNCED))
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("GroupRepository", "Failed to restore member on server", e)
+                    // Keep local restore even if server sync fails
                 }
             }
 
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("GroupRepository", "Failed to remove member", e)
+            Log.e("GroupRepository", "Error restoring group member", e)
             Result.failure(e)
         }
     }

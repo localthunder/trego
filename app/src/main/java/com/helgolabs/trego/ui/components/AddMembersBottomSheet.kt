@@ -12,12 +12,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
@@ -25,6 +29,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -46,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.helgolabs.trego.MyApplication
 import com.helgolabs.trego.data.local.entities.GroupMemberEntity
@@ -88,39 +94,51 @@ fun AddMembersBottomSheet(
     val groupMembers = groupDetailsState.groupMembers
     val currentUserId = getUserIdFromPreferences(context)
 
-    // Combine members and available users
+    var showArchivedMembers by remember { mutableStateOf(false) }
+
+    // Get archived members separately
+    val archivedMembers = remember(groupDetailsState.groupMembers) {
+        groupDetailsState.groupMembers.filter { it.removedAt != null }
+    }
+
+    // Combine members and available users (excluding archived)
     val combinedUserList = remember(groupDetailsState.users, groupMembers, usernames) {
-        // First get current members
-        val memberUserIds = groupMembers.map { it.userId }.toSet()
-        val currentMembers = groupDetailsState.users
-            .filter { it.userId in memberUserIds }
+        // First get current active members
+        val activeMemberUserIds = groupMembers
+            .filter { it.removedAt == null }
+            .map { it.userId }
+            .toSet()
+
+        val activeMembers = groupDetailsState.users
+            .filter { it.userId in activeMemberUserIds }
             .map { it to true } // true = is a member
 
         // Create a full map of users for lookup
         val userMap = groupDetailsState.users.associateBy { it.userId }
 
-        // Then get available users from usernames
+        // Get archived member user IDs
+        val archivedMemberUserIds = archivedMembers.map { it.userId }.toSet()
+
+        // Then get available users from usernames (excluding active and archived members)
         val availableUsers = usernames.entries
-            .filter { (userId, _) -> userId !in memberUserIds && userId != 0 }
+            .filter { (userId, _) ->
+                userId !in activeMemberUserIds &&
+                        userId !in archivedMemberUserIds &&
+                        userId != 0
+            }
             .map { (userId, username) ->
-                // Look up the complete user entity
                 val foundUser = userMap[userId]
 
                 if (foundUser != null) {
                     foundUser to false // false = not a member
                 } else {
-                    // Try to determine if this user is provisional
-                    // We need to check if this user is marked as provisional
-                    // in any of the existing users list
                     val isProvisionalUser = groupDetailsState.users
                         .any { it.userId == userId && it.isProvisional }
 
-                    // Create a temporary user entity with the known username
-                    // and properly set isProvisional
                     UserEntity(
                         userId = userId,
                         username = username,
-                        isProvisional = isProvisionalUser, // Set based on found data
+                        isProvisional = isProvisionalUser,
                         serverId = null,
                         createdAt = DateUtils.getCurrentTimestamp(),
                         updatedAt = DateUtils.getCurrentTimestamp()
@@ -128,7 +146,7 @@ fun AddMembersBottomSheet(
                 }
             }
 
-        currentMembers + availableUsers
+        activeMembers + availableUsers
     }
 
     LaunchedEffect(Unit) {
@@ -357,6 +375,77 @@ fun AddMembersBottomSheet(
                             groupViewModel.loadGroupMembersWithUsers(groupId)
                         }
                     )
+                    // Archived members section
+                    if (archivedMembers.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        OutlinedButton(
+                            onClick = { showArchivedMembers = !showArchivedMembers },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Text(
+                                    if (showArchivedMembers) "Hide Archived Members"
+                                    else "Show Archived Members (${archivedMembers.size})"
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Icon(
+                                    if (showArchivedMembers) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                                    contentDescription = null
+                                )
+                            }
+                        }
+
+                        AnimatedVisibility(visible = showArchivedMembers) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    "Archived Members",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 8.dp)
+                                )
+
+                                archivedMembers.forEach { member ->
+                                    val user = groupDetailsState.users.find { it.userId == member.userId }
+                                    val username = user?.username ?: "Unknown User"
+
+                                    ListItem(
+                                        headlineContent = {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(username)
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                AssistChip(
+                                                    onClick = { },
+                                                    label = { Text("Archived", fontSize = 10.sp) },
+                                                    colors = AssistChipDefaults.assistChipColors(
+                                                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                                                    ),
+                                                    modifier = Modifier.height(20.dp)
+                                                )
+                                            }
+                                        },
+                                        trailingContent = {
+                                            IconButton(
+                                                onClick = {
+                                                    groupViewModel.restoreArchivedMember(member.id)
+                                                }
+                                            ) {
+                                                Icon(
+                                                    Icons.Filled.Restore,
+                                                    contentDescription = "Restore Member",
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

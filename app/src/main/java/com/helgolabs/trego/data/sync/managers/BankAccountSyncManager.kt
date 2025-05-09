@@ -3,6 +3,7 @@ package com.helgolabs.trego.data.sync.managers
 import android.content.Context
 import android.util.Log
 import com.helgolabs.trego.MyApplication
+import com.helgolabs.trego.data.exceptions.AccountOwnershipException
 import com.helgolabs.trego.data.extensions.toEntity
 import com.helgolabs.trego.data.extensions.toModel
 import com.helgolabs.trego.data.local.dao.BankAccountDao
@@ -18,6 +19,7 @@ import com.helgolabs.trego.utils.CoroutineDispatchers
 import com.helgolabs.trego.utils.DateUtils
 import com.helgolabs.trego.utils.getUserIdFromPreferences
 import kotlinx.coroutines.flow.first
+import retrofit2.HttpException
 
 class BankAccountSyncManager(
     private val bankAccountDao: BankAccountDao,
@@ -38,51 +40,75 @@ class BankAccountSyncManager(
             myApplication.entityServerConverter.convertBankAccountToServer(bankAccountEntity).getOrNull()
         }
 
-    override suspend fun syncToServer(entity: BankAccount): Result<BankAccount> = try {
-        val accountId = entity.accountId
-        val existingAccount = bankAccountDao.getAccountById(accountId)
+    override suspend fun syncToServer(entity: BankAccount): Result<BankAccount> {
+        return try {
+            val accountId = entity.accountId
+            val existingAccount = bankAccountDao.getAccountById(accountId)
 
-        // Mark as pending sync before server operation
-        bankAccountDao.updateBankAccountSyncStatus(accountId, SyncStatus.PENDING_SYNC)
+            // Mark as pending sync before server operation
+            bankAccountDao.updateBankAccountSyncStatus(accountId, SyncStatus.PENDING_SYNC)
 
-        if (existingAccount?.syncStatus == SyncStatus.LOCALLY_DELETED) {
-            // Handle deletion sync
-            val response = apiService.deleteBankAccount(accountId)
-            if (response.isSuccessful) {
-                bankAccountDao.deleteBankAccount(accountId)
-                Result.success(entity)
-            } else {
-                Result.failure(Exception("Server deletion failed: ${response.code()}"))
-            }
-        } else {
-            // Get server result
-            val serverResult = if (existingAccount == null) {
-                Log.d(TAG, "Creating new bank account on server: $accountId")
-                apiService.addAccount(entity)
-            } else {
-                Log.d(TAG, "Updating existing bank account on server: $accountId")
-                apiService.updateAccount(accountId, entity).data  // Add .data here since we modified the API response
-            }
-
-            // Convert and save the result
-            myApplication.entityServerConverter
-                .convertBankAccountFromServer(serverResult, existingAccount)
-                .fold(
-                    onSuccess = { localAccount ->
-                        bankAccountDao.insertBankAccount(localAccount)
-                        bankAccountDao.updateBankAccountSyncStatus(accountId, SyncStatus.SYNCED)
-                        Result.success(serverResult)
-                    },
-                    onFailure = { error ->
-                        bankAccountDao.updateBankAccountSyncStatus(accountId, SyncStatus.SYNC_FAILED)
-                        Result.failure(error)
+            try {
+                if (existingAccount?.syncStatus == SyncStatus.LOCALLY_DELETED) {
+                    // Handle deletion sync
+                    val response = apiService.deleteBankAccount(accountId)
+                    if (response.isSuccessful) {
+                        bankAccountDao.deleteBankAccount(accountId)
+                        Result.success(entity)
+                    } else {
+                        Result.failure(Exception("Server deletion failed: ${response.code()}"))
                     }
-                )
+                } else {
+                    // Get server result
+                    val serverResult = if (existingAccount == null) {
+                        Log.d(TAG, "Creating new bank account on server: $accountId")
+                        apiService.addAccount(entity)
+                    } else {
+                        Log.d(TAG, "Updating existing bank account on server: $accountId")
+                        apiService.updateAccount(
+                            accountId,
+                            entity
+                        ).data  // Add .data here since we modified the API response
+                    }
+
+                    // Convert and save the result
+                    myApplication.entityServerConverter
+                        .convertBankAccountFromServer(serverResult, existingAccount)
+                        .fold(
+                            onSuccess = { localAccount ->
+                                bankAccountDao.insertBankAccount(localAccount)
+                                bankAccountDao.updateBankAccountSyncStatus(accountId, SyncStatus.SYNCED)
+                                Result.success(serverResult)
+                            },
+                            onFailure = { error ->
+                                bankAccountDao.updateBankAccountSyncStatus(
+                                    accountId,
+                                    SyncStatus.SYNC_FAILED
+                                )
+                                Result.failure(error)
+                            }
+                        )
+                }
+            } catch (e: Exception) {
+                // Check for 403 Forbidden (account owned by another user)
+                if (e is HttpException && e.code() == 403) {
+                    Log.w(TAG, "Account belongs to another user: $accountId")
+
+                    // Mark the account with a special status
+                    bankAccountDao.updateBankAccountSyncStatus(accountId, SyncStatus.CONFLICT)
+
+                    // Return a more specific error
+                    return Result.failure(AccountOwnershipException("This account is already registered to another user"))
+                }
+
+                // Handle other errors
+                throw e
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error syncing bank account to server: ${entity.accountId}", e)
+            bankAccountDao.updateBankAccountSyncStatus(entity.accountId, SyncStatus.SYNC_FAILED)
+            Result.failure(e)
         }
-    } catch (e: Exception) {
-        Log.e(TAG, "Error syncing bank account to server: ${entity.accountId}", e)
-        bankAccountDao.updateBankAccountSyncStatus(entity.accountId, SyncStatus.SYNC_FAILED)
-        Result.failure(e)
     }
 
     override suspend fun getServerChanges(since: Long): List<BankAccount> {

@@ -67,11 +67,13 @@ fun GroupMemberSplits(
     val screenState by paymentViewModel.paymentScreenState.collectAsState()
     val editablePayment = screenState.editablePayment
     val editableSplits = screenState.editableSplits
-    val groupMembers = screenState.groupMembers
+    val allGroupMembers = screenState.groupMembers
     val selectedMembers = screenState.selectedMembers
 
+    val activeGroupMembers = allGroupMembers.filter { it.removedAt == null }
+
     // Extract user IDs from group members and load them
-    val userIds = groupMembers.map { it.userId }
+    val userIds = activeGroupMembers.map { it.userId }
 
     val focusManager = LocalFocusManager.current
 
@@ -96,8 +98,8 @@ fun GroupMemberSplits(
             .background(MaterialTheme.colorScheme.surface)
             .fillMaxWidth()
     ) {
-        // Member selection list
-        groupMembers.forEach { member ->
+        // Member selection list - only show active members
+        activeGroupMembers.forEach { member ->
             val username = when (member.userId) {
                 currentUserId -> "Me"
                 else -> users.find { it.userId == member.userId }?.username ?: "Loading..."

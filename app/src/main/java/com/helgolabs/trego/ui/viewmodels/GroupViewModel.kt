@@ -3,7 +3,6 @@ package com.helgolabs.trego.ui.viewmodels
 import android.content.ContentValues.TAG
 import android.content.Context
 import android.graphics.BitmapFactory
-import android.graphics.Color
 import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.LiveData
@@ -11,13 +10,8 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import coil3.Bitmap
-import coil3.imageLoader
-import coil3.request.CachePolicy
-import coil3.request.ImageRequest
-import com.helgolabs.trego.data.extensions.toModel
 import com.helgolabs.trego.data.local.dataClasses.BatchConversionResult
 import com.helgolabs.trego.data.local.dataClasses.CurrencySettlingInstructions
-import com.helgolabs.trego.data.local.dataClasses.SettlingInstruction
 import com.helgolabs.trego.data.local.dataClasses.UserBalanceWithCurrency
 import com.helgolabs.trego.data.local.dataClasses.UserGroupListItem
 import com.helgolabs.trego.data.local.entities.GroupDefaultSplitEntity
@@ -70,6 +64,8 @@ class GroupViewModel(
     data class GroupDetailsState(
         val group: GroupEntity? = null,
         val groupMembers: List<GroupMemberEntity> = emptyList(),
+        val activeMembers: List<GroupMemberEntity> = emptyList(),
+        val archivedMembers: List<GroupMemberEntity> = emptyList(),
         val usernames: Map<Int, String> = emptyMap(),
         val payments: List<PaymentEntity> = emptyList(),
         val groupImage: String? = null,
@@ -88,7 +84,11 @@ class GroupViewModel(
         val generatedInviteLink: String? = null,
         val users: List<UserEntity> = emptyList(),
         val groupColorScheme: ImagePaletteExtractor.GroupColorScheme? = null,
-        )
+        ) {
+        val activeMemberCount: Int get() = activeMembers.size
+        val archivedMemberCount: Int get() = archivedMembers.size
+        val totalMemberCount: Int get() = groupMembers.size
+    }
 
 
     // Add this sealed class inside your GroupViewModel
@@ -361,14 +361,25 @@ class GroupViewModel(
     }
 
     private suspend fun loadGroupMembers(groupId: Int) {
-        groupRepository.getGroupMembers(groupId).collect { members ->
+        // Load ALL members including archived
+        groupRepository.getAllGroupMembersIncludingArchived(groupId).collect { allMembers ->
+            Log.d("GroupViewModel", "Loaded ${allMembers.size} total members")
+
+            // Filter into active and archived
+            val activeMembers = allMembers.filter { it.removedAt == null }
+            val archivedMembers = allMembers.filter { it.removedAt != null }
+
+            Log.d("GroupViewModel", "Active: ${activeMembers.size}, Archived: ${archivedMembers.size}")
+
+            // Update state with all members
             _groupDetailsState.update { currentState ->
-                val newMembers = members
                 currentState.copy(
-                    groupMembers = if (newMembers.isNotEmpty()) newMembers else currentState.groupMembers
+                    groupMembers = allMembers,
+                    activeMembers = activeMembers,
+                    archivedMembers = archivedMembers
                 )
             }
-            fetchUsernamesFromRepository(members.map { it.userId })
+            fetchUsernamesFromRepository(allMembers.map { it.userId })
         }
     }
 
@@ -377,8 +388,57 @@ class GroupViewModel(
             try {
                 _groupDetailsState.update { it.copy(isLoading = true) }
 
-                // First load group members
-                groupRepository.getGroupMembers(groupId).collect { members ->
+                // Load ALL group members including archived
+                groupRepository.getAllGroupMembersIncludingArchived(groupId).collect { allMembers ->
+                    // Filter into active and archived
+                    val activeMembers = allMembers.filter { it.removedAt == null }
+                    val archivedMembers = allMembers.filter { it.removedAt != null }
+
+                    // Get all user IDs from all members
+                    val userIds = allMembers.map { it.userId }
+
+                    // Update members in state immediately
+                    _groupDetailsState.update { currentState ->
+                        currentState.copy(
+                            groupMembers = allMembers,
+                            activeMembers = activeMembers,
+                            archivedMembers = archivedMembers
+                        )
+                    }
+
+                    // Load user data for these IDs
+                    try {
+                        userRepository.getUsersByIds(userIds).collect { userEntities ->
+                            _groupDetailsState.update { currentState ->
+                                currentState.copy(
+                                    users = userEntities,
+                                    isLoading = false
+                                )
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error loading users", e)
+                        _groupDetailsState.update { it.copy(isLoading = false, error = e.message) }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading group members", e)
+                _groupDetailsState.update { it.copy(isLoading = false, error = e.message) }
+            }
+        }
+    }
+
+    fun loadAllGroupMembersWithUsers(groupId: Int) {
+        viewModelScope.launch {
+            try {
+                _groupDetailsState.update { it.copy(isLoading = true) }
+
+                // Use getAllGroupMembersIncludingArchived instead of getGroupMembers
+                groupRepository.getAllGroupMembersIncludingArchived(groupId).collect { members ->
+                    // Debug log
+                    Log.d("GroupViewModel", "Loaded ${members.size} total members (active + archived)")
+                    Log.d("GroupViewModel", "Active: ${members.count { it.removedAt == null }}, Archived: ${members.count { it.removedAt != null }}")
+
                     // Get all user IDs from the members
                     val userIds = members.map { it.userId }
 
@@ -403,7 +463,7 @@ class GroupViewModel(
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error loading group members", e)
+                Log.e(TAG, "Error loading all group members", e)
                 _groupDetailsState.update { it.copy(isLoading = false, error = e.message) }
             }
         }
@@ -604,11 +664,20 @@ class GroupViewModel(
                             error = null
                         )
                     }
+
+                    // Fix: Get the group ID from the current state
+                    val currentGroupId = _groupDetailsState.value.group?.id
+                    if (currentGroupId != null) {
+                        loadGroupMembersWithUsers(currentGroupId)
+                    }
                 }
                 .onFailure { error ->
                     val errorMessage = when {
                         error.message?.contains("non-zero balance") == true ->
                             "Cannot remove member with outstanding balance"
+
+                        error.message?.contains("Member not found") == true ->
+                            "Member not found"
 
                         else -> "Failed to remove member: ${error.message}"
                     }
@@ -619,6 +688,44 @@ class GroupViewModel(
                         )
                     }
                 }
+        }
+    }
+
+    // Also fix the restoreArchivedMember method:
+    fun restoreArchivedMember(memberId: Int) {
+        viewModelScope.launch {
+            _groupDetailsState.update { it.copy(isLoading = true) }
+
+            try {
+                val result = groupRepository.restoreGroupMember(memberId)
+                result.onSuccess {
+                    _groupDetailsState.update {
+                        it.copy(
+                            isLoading = false,
+                            error = null
+                        )
+                    }
+                    // Fix: Get the group ID from the current state
+                    val currentGroupId = _groupDetailsState.value.group?.id
+                    if (currentGroupId != null) {
+                        loadGroupMembersWithUsers(currentGroupId)
+                    }
+                }.onFailure { error ->
+                    _groupDetailsState.update {
+                        it.copy(
+                            isLoading = false,
+                            error = "Failed to restore member: ${error.message}"
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                _groupDetailsState.update {
+                    it.copy(
+                        isLoading = false,
+                        error = "Error restoring member: ${e.message}"
+                    )
+                }
+            }
         }
     }
 
@@ -732,6 +839,37 @@ class GroupViewModel(
                 Log.e("GroupViewModel", "Error fetching usernames", e)
                 _error.value = e.message
                 _loading.value = false
+            }
+        }
+    }
+
+    fun checkMemberHasPaymentsOrSplits(userId: Int, groupId: Int, callback: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            try {
+                // Show loading state if needed
+                _groupDetailsState.update { it.copy(isLoading = true) }
+
+                // Call repository to check
+                val hasPaymentsOrSplits = groupRepository.checkMemberHasPaymentsOrSplits(userId, groupId)
+
+                // Update loading state
+                _groupDetailsState.update { it.copy(isLoading = false) }
+
+                // Return result via callback
+                callback(hasPaymentsOrSplits)
+            } catch (e: Exception) {
+                Log.e("GroupViewModel", "Error checking member payments/splits", e)
+
+                // Update error state
+                _groupDetailsState.update {
+                    it.copy(
+                        isLoading = false,
+                        error = "Error checking member data: ${e.message}"
+                    )
+                }
+
+                // Default to true (will archive rather than remove) for safety
+                callback(true)
             }
         }
     }

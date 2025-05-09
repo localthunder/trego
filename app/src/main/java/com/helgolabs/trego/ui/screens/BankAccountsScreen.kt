@@ -16,7 +16,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -50,13 +49,49 @@ fun BankAccountsScreen(
     var accounts by remember { mutableStateOf<List<BankAccount>>(emptyList()) }
     val selectedAccounts = remember { mutableStateListOf<BankAccount>() }
 
+    // Get return route for navigation
+    val returnRoute = (context as? MainActivity)?.intent?.data?.getQueryParameter("returnRoute")
+    val decodedReturnRoute = returnRoute?.let { Uri.decode(it) }
+
+    // Function to handle single account case
+    fun handleSingleAccount(account: BankAccount) {
+        coroutineScope.launch {
+            Log.d("BankAccountsScreen", "Only one account found, auto-selecting: ${account.name ?: account.accountId}")
+
+            // Check if account already exists
+            val exists = bankAccountViewModel.checkIfAccountExists(account.accountId)
+            if (!exists) {
+                val accountEntity = account.toEntity(SyncStatus.PENDING_SYNC)
+                bankAccountViewModel.addBankAccount(accountEntity)
+                Log.d("BankAccountsScreen", "Auto-added account: ${account.name ?: account.accountId}")
+            } else {
+                Log.d("BankAccountsScreen", "Account already exists, skipping")
+            }
+
+            // Navigate to return route or home
+            delay(500) // Brief delay to ensure account is saved
+
+            if (!decodedReturnRoute.isNullOrEmpty()) {
+                Log.d("BankAccountsScreen", "Auto-navigating to return route: $decodedReturnRoute")
+                navController.navigate(decodedReturnRoute) {
+                    popUpTo("bankaccounts/$requisitionId") { inclusive = true }
+                }
+            } else {
+                Log.d("BankAccountsScreen", "Auto-navigating to home")
+                navController.navigate("home") {
+                    popUpTo("bankaccounts/$requisitionId") { inclusive = true }
+                }
+            }
+        }
+    }
+
     // Load accounts on initialization
     LaunchedEffect(requisitionId) {
         Log.d("BankAccountsScreen", "LaunchedEffect triggered for requisitionId: $requisitionId")
         bankAccountViewModel.loadAccountsForRequisition(requisitionId, userId)
 
         // Wait briefly to ensure accounts have time to load
-        delay(5000)
+        delay(3000)
 
         // Check if accounts loaded
         var loadedAccounts = bankAccountViewModel.bankAccounts.value
@@ -81,6 +116,11 @@ fun BankAccountsScreen(
                             accounts = newAccounts
                             isLoading = false
                             timeoutJob.cancel() // Cancel timeout job since we got accounts
+
+                            // Auto-navigate if only one account
+                            if (newAccounts.size == 1) {
+                                handleSingleAccount(newAccounts[0])
+                            }
                         }
                 }
             } catch (e: Exception) {
@@ -89,10 +129,15 @@ fun BankAccountsScreen(
         } else {
             accounts = loadedAccounts
             isLoading = false
+
+            // Auto-navigate if only one account
+            if (loadedAccounts.size == 1) {
+                handleSingleAccount(loadedAccounts[0])
+            }
         }
     }
 
-    // Collect account updates
+    // Collect account updates for multi-account case
     LaunchedEffect(Unit) {
         bankAccountViewModel.bankAccounts.collect { newAccounts ->
             if (newAccounts.isNotEmpty()) {
@@ -101,10 +146,13 @@ fun BankAccountsScreen(
 
                 // Only set pre-selections if this is the first time getting accounts
                 if (selectedAccounts.isEmpty() && newAccounts.isNotEmpty()) {
+                    // We don't auto-navigate here since this is a subsequent collection
+                    // after the initial check in the first LaunchedEffect
+
                     val mainAccount = newAccounts.find { it.iban != null || it.ownerName != null }
                     if (mainAccount != null) {
                         selectedAccounts.add(mainAccount)
-                    } else {
+                    } else if (newAccounts.isNotEmpty()) {
                         selectedAccounts.add(newAccounts[0])
                     }
                 }
@@ -136,18 +184,22 @@ fun BankAccountsScreen(
 
                                 // Save the selected accounts
                                 for (account in selectedAccounts) {
-                                    val accountEntity = account.toEntity(SyncStatus.PENDING_SYNC)
-                                    bankAccountViewModel.addBankAccount(accountEntity)
-                                    Log.d("BankAccountsScreen", "Added account: ${account.name ?: account.accountId}")
+                                    // Check if account already exists
+                                    val exists = bankAccountViewModel.checkIfAccountExists(account.accountId)
+                                    if (!exists) {
+                                        val accountEntity = account.toEntity(SyncStatus.PENDING_SYNC)
+                                        bankAccountViewModel.addBankAccount(accountEntity)
+                                        Log.d("BankAccountsScreen", "Added account: ${account.name ?: account.accountId}")
+                                    } else {
+                                        Log.d("BankAccountsScreen", "Account ${account.accountId} already exists, skipping")
+                                    }
                                 }
 
                                 // Navigate to return route if provided
-                                val returnRoute = (context as? MainActivity)?.intent?.data?.getQueryParameter("returnRoute")
-                                if (!returnRoute.isNullOrEmpty()) {
-                                    val decodedRoute = Uri.decode(returnRoute)
-                                    Log.d("BankAccountsScreen", "Navigating to return route: $decodedRoute")
+                                if (!decodedReturnRoute.isNullOrEmpty()) {
+                                    Log.d("BankAccountsScreen", "Navigating to return route: $decodedReturnRoute")
                                     delay(500) // Brief delay to ensure accounts are saved
-                                    navController.navigate(decodedRoute) {
+                                    navController.navigate(decodedReturnRoute) {
                                         popUpTo("bankaccounts/$requisitionId") { inclusive = true }
                                     }
                                 } else {

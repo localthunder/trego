@@ -44,10 +44,8 @@ import com.helgolabs.trego.data.local.dataClasses.AccountReauthState
 import com.helgolabs.trego.data.local.dataClasses.PreferenceKeys
 import com.helgolabs.trego.data.local.dataClasses.RefreshMessageType
 import com.helgolabs.trego.data.model.Transaction
-import com.helgolabs.trego.data.repositories.TransactionRepository
 import com.helgolabs.trego.ui.components.GlobalTopAppBar
 import com.helgolabs.trego.ui.components.MultipleReauthorizationCard
-import com.helgolabs.trego.ui.components.RateLimitInfo
 import com.helgolabs.trego.ui.components.RateLimitInfoWithHelp
 import com.helgolabs.trego.ui.components.ReauthorizeBankAccountCard
 import com.helgolabs.trego.ui.components.ScrollToTopButton
@@ -645,28 +643,84 @@ fun AddExpenseScreen(
                         ) {
                             when {
                                 isLoading -> {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.align(Alignment.Center)
-                                    )
+                                    // Enhanced loading state with animation and text
+                                    Column(
+                                        modifier = Modifier.fillMaxSize(),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        CircularProgressIndicator()
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        Text(
+                                            text = "Loading your transactions...",
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = "This may take a moment",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                        )
+                                    }
                                 }
 
                                 error != null -> {
-                                    Text(
-                                        text = "Error: $error",
-                                        color = MaterialTheme.colorScheme.error,
-                                        modifier = Modifier
-                                            .padding(16.dp)
-                                            .align(Alignment.Center)
-                                    )
+                                    Column(
+                                        modifier = Modifier.fillMaxSize(),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Info,
+                                            contentDescription = "Error",
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(48.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        Text(
+                                            text = "Error loading transactions",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = MaterialTheme.colorScheme.error
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = error ?: "Unknown error",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            textAlign = TextAlign.Center,
+                                            modifier = Modifier.padding(horizontal = 24.dp)
+                                        )
+                                    }
                                 }
 
                                 transactions.isEmpty() -> {
-                                    Text(
-                                        text = "No transactions available",
-                                        modifier = Modifier
-                                            .padding(16.dp)
-                                            .align(Alignment.Center)
-                                    )
+                                    Column(
+                                        modifier = Modifier.fillMaxSize(),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Info,
+                                            contentDescription = "No transactions",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(48.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        Text(
+                                            text = "No transactions available",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = "Try connecting another bank account or add a custom expense",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            textAlign = TextAlign.Center,
+                                            modifier = Modifier.padding(horizontal = 24.dp)
+                                        )
+                                    }
                                 }
 
                                 else -> {

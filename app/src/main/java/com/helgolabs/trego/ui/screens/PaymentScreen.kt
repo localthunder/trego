@@ -251,9 +251,10 @@ fun PaymentScreen(
     }
 
     LaunchedEffect(groupMembers) {
-        // Load users for all group members
-        if (groupMembers.isNotEmpty()) {
-            userViewModel.loadUsers(groupMembers.map { it.userId })
+        // Load users for all group members, but only active ones
+        val activeMembers = groupMembers.filter { it.removedAt == null }
+        if (activeMembers.isNotEmpty()) {
+            userViewModel.loadUsers(activeMembers.map { it.userId })
         }
     }
 

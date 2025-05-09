@@ -7,6 +7,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.helgolabs.trego.MyApplication
+import com.helgolabs.trego.data.exceptions.AccountOwnershipException
 import com.helgolabs.trego.data.extensions.toModel
 import com.helgolabs.trego.data.local.entities.BankAccountEntity
 import com.helgolabs.trego.data.repositories.BankAccountRepository
@@ -26,6 +27,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import retrofit2.HttpException
 
 class BankAccountViewModel(
     private val bankAccountRepository: BankAccountRepository,
@@ -82,11 +84,43 @@ class BankAccountViewModel(
                         }
                     }.onFailure { error ->
                         Log.e("BankAccountViewModel", "Error fetching accounts from repository", error)
-                        _error.value = "Failed to load accounts: ${error.message}"
+
+                        // Handle different error types with specific messages
+                        val errorMessage = when (error) {
+                            is AccountOwnershipException -> {
+                                "This bank account is already connected to another user's profile. Please use a different account."
+                            }
+                            is HttpException -> {
+                                if (error.code() == 403) {
+                                    "Access denied: This account may already be linked to another user."
+                                } else {
+                                    "Server error: ${error.message()}"
+                                }
+                            }
+                            else -> "Failed to load accounts: ${error.message}"
+                        }
+
+                        _error.value = errorMessage
                     }
                 } catch (e: Exception) {
                     Log.e("BankAccountViewModel", "Exception in repository call", e)
-                    _error.value = "Failed to load accounts: ${e.message}"
+
+                    // Handle different exception types
+                    val errorMessage = when (e) {
+                        is AccountOwnershipException -> {
+                            "This bank account is already connected to another user's profile. Please use a different account."
+                        }
+                        is retrofit2.HttpException -> {
+                            if (e.code() == 403) {
+                                "Access denied: This account may already be linked to another user."
+                            } else {
+                                "Server error (${e.code()}): ${e.message()}"
+                            }
+                        }
+                        else -> "Failed to load accounts: ${e.message}"
+                    }
+
+                    _error.value = errorMessage
                 }
             }
 

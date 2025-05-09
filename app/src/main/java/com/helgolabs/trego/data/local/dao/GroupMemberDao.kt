@@ -1,7 +1,6 @@
 package com.helgolabs.trego.data.local.dao
 
 import androidx.room.*
-import com.helgolabs.trego.data.local.entities.GroupEntity
 import com.helgolabs.trego.data.local.entities.GroupMemberEntity
 import com.helgolabs.trego.data.sync.SyncStatus
 import com.helgolabs.trego.utils.DateUtils
@@ -16,14 +15,6 @@ interface GroupMemberDao {
         // Room automatically handles transactions for suspend functions
         return block()
     }
-
-    @Query("""
-        SELECT * FROM group_members 
-        WHERE group_id = :groupId 
-        AND (removed_at IS NULL OR removed_at = '')
-        AND sync_status != 'SYNC_FAILED'
-    """)
-    fun getMembersOfGroup(groupId: Int): Flow<List<GroupMemberEntity>>
 
     @Query("SELECT * FROM group_members WHERE id = :id")
     fun getGroupMemberById(id: Int): Flow<GroupMemberEntity?>
@@ -101,9 +92,6 @@ interface GroupMemberDao {
     """)
     suspend fun removeGroupMember(memberId: Int)
 
-    @Query("DELETE FROM group_members WHERE id = :memberId")
-    suspend fun deleteGroupMember(memberId: Int)
-
     @Query("SELECT * FROM group_members WHERE sync_status != 'SYNCED'")
     fun getUnsyncedGroupMembers(): Flow<List<GroupMemberEntity>>
 
@@ -147,4 +135,31 @@ interface GroupMemberDao {
         LIMIT 1
     """)
     suspend fun getActiveMembershipForUser(groupId: Int, userId: Int): GroupMemberEntity?
+
+    @Query("SELECT * FROM group_members WHERE group_id = :groupId AND removed_at IS NULL ORDER BY created_at")
+    fun getActiveGroupMembers(groupId: Int): Flow<List<GroupMemberEntity>>
+
+    @Query("SELECT * FROM group_members WHERE group_id = :groupId AND removed_at IS NOT NULL ORDER BY removed_at DESC")
+    fun getArchivedGroupMembers(groupId: Int): Flow<List<GroupMemberEntity>>
+
+    @Query("SELECT * FROM group_members WHERE group_id = :groupId ORDER BY removed_at IS NULL DESC, created_at")
+    fun getAllGroupMembersIncludingArchived(groupId: Int): Flow<List<GroupMemberEntity>>
+
+    @Query("SELECT * FROM group_members WHERE user_id = :userId AND removed_at IS NULL")
+    fun getActiveGroupMembershipsForUser(userId: Int): Flow<List<GroupMemberEntity>>
+
+    @Query("DELETE FROM group_members WHERE id = :memberId")
+    suspend fun deleteGroupMember(memberId: Int)
+
+    @Query("UPDATE group_members SET removed_at = :removedAt, updated_at = :updatedAt, sync_status = :syncStatus WHERE id = :memberId")
+    suspend fun archiveGroupMember(memberId: Int, removedAt: String, updatedAt: String, syncStatus: SyncStatus)
+
+    // Update existing queries to exclude archived members by default
+    @Query("SELECT * FROM group_members WHERE group_id = :groupId AND removed_at IS NULL")
+    fun getMembersOfGroup(groupId: Int): Flow<List<GroupMemberEntity>>
+
+    @Query("SELECT gm.* FROM group_members gm " +
+            "INNER JOIN users u ON gm.user_id = u.user_id " +
+            "WHERE gm.group_id = :groupId AND gm.removed_at IS NULL")
+    fun getGroupMembers(groupId: Int): Flow<List<GroupMemberEntity>>
 }

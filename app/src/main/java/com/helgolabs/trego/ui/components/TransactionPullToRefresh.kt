@@ -147,13 +147,16 @@ private fun RateLimitBanner(
     rateLimitInfo: RateLimitInfo,
     resetTimeFormatted: String
 ) {
+    // Calculate the remaining calls, ensuring it's never negative
+    val displayedRemaining = maxOf(0, rateLimitInfo.remainingCalls)
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(8.dp),
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (rateLimitInfo.remainingCalls == 0)
+            containerColor = if (displayedRemaining == 0)
                 MaterialTheme.colorScheme.errorContainer
             else
                 MaterialTheme.colorScheme.secondaryContainer
@@ -166,12 +169,12 @@ private fun RateLimitBanner(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = if (rateLimitInfo.remainingCalls == 0)
+                imageVector = if (displayedRemaining == 0)
                     Icons.Default.Warning
                 else
                     Icons.Default.Info,
                 contentDescription = "Rate limit warning",
-                tint = if (rateLimitInfo.remainingCalls == 0)
+                tint = if (displayedRemaining == 0)
                     MaterialTheme.colorScheme.error
                 else
                     MaterialTheme.colorScheme.secondary,
@@ -182,94 +185,26 @@ private fun RateLimitBanner(
 
             Column {
                 Text(
-                    text = if (rateLimitInfo.remainingCalls == 0)
+                    text = if (displayedRemaining == 0)
                         "Rate limit reached"
                     else
                         "Rate limit warning",
                     fontWeight = FontWeight.Bold,
-                    color = if (rateLimitInfo.remainingCalls == 0)
+                    color = if (displayedRemaining == 0)
                         MaterialTheme.colorScheme.onErrorContainer
                     else
                         MaterialTheme.colorScheme.onSecondaryContainer
                 )
 
                 Text(
-                    text = if (rateLimitInfo.remainingCalls == 0)
-                        "You've used all ${rateLimitInfo.maxCalls} bank refreshes for today. Limit resets at $resetTimeFormatted."
-                    else
-                        "You have ${rateLimitInfo.remainingCalls} bank refresh${if (rateLimitInfo.remainingCalls > 1) "es" else ""} remaining. Limit resets at $resetTimeFormatted.",
-                    color = if (rateLimitInfo.remainingCalls == 0)
+                    text = "You have $displayedRemaining bank refresh${if (displayedRemaining != 1) "es" else ""} remaining. Limit resets at $resetTimeFormatted.",
+                    color = if (displayedRemaining == 0)
                         MaterialTheme.colorScheme.onErrorContainer
                     else
                         MaterialTheme.colorScheme.onSecondaryContainer,
                     fontSize = 14.sp
                 )
             }
-        }
-    }
-}
-
-
-@Composable
-fun RateLimitInfo(
-    rateLimitInfo: RateLimitInfo,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-    ) {
-        // Circular progress indicator showing remaining calls
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.size(40.dp)
-        ) {
-            CircularProgressIndicator(
-                progress = rateLimitInfo.remainingCalls.toFloat() / rateLimitInfo.maxCalls.toFloat(),
-                modifier = Modifier.size(40.dp),
-                color = when {
-                    rateLimitInfo.remainingCalls == 0 -> MaterialTheme.colorScheme.error
-                    rateLimitInfo.remainingCalls == 1 -> MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
-                    else -> MaterialTheme.colorScheme.primary
-                },
-                trackColor = MaterialTheme.colorScheme.surfaceVariant
-            )
-
-            Text(
-                text = "${rateLimitInfo.remainingCalls}",
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.Bold
-            )
-        }
-
-        Spacer(modifier = Modifier.width(12.dp))
-
-        Column {
-            Text(
-                text = "Bank refreshes remaining",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium
-            )
-
-            val resetTimeFormatted = remember(rateLimitInfo.timeUntilReset) {
-                rateLimitInfo.timeUntilReset?.let {
-                    val resetTime = LocalDateTime.now().plus(it)
-                    // If it's today, just show the time, otherwise show date and time
-                    if (resetTime.toLocalDate() == LocalDateTime.now().toLocalDate()) {
-                        "Resets at ${resetTime.format(DateTimeFormatter.ofPattern("h:mm a"))}"
-                    } else {
-                        "Resets on ${resetTime.format(DateTimeFormatter.ofPattern("MMM d 'at' h:mm a"))}"
-                    }
-                } ?: "Resets soon"
-            }
-
-            Text(
-                text = resetTimeFormatted,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
         }
     }
 }

@@ -16,8 +16,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -37,6 +42,7 @@ fun UserListItem(
     isCurrentUser: Boolean = false,
     canInvite: Boolean = false,
     onInviteClick: ((Int) -> Unit)? = null,
+    onRemoveClick: (() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
     trailingContent: @Composable (() -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -85,37 +91,61 @@ fun UserListItem(
             )
 
             if (isProvisional) {
-                Spacer(modifier = Modifier.width(24.dp))
+                Spacer(modifier = Modifier.width(8.dp))
                 // Smaller chip with compact padding
                 Surface(
                     shape = RoundedCornerShape(4.dp),
                     color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
-                    modifier = Modifier.height(24.dp)
+                    modifier = Modifier.height(20.dp)
                 ) {
                     Text(
                         text = "Provisional",
                         style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
                 }
             }
         }
 
-        // Trailing content - either invite button or custom content
-        if (isProvisional && canInvite && onInviteClick != null) {
-            Button(
-                onClick = { onInviteClick(userId) },
-                modifier = Modifier.height(32.dp),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.secondary,
-                    contentColor = MaterialTheme.colorScheme.onSecondary
-
-                ),            ) {
-                Text("Invite", style = MaterialTheme.typography.labelMedium)
+        // Action buttons - This section has been reorganized for better layout
+        Row(
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Invite button for provisional users
+            if (isProvisional && canInvite && onInviteClick != null) {
+                Button(
+                    onClick = { onInviteClick(userId) },
+                    modifier = Modifier.height(32.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondary,
+                        contentColor = MaterialTheme.colorScheme.onSecondary
+                    ),
+                ) {
+                    Text("Invite", style = MaterialTheme.typography.labelMedium)
+                }
+                Spacer(modifier = Modifier.width(8.dp))
             }
-        } else if (trailingContent != null) {
-            trailingContent()
+
+            // Remove button (not shown for current user)
+            if (!isCurrentUser && onRemoveClick != null) {
+                IconButton(
+                    onClick = onRemoveClick,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Remove,
+                        contentDescription = "Remove Member",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            // Always show custom trailing content if provided
+            if (trailingContent != null) {
+                trailingContent()
+            }
         }
     }
 }
@@ -149,7 +179,9 @@ fun UserList(
                     isProvisional = user.isProvisional,
                     isCurrentUser = user.userId == currentUserId,
                     canInvite = user.isProvisional,
-                    onInviteClick = onInviteClick
+                    onInviteClick = onInviteClick,
+                    // If we need to add remove functionality here, you would pass the onRemoveClick
+                    // onRemoveClick = { /* handle remove */ }
                 )
             }
         }

@@ -475,7 +475,7 @@ fun GroupDetailsScreen(
                             }
                             item {
                                 GroupMembersSection(
-                                    groupMembers = groupDetailsState.groupMembers,
+                                    activeMembers = groupDetailsState.activeMembers, // Use activeMembers
                                     usernames = groupDetailsState.usernames,
                                     onAddPeopleClick = { showAddMembersBottomSheet = true }
                                 )
@@ -1071,12 +1071,11 @@ fun BottomSheetOption(
 
 @Composable
 fun GroupMembersSection(
-    groupMembers: List<GroupMemberEntity>,
+    activeMembers: List<GroupMemberEntity>, // Change parameter name for clarity
     usernames: Map<Int, String>,
     onAddPeopleClick: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-
     Column(modifier = modifier.padding(16.dp)) {
         Text(
             "Members",
@@ -1111,10 +1110,9 @@ fun GroupMembersSection(
                 }
             }
 
-            // Member Avatars
-            items(groupMembers) { member ->
+            // Member Avatars (only active members)
+            items(activeMembers) { member ->
                 key(member.id) {
-                    // CHANGE HERE: Ensure we have a valid username, never use "?"
                     val username = usernames[member.userId] ?: "User ${member.userId}"
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
