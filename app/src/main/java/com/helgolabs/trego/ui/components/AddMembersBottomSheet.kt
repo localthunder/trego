@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ExpandLess
@@ -30,6 +31,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -37,6 +39,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -50,6 +53,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -170,51 +175,13 @@ fun AddMembersBottomSheet(
 
     // Show email dialog if needed
     if (showEmailDialog && selectedProvisionalUser != null) {
-        AlertDialog(
-            onDismissRequest = {
+        InviteProvisionalUserDialog(
+            user = selectedProvisionalUser!!,
+            groupViewModel = groupViewModel,
+            onDismiss = {
                 showEmailDialog = false
                 selectedProvisionalUser = null
                 editableEmail = ""
-            },
-            title = { Text("Update Invite Email") },
-            text = {
-                Column {
-                    Text("Enter email address for invitation:")
-                    OutlinedTextField(
-                        value = editableEmail,
-                        onValueChange = { editableEmail = it },
-                        label = { Text("Email") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        scope.launch {
-                            selectedProvisionalUser?.let { user ->
-                                groupViewModel.generateProvisionalUserInviteLink(
-                                    provisionalUserId = user.userId,
-                                    emailOverride = if (editableEmail.isNotBlank()) editableEmail else null
-                                )
-                            }
-                        }
-                        showEmailDialog = false
-                        selectedProvisionalUser = null
-                    },
-                    enabled = editableEmail.isNotBlank() && android.util.Patterns.EMAIL_ADDRESS.matcher(editableEmail).matches()
-                ) {
-                    Text("Send Invite")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = {
-                    showEmailDialog = false
-                    selectedProvisionalUser = null
-                    editableEmail = ""
-                }) {
-                    Text("Cancel")
-                }
             }
         )
     }
@@ -450,4 +417,122 @@ fun AddMembersBottomSheet(
             }
         }
     }
+}
+
+@Composable
+fun InviteProvisionalUserDialog(
+    user: UserEntity,
+    groupViewModel: GroupViewModel,
+    onDismiss: () -> Unit
+) {
+    var editableEmail by remember { mutableStateOf(user.invitationEmail ?: "") }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // State for showing invitation progress
+    var isInviting by remember { mutableStateOf(false) }
+
+    // Monitor generated link
+    val groupDetailsState by groupViewModel.groupDetailsState.collectAsState()
+    val generatedInviteLink = groupDetailsState.generatedInviteLink
+
+    // Check for generated link
+    LaunchedEffect(generatedInviteLink) {
+        if (generatedInviteLink != null && isInviting) {
+            // Create share intent with the invite link
+            val shareText = """
+                Hi ${user.username},
+                
+                You've been invited to join a group on Trego!
+                
+                Click this link to join:
+                $generatedInviteLink
+                
+                If you don't have the Trego app yet, you can download it here:
+                https://play.google.com/store/apps/details?id=com.helgolabs.trego
+            """.trimIndent()
+
+            val shareIntent = Intent().apply {
+                action = Intent.ACTION_SEND
+                putExtra(Intent.EXTRA_TEXT, shareText)
+                putExtra(Intent.EXTRA_SUBJECT, "Invitation to join Trego")
+                if (editableEmail.isNotBlank()) {
+                    putExtra(Intent.EXTRA_EMAIL, arrayOf(editableEmail))
+                }
+                type = "text/plain"
+            }
+
+            context.startActivity(Intent.createChooser(shareIntent, "Send invite via"))
+
+            // Clear the generated link after using it
+            groupViewModel.clearGeneratedInviteLink()
+
+            // Show success message
+            Toast.makeText(
+                context,
+                "Invite link generated for ${user.username}",
+                Toast.LENGTH_SHORT
+            ).show()
+
+            // Dismiss the dialog
+            onDismiss()
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Send Invite to ${user.username}") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text("Enter the email address where you'd like to send the invitation:")
+
+                OutlinedTextField(
+                    value = editableEmail,
+                    onValueChange = { editableEmail = it },
+                    label = { Text("Email (optional)") },
+                    placeholder = { Text("user@example.com") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Email,
+                        imeAction = ImeAction.Done
+                    )
+                )
+
+                if (isInviting) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+
+                Text(
+                    text = "They'll receive a link to join Trego and will be merged with the provisional user ${user.username} and added to this group.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    scope.launch {
+                        isInviting = true
+
+                        // Generate the invite link
+                        groupViewModel.generateProvisionalUserInviteLink(
+                            provisionalUserId = user.userId,
+                            emailOverride = if (editableEmail.isNotBlank()) editableEmail else null
+                        )
+                    }
+                },
+                enabled = !isInviting && (editableEmail.isBlank() ||
+                        android.util.Patterns.EMAIL_ADDRESS.matcher(editableEmail).matches())
+            ) {
+                Text(if (isInviting) "Generating..." else "Send Invite")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }

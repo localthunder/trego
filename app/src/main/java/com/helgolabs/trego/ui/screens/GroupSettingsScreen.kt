@@ -41,6 +41,7 @@ import com.helgolabs.trego.ui.components.AddMembersBottomSheet
 import com.helgolabs.trego.ui.components.CurrencySelectionBottomSheet
 import com.helgolabs.trego.ui.components.EditableField
 import com.helgolabs.trego.ui.components.GlobalTopAppBar
+import com.helgolabs.trego.ui.components.InviteProvisionalUserDialog
 import com.helgolabs.trego.ui.components.SectionHeader
 import com.helgolabs.trego.ui.components.SelectableField
 import com.helgolabs.trego.ui.components.UserListItem
@@ -605,6 +606,11 @@ fun ActiveMembersList(
 ) {
     val scope = rememberCoroutineScope()
 
+    // State for email dialog
+    var showEmailDialog by remember { mutableStateOf(false) }
+    var selectedProvisionalUser by remember { mutableStateOf<UserEntity?>(null) }
+    var editableEmail by remember { mutableStateOf("") }
+
     activeMembers.forEach { member ->
         // Get user details
         val user = users.find { it.userId == member.userId }
@@ -627,11 +633,11 @@ fun ActiveMembersList(
             isCurrentUser = member.userId == userId,
             canInvite = isProvisional,
             onInviteClick = { provisionalUserId ->
-                scope.launch {
-                    val provisionalUser = users.find { it.userId == provisionalUserId }
-                    if (provisionalUser != null) {
-                        groupViewModel.generateProvisionalUserInviteLink(provisionalUserId)
-                    }
+                val provisionalUser = users.find { it.userId == provisionalUserId }
+                if (provisionalUser != null) {
+                    selectedProvisionalUser = provisionalUser
+                    editableEmail = provisionalUser.invitationEmail ?: ""
+                    showEmailDialog = true
                 }
             },
             trailingContent = {
@@ -674,7 +680,10 @@ fun ActiveMembersList(
                                     isCheckingMember = true
 
                                     // Use the ViewModel function
-                                    groupViewModel.checkMemberHasPaymentsOrSplits(member.userId, groupId) { hasPayments ->
+                                    groupViewModel.checkMemberHasPaymentsOrSplits(
+                                        member.userId,
+                                        groupId
+                                    ) { hasPayments ->
                                         isCheckingMember = false
                                         val title = "Remove Member"
                                         val message = if (hasPayments) {
@@ -698,6 +707,14 @@ fun ActiveMembersList(
                     }
                 }
             }
+        )
+    }
+    // Show invite bottom sheet when a provisional user is selected
+    selectedProvisionalUser?.let { user ->
+        InviteProvisionalUserDialog(
+            user = user,
+            groupViewModel = groupViewModel,
+            onDismiss = { selectedProvisionalUser = null }
         )
     }
 }

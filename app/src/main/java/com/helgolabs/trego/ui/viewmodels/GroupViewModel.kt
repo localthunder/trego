@@ -737,6 +737,41 @@ class GroupViewModel(
             _groupDetailsState.update { it.copy(isLoading = true) }
 
             try {
+                // First get the user to access the server ID
+                val user = userRepository.getUserById(provisionalUserId).firstOrNull()
+
+                if (user == null) {
+                    _groupDetailsState.update { currentState ->
+                        currentState.copy(
+                            isLoading = false,
+                            error = "User not found"
+                        )
+                    }
+                    return@launch
+                }
+
+                // Check if we have a server ID
+                val serverUserId = user.serverId
+                if (serverUserId == null) {
+                    // If no server ID exists, we need to wait for sync or force a sync now
+                    Log.d(TAG, "No server ID found for provisional user $provisionalUserId, forcing sync")
+
+                    // Try to sync the user first to get a server ID
+                    userRepository.sync()
+
+                    // Check if sync succeeded in getting a server ID
+                    val syncedUser = userRepository.getUserById(provisionalUserId).firstOrNull()
+                    if (syncedUser?.serverId == null) {
+                        _groupDetailsState.update { currentState ->
+                            currentState.copy(
+                                isLoading = false,
+                                error = "Failed to get server ID for user. Please try again later."
+                            )
+                        }
+                        return@launch
+                    }
+                }
+
                 // Update email if provided
                 if (!emailOverride.isNullOrBlank()) {
                     userRepository.updateInvitationEmail(provisionalUserId, emailOverride)
@@ -755,14 +790,34 @@ class GroupViewModel(
                 val currentGroup = _groupDetailsState.value.group
                 val groupId = currentGroup?.id
 
-                // Rest of your existing link generation code...
+                // Get group invite link if available
                 val groupInviteCode = groupId?.let {
                     groupRepository.getGroupInviteLink(it).getOrNull()
                 }
 
+                // Use a UUID to create a secure token instead of directly using IDs
+                val secureToken = java.util.UUID.randomUUID().toString()
+
+                // Store the token mapping in the backend if online
+                val tokenMappingResult = userRepository.createInviteToken(
+                    token = secureToken,
+                    userId = user.serverId
+                )
+
+                if (tokenMappingResult.isFailure) {
+                    _groupDetailsState.update { currentState ->
+                        currentState.copy(
+                            isLoading = false,
+                            error = "Failed to create secure invite: ${tokenMappingResult.exceptionOrNull()?.message}"
+                        )
+                    }
+                    return@launch
+                }
+
+                // Generate the invite URL with the secure token
                 val inviteUrl = buildString {
                     append("trego://users/invite/")
-                    append("?userId=$provisionalUserId")
+                    append("?token=$secureToken")
                     if (groupInviteCode != null) {
                         append("&groupCode=$groupInviteCode")
                     }

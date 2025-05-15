@@ -4,9 +4,11 @@ import android.net.Uri
 import com.google.gson.annotations.SerializedName
 import com.helgolabs.trego.data.local.dataClasses.ApiResponse
 import com.helgolabs.trego.data.local.dataClasses.AuthResponse
+import com.helgolabs.trego.data.local.dataClasses.CreateInviteTokenRequest
 import com.helgolabs.trego.data.local.dataClasses.CurrencyConversionResponse
 import com.helgolabs.trego.data.local.dataClasses.GroupMemberResponse
 import com.helgolabs.trego.data.local.dataClasses.GroupMemberWithGroupResponse
+import com.helgolabs.trego.data.local.dataClasses.InviteTokenResponse
 import com.helgolabs.trego.data.local.dataClasses.LoginRequest
 import com.helgolabs.trego.data.local.dataClasses.MergeUsersRequest
 import com.helgolabs.trego.data.local.dataClasses.MergeUsersResponse
@@ -184,6 +186,12 @@ interface ApiService {
 
     @GET("api/groups/{groupId}/invite-link")
     suspend fun getGroupInviteLink(@Path("groupId") groupId: Int): Map<String, String>
+
+    @POST("api/users/invite-tokens")
+    suspend fun createInviteToken(@Body request: CreateInviteTokenRequest): InviteTokenResponse
+
+    @GET("api/users/invite-tokens/{token}")
+    suspend fun resolveInviteToken(@Path("token") token: String): InviteTokenResponse
 
     @GET("api/groups/user/{userId}")
     suspend fun getGroupsByUserId(@Path("userId") userId: Int): List<Group>

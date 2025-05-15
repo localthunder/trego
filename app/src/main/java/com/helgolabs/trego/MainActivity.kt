@@ -79,6 +79,11 @@ class MainActivity : FragmentActivity() {
             val provisionalUserId: Int,
             val inviteCode: String?
         ) : InviteData()
+        // New token-based invite
+        data class ProvisionalUserTokenInvite(
+            val token: String,
+            val inviteCode: String?
+        ) : InviteData()
     }
 
     sealed class DeepLinkTarget {
@@ -440,16 +445,27 @@ class MainActivity : FragmentActivity() {
                     // Handle user invites
                     "users" -> {
                         if (path?.startsWith("/invite/") == true) {
-                            val provisionalUserId =
-                                decodedUri.getQueryParameter("userId")?.toIntOrNull()
+                            // New token-based approach
+                            val inviteToken = decodedUri.getQueryParameter("token")
                             val groupInviteCode = decodedUri.getQueryParameter("groupCode")
 
-                            if (provisionalUserId != null) {
+                            if (inviteToken != null) {
                                 referenceState.value = null
-                                pendingInvite.value = InviteData.ProvisionalUserInvite(
-                                    provisionalUserId = provisionalUserId,
+                                pendingInvite.value = InviteData.ProvisionalUserTokenInvite(
+                                    token = inviteToken,
                                     inviteCode = groupInviteCode
                                 )
+                            } else {
+                                // Legacy approach - fallback to direct user ID if present
+                                // This can be removed once all clients have updated
+                                val provisionalUserId = decodedUri.getQueryParameter("userId")?.toIntOrNull()
+                                if (provisionalUserId != null) {
+                                    referenceState.value = null
+                                    pendingInvite.value = InviteData.ProvisionalUserInvite(
+                                        provisionalUserId = provisionalUserId,
+                                        inviteCode = groupInviteCode
+                                    )
+                                }
                             }
                         }
                     }
@@ -674,7 +690,10 @@ class MainActivity : FragmentActivity() {
         pendingInvite: MutableState<InviteData?>
     ) {
         val context = LocalContext.current
+        val myApplication = context.applicationContext as MyApplication
+        val userRepository = myApplication.userRepository
         val userId = getUserIdFromPreferences(context)
+        val scope = rememberCoroutineScope()
 
         LaunchedEffect(pendingInvite.value) {
             when (val invite = pendingInvite.value) {
@@ -719,8 +738,81 @@ class MainActivity : FragmentActivity() {
                     pendingInvite.value = null
                 }
 
-                null -> { /* No pending invite */
+                is InviteData.ProvisionalUserTokenInvite -> {
+                    // For token-based invites, first resolve the token to a user ID
+                    scope.launch {
+                        try {
+                            val resolveResult = userRepository.resolveInviteToken(invite.token)
+
+                            resolveResult.onSuccess { provisionalServerId ->
+                                // Get local user ID from server ID
+                                val provisionalUserResult = userRepository.getUserByServerId(provisionalServerId)
+
+                                provisionalUserResult.onSuccess { provisionalUser ->
+                                    if (userId != null) {
+                                        // User is logged in, handle merge
+                                        try {
+                                            userRepository.mergeProvisionalUser(
+                                                provisionalUserId = provisionalUser.userId,
+                                                targetUserId = userId
+                                            ).onSuccess {
+                                                // If there's a group invite, handle it after merge
+                                                invite.inviteCode?.let { code ->
+                                                    navController.navigate("invite/$code")
+                                                } ?: navController.navigate("home")
+                                            }.onFailure { error ->
+                                                Toast.makeText(
+                                                    context,
+                                                    "Failed to merge users: ${error.message}",
+                                                    Toast.LENGTH_LONG
+                                                ).show()
+                                                navController.navigate("home")
+                                            }
+                                        } catch (e: Exception) {
+                                            Log.e("MainActivity", "Error merging users", e)
+                                            Toast.makeText(
+                                                context,
+                                                "Error merging users: ${e.message}",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                            navController.navigate("home")
+                                        }
+                                    } else {
+                                        // User needs to register
+                                        navController.navigate(
+                                            "register?provisionalServerId=$provisionalServerId" +
+                                                    (invite.inviteCode?.let { "&groupCode=$it" } ?: "")
+                                        )
+                                    }
+                                }.onFailure { error ->
+                                    Log.e("MainActivity", "Error getting provisional user", error)
+                                    Toast.makeText(
+                                        context,
+                                        "Error processing invite: ${error.message}",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                    navController.navigate("login")
+                                }
+                            }.onFailure { error ->
+                                Log.e("MainActivity", "Error resolving token", error)
+                                Toast.makeText(
+                                    context,
+                                    "Invalid or expired invitation link",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                                navController.navigate("login")
+                            }
+                        } catch (e: Exception) {
+                            Log.e("MainActivity", "Error processing token invite", e)
+                            Toast.makeText(context, "Error processing invite", Toast.LENGTH_LONG).show()
+                            navController.navigate("login")
+                        }
+
+                        pendingInvite.value = null
+                    }
                 }
+
+                null -> { /* No pending invite */ }
             }
         }
     }

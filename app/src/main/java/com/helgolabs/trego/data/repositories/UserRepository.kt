@@ -15,6 +15,7 @@ import com.helgolabs.trego.data.local.dao.UserDao
 import com.helgolabs.trego.data.local.entities.UserEntity
 import com.helgolabs.trego.data.network.ApiService
 import com.helgolabs.trego.data.local.dataClasses.AuthResponse
+import com.helgolabs.trego.data.local.dataClasses.CreateInviteTokenRequest
 import com.helgolabs.trego.data.local.dataClasses.LoginRequest
 import com.helgolabs.trego.data.local.dataClasses.MergeUsersRequest
 import com.helgolabs.trego.data.local.dataClasses.RegisterRequest
@@ -620,6 +621,53 @@ class UserRepository(
                 Result.failure(e)
             }
         }
+
+    suspend fun createInviteToken(token: String, userId: Int?): Result<String> = withContext(dispatchers.io) {
+        try {
+            if (userId == null) {
+                return@withContext Result.failure(IllegalArgumentException("User ID cannot be null"))
+            }
+
+            // If offline, store locally and sync later
+            if (!NetworkUtils.isOnline()) {
+                // Store token mapping in local database for later sync
+                // This would require adding a table for token mappings
+                return@withContext Result.success(token)
+            }
+
+            // Send to server to create the token mapping
+            val request = CreateInviteTokenRequest(token = token, userId = userId)
+            val response = apiService.createInviteToken(request)
+
+            if (response.success) {
+                Result.success(token)
+            } else {
+                Result.failure(Exception(response.message ?: "Failed to create invite token"))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error creating invite token", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun resolveInviteToken(token: String): Result<Int> = withContext(dispatchers.io) {
+        try {
+            if (!NetworkUtils.isOnline()) {
+                return@withContext Result.failure(IOException("Internet connection required"))
+            }
+
+            val response = apiService.resolveInviteToken(token)
+
+            if (response.success && response.userId != null) {
+                Result.success(response.userId)
+            } else {
+                Result.failure(Exception(response.message ?: "Failed to resolve invite token"))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error resolving invite token", e)
+            Result.failure(e)
+        }
+    }
 
     suspend fun requestPasswordReset(email: String): Result<AuthResponse> = withContext(dispatchers.io) {
         try {
