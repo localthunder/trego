@@ -28,6 +28,7 @@ import com.helgolabs.trego.ui.components.SettleUpButton
 import com.helgolabs.trego.ui.theme.AnimatedDynamicThemeProvider
 import com.helgolabs.trego.ui.viewmodels.GroupViewModel
 import com.helgolabs.trego.ui.viewmodels.PaymentsViewModel
+import com.helgolabs.trego.ui.viewmodels.UserPreferencesViewModel
 import com.helgolabs.trego.utils.FormattingUtils.formatAsCurrency
 import kotlinx.coroutines.launch
 
@@ -36,11 +37,12 @@ fun SettleUpScreen(
     navController: NavController,
     groupId: Int,
     groupViewModel: GroupViewModel,
-    themeMode: String = PreferenceKeys.ThemeMode.SYSTEM,
 ) {
     val context = LocalContext.current
     val myApplication = context.applicationContext as MyApplication
     val paymentsViewModel: PaymentsViewModel = viewModel(factory = myApplication.viewModelFactory)
+    val userPreferencesViewModel: UserPreferencesViewModel = viewModel(factory = myApplication.viewModelFactory)
+    val themeMode by userPreferencesViewModel.themeMode.collectAsState(initial = PreferenceKeys.ThemeMode.SYSTEM)
 
     val balances by groupViewModel.groupBalances.collectAsStateWithLifecycle()
     val loading by groupViewModel.loading.collectAsStateWithLifecycle()

@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
@@ -51,6 +52,7 @@ import coil3.request.SuccessResult
 import coil3.request.allowHardware
 import coil3.request.crossfade
 import coil3.toBitmap
+import com.helgolabs.trego.MyApplication
 import com.helgolabs.trego.data.local.dataClasses.PreferenceKeys
 import com.helgolabs.trego.data.local.entities.GroupMemberEntity
 import com.helgolabs.trego.ui.components.GlobalFAB
@@ -61,6 +63,7 @@ import com.helgolabs.trego.ui.components.PaymentItem
 import com.helgolabs.trego.ui.components.UserAvatar
 import com.helgolabs.trego.ui.theme.AnimatedDynamicThemeProvider
 import com.helgolabs.trego.ui.viewmodels.GroupViewModel
+import com.helgolabs.trego.ui.viewmodels.UserPreferencesViewModel
 import com.helgolabs.trego.utils.ColorSchemeCache
 import com.helgolabs.trego.utils.DateUtils
 import com.helgolabs.trego.utils.FormattingUtils.formatAsCurrency
@@ -82,9 +85,11 @@ fun GroupDetailsScreen(
     navController: NavController,
     groupId: Int,
     groupViewModel: GroupViewModel,
-    themeMode: String = PreferenceKeys.ThemeMode.SYSTEM
 ) {
     val context = LocalContext.current
+    val myApplication = context.applicationContext as MyApplication
+    val userPreferencesViewModel: UserPreferencesViewModel = viewModel(factory = myApplication.viewModelFactory)
+
     var showArchiveConfirmDialog by remember { mutableStateOf(false) }
     var showRestoreConfirmDialog by remember { mutableStateOf(false) }
     val archiveState by groupViewModel.archiveGroupState.collectAsState()
@@ -101,6 +106,7 @@ fun GroupDetailsScreen(
     val group = groupDetailsState.group
     val snackbarHostState = remember { SnackbarHostState() }
 
+    val themeMode by userPreferencesViewModel.themeMode.collectAsState(initial = PreferenceKeys.ThemeMode.SYSTEM)
     val groupColorScheme = groupDetailsState.groupColorScheme
     val groupImage = groupDetailsState.groupImage
     var groupImageBitmap by remember { mutableStateOf<Bitmap?>(null) }

@@ -20,9 +20,24 @@ object AuthManager {
     private const val PREFS_NAME = "AuthPrefs"
     private const val KEY_AUTHENTICATED = "is_authenticated"
     private const val KEY_AUTH_TIMESTAMP = "auth_timestamp"
+    private const val KEY_NEEDS_BIOMETRIC = "needs_biometric"
     private const val SESSION_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 
-    // Add this method to check if authentication has timed out
+    // Add this method to check if user needs biometric authentication
+    fun needsBiometricAuthentication(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean(KEY_NEEDS_BIOMETRIC, false)
+    }
+
+    // Set whether user needs biometric on next app open
+    fun setNeedsBiometric(context: Context, needsBiometric: Boolean) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .putBoolean(KEY_NEEDS_BIOMETRIC, needsBiometric)
+            .commit()
+    }
+
+    // Check if authentication has timed out
     fun hasSessionTimedOut(context: Context): Boolean {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val isAuthenticated = prefs.getBoolean(KEY_AUTHENTICATED, false)
@@ -43,53 +58,50 @@ object AuthManager {
 
         if (authenticated) {
             editor.putLong(KEY_AUTH_TIMESTAMP, System.currentTimeMillis())
+            editor.putBoolean(KEY_NEEDS_BIOMETRIC, false) // Reset biometric need when authenticated
         }
 
-        editor.apply()
+        editor.commit()
     }
 
-    // Add a logout method
+    // Updated logout method
     fun logout(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit()
             .putBoolean(KEY_AUTHENTICATED, false)
             .remove(KEY_AUTH_TIMESTAMP)
-            .apply()
+            .putBoolean(KEY_NEEDS_BIOMETRIC, false)
+            .commit()
 
         // Clear tokens
         TokenManager.clearTokens(context)
 
         // Clear user ID
         clearUserIdFromPreferences(context)
+
+        // Log completion
+        Log.d(TAG, "Logout completed - all authentication state cleared")
     }
 
-    // Update isUserLoggedIn to check for timeout
+    // Updated isUserLoggedIn to be more lenient
     fun isUserLoggedIn(context: Context): Boolean {
         val token = AuthUtils.getLoginState(context)
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val isAuthenticated = prefs.getBoolean(KEY_AUTHENTICATED, false)
 
-        // Enhanced validation
-        if (token.isNullOrBlank() || !isAuthenticated) {
-            // Clear state if token is invalid
-            logout(context)
+        // If no token, user is not logged in
+        if (token.isNullOrBlank()) {
             return false
         }
 
         // Validate the user ID exists
         val userId = getUserIdFromPreferences(context)
         if (userId == null || userId == -1) {
-            // No valid user ID stored
-            logout(context)
             return false
         }
 
-        // Check for session timeout
-        if (hasSessionTimedOut(context)) {
-            setAuthenticated(context, false)
-            return false
-        }
-
+        // If we have a token and user ID, user is logged in
+        // They may need biometric authentication, but they're still "logged in"
         return true
     }
 
@@ -130,6 +142,7 @@ object AuthManager {
                         override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                             Log.d(TAG, "Authentication succeeded")
                             setAuthenticated(activity, true)
+                            setNeedsBiometric(activity, false)
                             updateLastLoginDate(userRepository, userId)
                             onSuccess()
                         }
@@ -140,6 +153,7 @@ object AuthManager {
                                 errorCode == BiometricPrompt.ERROR_NO_DEVICE_CREDENTIAL) {
                                 Log.d(TAG, "No biometrics or device credentials enrolled, allowing access")
                                 setAuthenticated(activity, true)
+                                setNeedsBiometric(activity, false)
                                 updateLastLoginDate(userRepository, userId)
                                 onSuccess()
                             } else {
@@ -150,8 +164,9 @@ object AuthManager {
 
                         override fun onAuthenticationFailed() {
                             Log.e(TAG, "Authentication failed")
-                            setAuthenticated(activity, false)
-                            onFailure()
+                            // Don't change authentication state on failure - let user retry
+                            // setAuthenticated(activity, false)
+                            // onFailure()
                         }
                     })
 
@@ -171,7 +186,10 @@ object AuthManager {
             }
             else -> {
                 Log.e(TAG, "Device cannot authenticate: $canAuthenticateResult")
-                onFailure()
+                // If device can't authenticate, just let them in
+                setAuthenticated(activity, true)
+                setNeedsBiometric(activity, false)
+                onSuccess()
             }
         }
     }

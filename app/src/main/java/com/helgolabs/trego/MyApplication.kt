@@ -180,21 +180,30 @@ class MyApplication : Application(), Configuration.Provider {
             val userId = getUserIdFromPreferences(this)
             val token = AuthUtils.getLoginState(this)
 
-            // If we have a user ID but no valid token, clear everything
+            // Only clear state if we have a truly invalid state
+            // (not just missing authentication flag)
+
+            // If we have a user ID but no valid token, this is truly invalid
             if (userId != null && userId != -1 && token.isNullOrBlank()) {
                 Log.w(TAG, "Invalid state detected: User ID exists but no valid token")
                 AuthManager.logout(this)
+                return
             }
 
-            // If we have a token but no user ID, clear everything
+            // If we have a token but no user ID, this is invalid
             if (!token.isNullOrBlank() && (userId == null || userId == -1)) {
                 Log.w(TAG, "Invalid state detected: Token exists but no valid user ID")
                 AuthManager.logout(this)
+                return
             }
+
+            // Otherwise, preserve the existing state
+            // The user might just need biometric authentication
+
         } catch (e: Exception) {
             Log.e(TAG, "Error validating authentication state", e)
-            // On any error, clear state to be safe
-            AuthManager.logout(this)
+            // On error, be conservative and preserve existing state
+            // Only clear if we're certain there's an issue
         }
     }
 

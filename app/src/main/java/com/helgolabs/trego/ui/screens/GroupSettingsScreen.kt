@@ -29,7 +29,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import com.helgolabs.trego.MyApplication
 import com.helgolabs.trego.data.local.dataClasses.PreferenceKeys
 import com.helgolabs.trego.data.local.entities.GroupDefaultSplitEntity
 import com.helgolabs.trego.data.local.entities.GroupEntity
@@ -44,6 +46,7 @@ import com.helgolabs.trego.ui.components.SelectableField
 import com.helgolabs.trego.ui.components.UserListItem
 import com.helgolabs.trego.ui.theme.AnimatedDynamicThemeProvider
 import com.helgolabs.trego.ui.viewmodels.GroupViewModel
+import com.helgolabs.trego.ui.viewmodels.UserPreferencesViewModel
 import com.helgolabs.trego.utils.CurrencyUtils
 import com.helgolabs.trego.utils.DateUtils
 import com.helgolabs.trego.utils.getUserIdFromPreferences
@@ -55,11 +58,14 @@ fun GroupSettingsScreen(
     navController: NavController,
     groupId: Int,
     groupViewModel: GroupViewModel,
-    themeMode: String = PreferenceKeys.ThemeMode.SYSTEM,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val userId = getUserIdFromPreferences(context)
+
+    val myApplication = context.applicationContext as MyApplication
+    val userPreferencesViewModel: UserPreferencesViewModel = viewModel(factory = myApplication.viewModelFactory)
+    val themeMode by userPreferencesViewModel.themeMode.collectAsState(initial = PreferenceKeys.ThemeMode.SYSTEM)
 
     // Observe group details state
     val groupDetailsState by groupViewModel.groupDetailsState.collectAsState()

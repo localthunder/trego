@@ -367,6 +367,15 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    override fun onPause() {
+        super.onPause()
+        // When app goes to background, mark that biometric will be needed on return
+        val userId = getUserIdFromPreferences(this)
+        if (userId != null && AuthManager.isUserLoggedIn(this)) {
+            AuthManager.setNeedsBiometric(this, true)
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         // Clean up the update manager
@@ -554,50 +563,33 @@ class MainActivity : FragmentActivity() {
             // Get fresh user ID
             val currentUserId = getUserIdFromPreferences(context)
 
+            // Check login state
             val isLoggedIn = AuthManager.isUserLoggedIn(context)
-            val hasTimedOut = AuthManager.hasSessionTimedOut(context)
-            val hasValidUserId = currentUserId != null && currentUserId != -1
+            val needsBiometric = AuthManager.needsBiometricAuthentication(context)
 
-            Log.d("MainActivity", "Auth check - isLoggedIn: $isLoggedIn, hasTimedOut: $hasTimedOut, userId: $currentUserId")
+            Log.d("MainActivity", "Navigation check - isLoggedIn: $isLoggedIn, needsBiometric: $needsBiometric, userId: $currentUserId")
 
             when {
-                // User is fully authenticated with valid session
-                isLoggedIn && !hasTimedOut && hasValidUserId -> {
-                    Log.d("MainActivity", "User is authenticated and session is valid")
+                // User is logged in and doesn't need biometric
+                isLoggedIn && !needsBiometric -> {
+                    Log.d("MainActivity", "User is authenticated, navigating to home")
                     navController.navigate("home") {
                         popUpTo("login") { inclusive = true }
                     }
                 }
 
-                // User has ID but needs to re-authenticate (timeout or no valid token)
-                hasValidUserId && (!isLoggedIn || hasTimedOut) -> {
-                    Log.d("MainActivity", "Session invalid, prompting for biometrics")
-                    if (currentUserId != null) {
-                        AuthManager.promptForBiometrics(
-                            this@MainActivity,
-                            userRepository = userRepository,
-                            userId = currentUserId,
-                            onSuccess = {
-                                navController.navigate("home") {
-                                    popUpTo("login") { inclusive = true }
-                                }
-                            },
-                            onFailure = {
-                                // Clear all state and go to login
-                                AuthManager.logout(context)
-                                navController.navigate("login") {
-                                    popUpTo("home") { inclusive = true }
-                                }
-                            }
-                        )
+                // User is logged in but needs biometric
+                isLoggedIn && needsBiometric -> {
+                    Log.d("MainActivity", "User needs biometric, prompting...")
+                    // Don't navigate yet, let onResume handle biometric
+                    navController.navigate("home") {
+                        popUpTo("login") { inclusive = true }
                     }
                 }
 
-                // No valid user - clean state and go to login
+                // User is not logged in at all
                 else -> {
-                    Log.d("MainActivity", "No valid user, clearing state and navigating to login")
-                    // Clear any lingering state
-                    AuthManager.logout(context)
+                    Log.d("MainActivity", "User not logged in, navigating to login")
                     navController.navigate("login") {
                         popUpTo("home") { inclusive = true }
                     }

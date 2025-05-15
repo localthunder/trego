@@ -230,7 +230,6 @@ fun NavGraph(
                 navController = navController,
                 groupId = groupId,
                 groupViewModel = groupViewModel,
-                themeMode = themeMode  // Pass the theme mode here
             )
         }
         composable(
@@ -282,7 +281,7 @@ fun NavGraph(
             )
         ){backStackEntry ->
             val groupId = backStackEntry.arguments?.getInt("groupId") ?: return@composable
-            GroupBalancesScreen(navController, context, groupId, groupViewModel, themeMode)
+            GroupBalancesScreen(navController, context, groupId, groupViewModel)
         }
         composable(
             route = "groupSettings/{groupId}",
@@ -294,8 +293,7 @@ fun NavGraph(
             GroupSettingsScreen(
                 navController = navController,
                 groupId = groupId,
-                groupViewModel = groupViewModel,
-                themeMode = themeMode
+                groupViewModel = groupViewModel
             )
         }
         composable(
@@ -308,7 +306,6 @@ fun NavGraph(
                 context = context,
                 groupId = groupId,
                 groupViewModel = groupViewModel,
-                themeMode = themeMode  // Pass the theme mode here
             )
         }
         composable(
@@ -320,7 +317,6 @@ fun NavGraph(
                 navController = navController,
                 groupId = groupId,
                 groupViewModel = groupViewModel,
-                themeMode = themeMode  // Pass the theme mode here
             )
         }
         composable(

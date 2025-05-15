@@ -59,6 +59,7 @@ import com.helgolabs.trego.ui.components.GlobalTopAppBar
 import com.helgolabs.trego.ui.theme.AnimatedDynamicThemeProvider
 import com.helgolabs.trego.ui.viewmodels.GroupViewModel
 import com.helgolabs.trego.ui.viewmodels.PaymentsViewModel
+import com.helgolabs.trego.ui.viewmodels.UserPreferencesViewModel
 import com.helgolabs.trego.utils.DateUtils
 import com.helgolabs.trego.utils.FormattingUtils.formatAsCurrency
 import kotlinx.coroutines.delay
@@ -78,10 +79,11 @@ fun GroupTotalsScreen(
     context: Context,
     groupId: Int,
     groupViewModel: GroupViewModel,
-    themeMode: String = PreferenceKeys.ThemeMode.SYSTEM,
 ) {
     val myApplication = context.applicationContext as MyApplication
     val paymentViewModel: PaymentsViewModel = viewModel(factory = myApplication.viewModelFactory)
+    val userPreferencesViewModel: UserPreferencesViewModel = viewModel(factory = myApplication.viewModelFactory)
+    val themeMode by userPreferencesViewModel.themeMode.collectAsState(initial = PreferenceKeys.ThemeMode.SYSTEM)
 
     val payments by paymentViewModel.groupPaymentsAndSplits.collectAsStateWithLifecycle()
     val loading by paymentViewModel.loading.collectAsStateWithLifecycle()

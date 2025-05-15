@@ -30,6 +30,7 @@ import com.helgolabs.trego.data.local.dataClasses.UserBalanceWithCurrency
 import com.helgolabs.trego.ui.components.GlobalTopAppBar
 import com.helgolabs.trego.ui.theme.AnimatedDynamicThemeProvider
 import com.helgolabs.trego.ui.viewmodels.GroupViewModel
+import com.helgolabs.trego.ui.viewmodels.UserPreferencesViewModel
 import com.helgolabs.trego.utils.getCurrencySymbol
 import kotlinx.coroutines.delay
 import kotlin.math.abs
@@ -41,8 +42,11 @@ fun GroupBalancesScreen(
     context: Context,
     groupId: Int,
     groupViewModel: GroupViewModel,
-    themeMode: String = PreferenceKeys.ThemeMode.SYSTEM,
 ) {
+    val myApplication = context.applicationContext as MyApplication
+    val userPreferencesViewModel: UserPreferencesViewModel = viewModel(factory = myApplication.viewModelFactory)
+    val themeMode by userPreferencesViewModel.themeMode.collectAsState(initial = PreferenceKeys.ThemeMode.SYSTEM)
+
     val balances by groupViewModel.groupBalances.collectAsStateWithLifecycle()
     val loading by groupViewModel.loading.collectAsStateWithLifecycle()
     val error by groupViewModel.error.collectAsStateWithLifecycle()
