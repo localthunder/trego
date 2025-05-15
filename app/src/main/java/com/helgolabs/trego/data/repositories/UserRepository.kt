@@ -23,6 +23,7 @@ import com.helgolabs.trego.data.model.GroupMember
 import com.helgolabs.trego.data.model.User
 import com.helgolabs.trego.data.sync.SyncStatus
 import com.helgolabs.trego.data.sync.SyncableRepository
+import com.helgolabs.trego.data.sync.managers.DeviceTokenSyncManager
 import com.helgolabs.trego.data.sync.managers.UserPreferencesSyncManager
 import com.helgolabs.trego.data.sync.managers.UserSyncManager
 import com.helgolabs.trego.utils.AuthUtils.getLoginState
@@ -47,6 +48,7 @@ class UserRepository(
     private val paymentDao: PaymentDao,
     private val paymentSplitDao: PaymentSplitDao,
     private val userSyncManager: UserSyncManager,
+    private val deviceTokenSyncManager: DeviceTokenSyncManager,
     private val context: Context
 ) : SyncableRepository {
 
@@ -682,6 +684,7 @@ class UserRepository(
         try {
             Log.d(TAG, "Starting user sync")
             userSyncManager.performSync()
+            deviceTokenSyncManager.performSync()
             Log.d(TAG, "User sync completed successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Error during user sync", e)

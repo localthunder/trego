@@ -6,7 +6,9 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.helgolabs.trego.MainActivity
@@ -22,6 +24,12 @@ class FCMService : FirebaseMessagingService() {
 
     private val myApplication by lazy {
         applicationContext as MyApplication
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        // Check if we have a user and token but no device token record
+        checkAndRegisterToken()
     }
 
     override fun onNewToken(token: String) {
@@ -90,6 +98,27 @@ class FCMService : FirebaseMessagingService() {
 
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.createNotificationChannel(channel)
+    }
+
+    private fun checkAndRegisterToken() {
+        scope.launch {
+            val userId = getUserIdFromPreferences(applicationContext)
+            if (userId != null) {
+                // Get current token and register it
+                FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+                    if (task.isSuccessful && task.result != null) {
+                        scope.launch {
+                            try {
+                                val notificationRepository = myApplication.notificationRepository
+                                notificationRepository.registerDeviceToken(task.result!!, userId)
+                            } catch (e: Exception) {
+                                Log.e("FCMService", "Failed to register token", e)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private fun handleDeepLinkSync(deepLink: String) {

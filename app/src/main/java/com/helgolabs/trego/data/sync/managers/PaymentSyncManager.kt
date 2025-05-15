@@ -28,6 +28,7 @@ import com.helgolabs.trego.utils.NetworkUtils
 import com.helgolabs.trego.utils.ServerIdUtil
 import com.helgolabs.trego.utils.getUserIdFromPreferences
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.LocalDateTime
@@ -120,21 +121,31 @@ class PaymentSyncManager(
 
         // Update local payment and get server ID mapping
         paymentDao.runInTransaction {
-            val localPayment = myApplication.entityServerConverter
-                .convertPaymentFromServer(serverPayment)
-                .getOrNull() ?: throw Exception("Failed to convert server payment")
-
-            paymentDao.updatePaymentWithTimestamp(
-                localPayment.copy(id = entity.localPaymentId),
-                SyncStatus.SYNCED
-            )
-
+            // First, save the ID mapping
             ServerIdUtil.saveIdMapping(
                 localId = entity.localPaymentId,
                 serverId = serverPayment.id,
                 entityType = "payments",
                 context = context
             )
+
+            // Get the existing payment to preserve local data
+            val existingPayment = paymentDao.getPaymentById(entity.localPaymentId).firstOrNull()
+                ?: throw Exception("Could not find payment with ID ${entity.localPaymentId}")
+
+            // Update the payment with the server ID and sync status
+            val updatedPayment = existingPayment.copy(
+                serverId = serverPayment.id,
+                syncStatus = SyncStatus.SYNCED,
+                updatedAt = DateUtils.getCurrentTimestamp()
+            )
+
+            // Perform the update
+            paymentDao.updatePaymentDirect(updatedPayment)
+
+            // Verify the update
+            val verifiedPayment = paymentDao.getPaymentById(entity.localPaymentId).firstOrNull()
+            Log.d(TAG, "Payment ${entity.localPaymentId} sync status after update: ${verifiedPayment?.syncStatus}")
         }
 
         // Now convert and create splits using the new server payment ID
@@ -148,10 +159,10 @@ class PaymentSyncManager(
                     ?: throw Exception("No server ID found for user ${splitEntity.userId}")
 
                 val createdByServerId = ServerIdUtil.getServerId(splitEntity.createdBy, "users", context)
-                    ?: throw Exception("No server ID found for user ${splitEntity.userId}")
+                    ?: throw Exception("No server ID found for user ${splitEntity.createdBy}")
 
                 val updatedByServerId = ServerIdUtil.getServerId(splitEntity.updatedBy, "users", context)
-                    ?: throw Exception("No server ID found for user ${splitEntity.userId}")
+                    ?: throw Exception("No server ID found for user ${splitEntity.updatedBy}")
 
                 // Create base split model
                 val splitToCreate = PaymentSplit(
@@ -171,25 +182,29 @@ class PaymentSyncManager(
                 val serverSplit = apiService.createPaymentSplit(serverPayment.id, splitToCreate)
                 Log.d(TAG, "Created split on server with ID: ${serverSplit.id}")
 
-                // Update local split
-                val updatedLocalSplit = myApplication.entityServerConverter
-                    .convertPaymentSplitFromServer(serverSplit)
-                    .getOrNull() ?: throw Exception("Failed to convert server split")
+                // Update local split with server ID and sync status
+                paymentSplitDao.runInTransaction {
+                    // Save ID mapping
+                    ServerIdUtil.saveIdMapping(
+                        localId = splitEntity.id,
+                        serverId = serverSplit.id,
+                        entityType = "payment_splits",
+                        context = context
+                    )
 
-                paymentSplitDao.updatePaymentSplitWithTimestamp(
-                    updatedLocalSplit.copy(
-                        id = splitEntity.id,
-                        userId = splitEntity.userId
-                    ),
-                    SyncStatus.SYNCED
-                )
+                    // Update the split with server ID and sync status
+                    val updatedSplit = splitEntity.copy(
+                        serverId = serverSplit.id,
+                        syncStatus = SyncStatus.SYNCED,
+                        updatedAt = DateUtils.getCurrentTimestamp()
+                    )
 
-                ServerIdUtil.saveIdMapping(
-                    localId = splitEntity.id,
-                    serverId = serverSplit.id,
-                    entityType = "payment_splits",
-                    context = context
-                )
+                    paymentSplitDao.updatePaymentSplitDirect(updatedSplit)
+
+                    // Verify the update
+                    val verifiedSplit = paymentSplitDao.getPaymentSplitById(splitEntity.id)
+                    Log.d(TAG, "Split ${splitEntity.id} sync status after update: ${verifiedSplit?.syncStatus}")
+                }
 
                 serverSplit
             } catch (e: Exception) {
@@ -199,10 +214,10 @@ class PaymentSyncManager(
         }
 
         Log.d(TAG, """
-            Sync completed:
-            - Payment ID: ${entity.localPaymentId} -> ${serverPayment.id}
-            - Splits synced: ${convertedSplits.size}/${localSplits.size}
-        """.trimIndent())
+        Sync completed:
+        - Payment ID: ${entity.localPaymentId} -> ${serverPayment.id}
+        - Splits synced: ${convertedSplits.size}/${localSplits.size}
+    """.trimIndent())
 
         Result.success(entity.copy(splits = convertedSplits))
     } catch (e: Exception) {

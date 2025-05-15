@@ -3,6 +3,7 @@ package com.helgolabs.trego.ui.viewmodels
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.helgolabs.trego.MyApplication
 import com.helgolabs.trego.data.local.dataClasses.AuthResponse
 import com.helgolabs.trego.data.local.dataClasses.LoginRequest
 import com.helgolabs.trego.data.local.dataClasses.RegisterRequest
@@ -28,12 +29,27 @@ class AuthViewModel(
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading
 
-    fun register(registerRequest: RegisterRequest) {
+    fun register(context: Context, registerRequest: RegisterRequest) {
         viewModelScope.launch(dispatchers.io) {
             _loading.value = true
             try {
                 val result = userRepository.registerUser(registerRequest)
                 _authResult.value = result
+
+                // If registration successful, register FCM token
+                result.onSuccess { authResponse ->
+                    // Store token and auth state
+                    authResponse.token?.let { token ->
+                        withContext(dispatchers.io) {
+                            TokenManager.saveAccessToken(context, token)
+                            AuthUtils.storeLoginState(context, token)
+                            delay(100)
+                        }
+
+                        // Register FCM token after successful registration
+                        (context.applicationContext as? MyApplication)?.registerCurrentFcmToken()
+                    }
+                }
             } catch (e: Exception) {
                 _authResult.value = Result.failure(e)
             } finally {
@@ -59,6 +75,9 @@ class AuthViewModel(
                             // Add delay to ensure token is propagated
                             delay(100)
                         }
+
+                        // Register FCM token after successful login
+                        (context.applicationContext as? MyApplication)?.registerCurrentFcmToken()
                     }
                 }
 

@@ -50,6 +50,9 @@
         </provider>
         <activity
             android:name="com.helgolabs.trego.MainActivity"
+            android:screenOrientation="portrait"
+            tools:ignore="DiscouragedApi,LockedOrientationActivity"
+            android:configChanges="orientation|keyboardHidden|screenSize"
             android:exported="true"
             android:launchMode="singleTask"
             android:label="@string/app_name"

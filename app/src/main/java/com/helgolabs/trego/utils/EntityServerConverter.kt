@@ -691,9 +691,7 @@ class EntityServerConverter(private val context: Context) {
         }
     }
 
-    suspend fun convertCurrencyConversionToServer(
-        conversion: CurrencyConversionEntity
-    ): Result<CurrencyConversion> {
+    suspend fun convertCurrencyConversionToServer(conversion: CurrencyConversionEntity): Result<CurrencyConversion> {
         return try {
             val serverPaymentId = ServerIdUtil.getServerId(conversion.paymentId, "payments", context)
                 ?: return Result.failure(Exception("No server ID found for payment ${conversion.paymentId}"))
@@ -706,7 +704,7 @@ class EntityServerConverter(private val context: Context) {
 
             Result.success(CurrencyConversion(
                 id = conversion.serverId ?: 0,
-                paymentId = serverPaymentId,
+                paymentId = serverPaymentId,      // Use camelCase property names
                 originalCurrency = conversion.originalCurrency,
                 originalAmount = conversion.originalAmount,
                 finalCurrency = conversion.finalCurrency,
@@ -722,7 +720,6 @@ class EntityServerConverter(private val context: Context) {
             Result.failure(e)
         }
     }
-
     suspend fun convertCurrencyConversionFromServer(
         serverData: CurrencyConversionData,
         existingConversion: CurrencyConversionEntity? = null
@@ -789,7 +786,7 @@ class EntityServerConverter(private val context: Context) {
                 ?: return Result.failure(Exception("No server ID found for user ${deviceToken.userId}"))
 
             Result.success(DeviceToken(
-                tokenId = deviceToken.tokenId,
+                id = deviceToken.serverId,
                 userId = serverUserId,
                 fcmToken = deviceToken.fcmToken,
                 deviceType = deviceToken.deviceType,
@@ -813,12 +810,13 @@ class EntityServerConverter(private val context: Context) {
                 ?: return Result.failure(Exception("Could not resolve local user ID for ${serverToken.userId}"))
 
             Result.success(DeviceTokenEntity(
-                tokenId = serverToken.tokenId,
+                tokenId = existingToken?.tokenId ?: 0,
+                serverId = serverToken.id,
                 userId = localUserId,
                 fcmToken = serverToken.fcmToken,
                 deviceType = serverToken.deviceType,
-                createdAt = serverToken.createdAt,
-                updatedAt = serverToken.updatedAt,
+                createdAt = serverToken.createdAt ?: DateUtils.getCurrentTimestamp(),
+                updatedAt = serverToken.updatedAt?: DateUtils.getCurrentTimestamp(),
                 syncStatus = SyncStatus.SYNCED
             ))
         } catch (e: Exception) {

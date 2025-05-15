@@ -7,6 +7,7 @@ import com.helgolabs.trego.data.calculators.DefaultSplitCalculator
 import com.helgolabs.trego.data.calculators.SplitCalculator
 import com.helgolabs.trego.data.local.AppDatabase
 import com.helgolabs.trego.data.managers.CurrencyConversionManager
+import com.helgolabs.trego.data.model.DeviceToken
 import com.helgolabs.trego.data.network.ApiService
 import com.helgolabs.trego.data.repositories.BankAccountRepository
 import com.helgolabs.trego.data.repositories.GroupRepository
@@ -20,6 +21,7 @@ import com.helgolabs.trego.data.repositories.UserPreferencesRepository
 import com.helgolabs.trego.data.repositories.UserRepository
 import com.helgolabs.trego.data.sync.managers.BankAccountSyncManager
 import com.helgolabs.trego.data.sync.managers.CurrencyConversionSyncManager
+import com.helgolabs.trego.data.sync.managers.DeviceTokenSyncManager
 import com.helgolabs.trego.data.sync.managers.GroupDefaultSplitSyncManager
 import com.helgolabs.trego.data.sync.managers.GroupMemberSyncManager
 import com.helgolabs.trego.data.sync.managers.PaymentSyncManager
@@ -186,6 +188,16 @@ class SyncManagerProvider(
         )
     }
 
+    val deviceTokenSyncManager by lazy {
+        DeviceTokenSyncManager(
+            deviceTokenDao = database.deviceTokenDao(),
+            apiService = apiService,
+            syncMetadataDao = database.syncMetadataDao(),
+            dispatchers = dispatchers,
+            context = context
+        )
+    }
+
     // Repository Providers
     fun provideBankAccountRepository() = BankAccountRepository(
         bankAccountDao = database.bankAccountDao(),
@@ -279,6 +291,7 @@ class SyncManagerProvider(
         paymentDao = database.paymentDao(),
         paymentSplitDao = database.paymentSplitDao(),
         userSyncManager = userSyncManager,
+        deviceTokenSyncManager = deviceTokenSyncManager,
         context = context
     )
 
@@ -286,6 +299,8 @@ class SyncManagerProvider(
         deviceTokenDao = database.deviceTokenDao(),
         apiService = apiService,
         dispatchers = dispatchers,
+        syncMetadataDao = syncMetadataDao,
+        deviceTokenSyncManager = deviceTokenSyncManager,
         context = context
     )
 

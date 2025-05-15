@@ -2,10 +2,12 @@ package com.helgolabs.trego
 
 import BankAccountViewModel
 import android.app.Application
+import android.util.Log
 import androidx.work.Configuration
 import androidx.work.WorkManager
 import androidx.work.testing.WorkManagerTestInitHelper
 import com.google.firebase.FirebaseApp
+import com.google.firebase.messaging.FirebaseMessaging
 import com.helgolabs.trego.data.cache.TransactionCacheManager
 import com.helgolabs.trego.data.calculators.DefaultSplitCalculator
 import com.helgolabs.trego.data.local.AppDatabase
@@ -166,5 +168,42 @@ class MyApplication : Application(), Configuration.Provider {
     // Helper method to check if the app is running in test mode
     private fun isTestMode(): Boolean {
         return "true" == System.getProperty("robolectric.enabled") || "true" == System.getProperty("androidx.test.platform.app.InstrumentationRegistry")
+    }
+
+    fun registerCurrentFcmToken() {
+        applicationScope.launch {
+            try {
+                // Get the current FCM token
+                FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+                    if (!task.isSuccessful) {
+                        Log.w(TAG, "Fetching FCM registration token failed", task.exception)
+                        return@addOnCompleteListener
+                    }
+
+                    // Get new FCM registration token
+                    val token = task.result
+                    Log.d(TAG, "Current FCM token: $token")
+
+                    // Register it if we have a user
+                    val userId = getUserIdFromPreferences(this@MyApplication)
+                    if (userId != null && token != null) {
+                        applicationScope.launch {
+                            try {
+                                notificationRepository.registerDeviceToken(token, userId)
+                                Log.d(TAG, "FCM token registered successfully")
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Failed to register FCM token", e)
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting FCM token", e)
+            }
+        }
+    }
+
+    companion object {
+        private const val TAG = "MyApplication"
     }
 }

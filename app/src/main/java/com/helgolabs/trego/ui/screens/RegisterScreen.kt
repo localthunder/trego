@@ -149,7 +149,7 @@ fun RegisterScreen(navController: NavController) {
                         email = email,
                         password = password.secure()
                     )
-                    authViewModel.register(registerRequest)
+                    authViewModel.register(context, registerRequest)
                 },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !loading

@@ -49,9 +49,36 @@ fun GroupBalancesScreen(
     val groupDetailsState by groupViewModel.groupDetailsState.collectAsStateWithLifecycle()
     val groupColorScheme = groupDetailsState.groupColorScheme
 
-    LaunchedEffect(groupId) {
-        groupViewModel.fetchGroupBalances(groupId)
+    // Get active members and usernames
+    val activeMembers = groupDetailsState.activeMembers
+    val usernames = groupDetailsState.usernames
+    val groupDefaultCurrency = groupDetailsState.group?.defaultCurrency ?: "GBP"
+
+    // Create complete balance list that includes all active members
+    val completeBalances = remember(balances, activeMembers, usernames) {
+        // Create a map of existing balances for quick lookup
+        val existingBalancesMap = balances.associateBy { it.userId }
+
+        // Create a list that includes all active members
+        activeMembers.mapNotNull { member ->
+            val userId = member.userId
+            val username = usernames[userId] ?: return@mapNotNull null
+
+            // Use existing balance if available, otherwise create one with zero balance
+            existingBalancesMap[userId] ?: UserBalanceWithCurrency(
+                userId = userId,
+                username = username,
+                balances = mapOf(groupDefaultCurrency to 0.0)
+            )
+        }
     }
+
+    LaunchedEffect(groupId) {
+        // Load balances and ensure all required data is loaded
+        groupViewModel.fetchGroupBalances(groupId)
+        groupViewModel.loadGroupMembersWithUsers(groupId)
+    }
+
     AnimatedDynamicThemeProvider(groupId, groupColorScheme, themeMode) {
 
         Scaffold(
@@ -90,7 +117,7 @@ fun GroupBalancesScreen(
                             // Chart section at the top
                             item {
                                 // Add the vertical center bar chart - make sure to use the new component
-                                ChristmasTreeBarChart(balances = balances)
+                                ChristmasTreeBarChart(balances = completeBalances)
 
                                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -108,7 +135,7 @@ fun GroupBalancesScreen(
                             }
 
                             // Individual balance items
-                            items(balances) { balance ->
+                            items(completeBalances) { balance ->
                                 DetailedBalanceItem(balance = balance)
                             }
                         }
@@ -135,8 +162,16 @@ fun DetailedBalanceItem(balance: UserBalanceWithCurrency) {
 
         Spacer(modifier = Modifier.height(8.dp))
 
+        // Use the default currency if no balances
+        val effectiveBalances = if (balance.balances.isEmpty()) {
+            // If there are no balances, add a zero amount with the default currency
+            mapOf("GBP" to 0.0)
+        } else {
+            balance.balances
+        }
+
         // Individual currency balances
-        balance.balances.forEach { (currency, amount) ->
+        effectiveBalances.forEach { (currency, amount) ->
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -165,14 +200,14 @@ fun DetailedBalanceItem(balance: UserBalanceWithCurrency) {
         }
 
         // Total summary if multiple currencies
-        if (balance.balances.size > 1) {
+        if (effectiveBalances.size > 1) {
             Divider(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 8.dp)
             )
 
-            val total = balance.balances.values.sum()
+            val total = effectiveBalances.values.sum()
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -182,7 +217,7 @@ fun DetailedBalanceItem(balance: UserBalanceWithCurrency) {
                     text = "Total",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
-                    )
+                )
 
                 Text(
                     text = "%.2f".format(total),
@@ -211,12 +246,13 @@ fun ChristmasTreeBarChart(
         Triple(balance.username, total, currency)
     }.sortedBy { abs(it.second) }
 
-    val maxAbsBalance = sortedBalances.maxOfOrNull { abs(it.second) } ?: 1.0
+    val maxAbsBalance = max(sortedBalances.maxOfOrNull { abs(it.second) } ?: 0.0, 1.0)
 
     // Animation state
     var animationStarted by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         // Delay to ensure layout is ready before animation starts
+        delay(100)
         animationStarted = true
     }
 
@@ -354,6 +390,17 @@ fun ChristmasTreeBarChart(
                                         )
                                     }
                                 }
+                            } else if (balance == 0.0) {
+                                // For zero balance on the left side, display a small indicator
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .background(
+                                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
+                                            shape = RoundedCornerShape(4.dp)
+                                        )
+                                        .align(Alignment.CenterEnd)
+                                )
                             }
                         }
 
@@ -411,6 +458,25 @@ fun ChristmasTreeBarChart(
                                         )
                                     }
                                 }
+                            } else if (balance == 0.0) {
+                                // For zero balance, show a zero label
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .background(
+                                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
+                                            shape = RoundedCornerShape(4.dp)
+                                        )
+                                        .align(Alignment.CenterStart)
+                                )
+
+                                // Label for zero balance
+                                Text(
+                                    text = currencySymbol + "0.00",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                    modifier = Modifier.padding(start = 12.dp)
+                                )
                             }
                         }
                     }

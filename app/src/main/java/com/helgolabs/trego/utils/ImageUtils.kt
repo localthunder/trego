@@ -76,21 +76,29 @@ object ImageUtils {
 
         // Check if this is a placeholder reference
         if (PlaceholderImageGenerator.isPlaceholderImage(path)) {
-            // Don't try to convert placeholder references to URLs
             Log.d(TAG, "Path is a placeholder reference: $path")
             return null
         }
 
-        // Handle regular image paths as before
-        val relativePath = path.split("uploads/").lastOrNull()?.let { "uploads/$it" }
-            ?: path.split("group_images/").lastOrNull()?.let { "uploads/group_images/$it" }
-            ?: path
-
-        Log.d(TAG, "Converting path: $path to relative path: $relativePath")
-
         return when {
-            relativePath.startsWith("http") -> relativePath
-            else -> "$BASE_URL/$relativePath"
+            // Already a full URL
+            path.startsWith("http") -> path
+
+            // Local absolute path - don't convert to URL
+            path.startsWith("/data/") || path.startsWith("/storage/") -> {
+                Log.d(TAG, "Local path detected, not converting to URL: $path")
+                null
+            }
+
+            // Server relative path - needs BASE_URL
+            path.startsWith("uploads/") -> {
+                "$BASE_URL/$path"
+            }
+
+            // Just a filename - assume it's in uploads
+            else -> {
+                "$BASE_URL/uploads/$path"
+            }
         }
     }
 
@@ -195,7 +203,7 @@ object ImageUtils {
         return null
     }
 
-    suspend fun downloadAndSaveImageInternal(context: Context, imageUrl: String): String? {
+    private suspend fun downloadAndSaveImageInternal(context: Context, imageUrl: String): String? {
         return withContext(Dispatchers.IO) {
             try {
                 val url = URL(imageUrl)

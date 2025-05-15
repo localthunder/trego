@@ -10,6 +10,15 @@ interface DeviceTokenDao {
     @Query("SELECT * FROM device_tokens WHERE user_id = :userId")
     fun getDeviceTokensByUserId(userId: Int): Flow<List<DeviceTokenEntity>>
 
+    @Query("SELECT * FROM device_tokens WHERE user_id = :userId AND fcm_token = :token LIMIT 1")
+    suspend fun getDeviceTokenByUserIdAndToken(userId: Int, token: String): DeviceTokenEntity?
+
+    @Query("SELECT * FROM device_tokens WHERE user_id = :userId AND sync_status != :deletedStatus LIMIT 1")
+    suspend fun getActiveDeviceTokenForUser(
+        userId: Int,
+        deletedStatus: SyncStatus = SyncStatus.LOCALLY_DELETED
+    ): DeviceTokenEntity?
+
     @Query("SELECT * FROM device_tokens WHERE token_id = :tokenId")
     suspend fun getDeviceTokenById(tokenId: Int): DeviceTokenEntity?
 
@@ -46,4 +55,9 @@ interface DeviceTokenDao {
             insert(deviceToken)
         }
     }
+
+    @Query("SELECT * FROM device_tokens WHERE sync_status IN (:statuses)")
+    suspend fun getPendingSyncTokens(
+        statuses: List<SyncStatus> = listOf(SyncStatus.PENDING_SYNC, SyncStatus.LOCALLY_DELETED, SyncStatus.SYNC_FAILED)
+    ): List<DeviceTokenEntity>
 }

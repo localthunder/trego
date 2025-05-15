@@ -13,14 +13,16 @@ import com.helgolabs.trego.data.sync.SyncStatus
             onDelete = ForeignKey.CASCADE
         )
     ],
-    indices = [Index("user_id")]
+    indices = [Index("user_id"), Index("server_id")]
 )
 data class DeviceTokenEntity(
-    @PrimaryKey @ColumnInfo(name = "token_id") val tokenId: Int,
+    @PrimaryKey(autoGenerate = true)
+    @ColumnInfo(name = "token_id") val tokenId: Int = 0,
+    @ColumnInfo(name = "server_id") val serverId: Int? = null,
     @ColumnInfo(name = "user_id") val userId: Int,
     @ColumnInfo(name = "fcm_token") val fcmToken: String,
     @ColumnInfo(name = "device_type") val deviceType: String = "android",
     @ColumnInfo(name = "created_at") val createdAt: String,
     @ColumnInfo(name = "updated_at") val updatedAt: String,
-    @ColumnInfo(name = "sync_status") var syncStatus: SyncStatus = SyncStatus.PENDING_SYNC
+    @ColumnInfo(name = "sync_status") val syncStatus: SyncStatus = SyncStatus.PENDING_SYNC
 )

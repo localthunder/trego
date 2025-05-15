@@ -5,18 +5,6 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
-import com.helgolabs.trego.data.local.DatabaseMigrations.MIGRATION_11_12
-import com.helgolabs.trego.data.local.DatabaseMigrations.MIGRATION_12_13
-import com.helgolabs.trego.data.local.DatabaseMigrations.MIGRATION_13_14
-import com.helgolabs.trego.data.local.DatabaseMigrations.MIGRATION_14_15
-import com.helgolabs.trego.data.local.DatabaseMigrations.MIGRATION_15_16
-import com.helgolabs.trego.data.local.DatabaseMigrations.MIGRATION_16_17
-import com.helgolabs.trego.data.local.DatabaseMigrations.MIGRATION_17_18
-import com.helgolabs.trego.data.local.DatabaseMigrations.MIGRATION_18_19
-import com.helgolabs.trego.data.local.DatabaseMigrations.MIGRATION_19_20
-import com.helgolabs.trego.data.local.DatabaseMigrations.MIGRATION_20_21
-import com.helgolabs.trego.data.local.DatabaseMigrations.MIGRATION_21_22
-import com.helgolabs.trego.data.local.DatabaseMigrations.MIGRATION_22_23
 import com.helgolabs.trego.data.local.converters.Converters
 import com.helgolabs.trego.data.local.dao.*
 import com.helgolabs.trego.data.local.entities.*
@@ -41,7 +29,7 @@ import com.helgolabs.trego.data.sync.SyncMetadata
         GroupDefaultSplitEntity::class,
         UserPreferenceEntity::class],
 
-    version = 65,
+    version = 66,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

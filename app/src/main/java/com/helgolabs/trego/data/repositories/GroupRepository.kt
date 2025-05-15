@@ -1273,6 +1273,7 @@ class GroupRepository(
         userGroupArchiveSyncManager.performSync()
         groupDefaultSplitSyncManager.performSync()
     }
+
     private suspend fun <T> withRetry(
         maxAttempts: Int = 3,
         initialDelay: Long = 1000,
