@@ -551,41 +551,53 @@ class MainActivity : FragmentActivity() {
             // Load preferences on startup
             userPreferencesViewModel.loadPreferences()
 
+            // Get fresh user ID
+            val currentUserId = getUserIdFromPreferences(context)
+
             val isLoggedIn = AuthManager.isUserLoggedIn(context)
             val hasTimedOut = AuthManager.hasSessionTimedOut(context)
+            val hasValidUserId = currentUserId != null && currentUserId != -1
+
+            Log.d("MainActivity", "Auth check - isLoggedIn: $isLoggedIn, hasTimedOut: $hasTimedOut, userId: $currentUserId")
 
             when {
-                // User is logged in and session is valid
-                isLoggedIn && !hasTimedOut -> {
+                // User is fully authenticated with valid session
+                isLoggedIn && !hasTimedOut && hasValidUserId -> {
                     Log.d("MainActivity", "User is authenticated and session is valid")
                     navController.navigate("home") {
                         popUpTo("login") { inclusive = true }
                     }
                 }
 
-                // User was logged in but session timed out
-                !isLoggedIn && userId != -1 -> {
-                    Log.d("MainActivity", "Session timed out, prompting for biometrics")
-                    AuthManager.promptForBiometrics(
-                        this@MainActivity,
-                        userRepository = userRepository,
-                        userId = userId,
-                        onSuccess = {
-                            navController.navigate("home") {
-                                popUpTo("login") { inclusive = true }
+                // User has ID but needs to re-authenticate (timeout or no valid token)
+                hasValidUserId && (!isLoggedIn || hasTimedOut) -> {
+                    Log.d("MainActivity", "Session invalid, prompting for biometrics")
+                    if (currentUserId != null) {
+                        AuthManager.promptForBiometrics(
+                            this@MainActivity,
+                            userRepository = userRepository,
+                            userId = currentUserId,
+                            onSuccess = {
+                                navController.navigate("home") {
+                                    popUpTo("login") { inclusive = true }
+                                }
+                            },
+                            onFailure = {
+                                // Clear all state and go to login
+                                AuthManager.logout(context)
+                                navController.navigate("login") {
+                                    popUpTo("home") { inclusive = true }
+                                }
                             }
-                        },
-                        onFailure = {
-                            navController.navigate("login") {
-                                popUpTo("home") { inclusive = true }
-                            }
-                        }
-                    )
+                        )
+                    }
                 }
 
-                // User is not logged in
+                // No valid user - clean state and go to login
                 else -> {
-                    Log.d("MainActivity", "User is not logged in")
+                    Log.d("MainActivity", "No valid user, clearing state and navigating to login")
+                    // Clear any lingering state
+                    AuthManager.logout(context)
                     navController.navigate("login") {
                         popUpTo("home") { inclusive = true }
                     }

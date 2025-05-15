@@ -35,6 +35,8 @@ import com.helgolabs.trego.ui.viewmodels.TransactionViewModel
 import com.helgolabs.trego.ui.viewmodels.UserPreferencesViewModel
 import com.helgolabs.trego.ui.viewmodels.UserViewModel
 import com.helgolabs.trego.utils.AppCoroutineDispatchers
+import com.helgolabs.trego.utils.AuthManager
+import com.helgolabs.trego.utils.AuthUtils
 import com.helgolabs.trego.utils.ColorSchemeCache
 import com.helgolabs.trego.utils.EntityServerConverter
 import com.helgolabs.trego.utils.NetworkUtils
@@ -119,6 +121,9 @@ class MyApplication : Application(), Configuration.Provider {
             ColorSchemeCache.initialize(this@MyApplication)
         }
 
+        // Clear invalid states on startup
+        validateAuthenticationState()
+
         if (isTestMode()) {
             WorkManagerTestInitHelper.initializeTestWorkManager(this)
         } else {
@@ -133,14 +138,14 @@ class MyApplication : Application(), Configuration.Provider {
 
             CacheCleanupWorker.schedule(this)
 
-            // Only request sync if userId is valid
+            // Only request sync if userId is valid - check AFTER validation
             val userId = getUserIdFromPreferences(this)
-            if (userId != null && userId != -1) {
+            if (userId != null && userId != -1 && isUserAuthenticated()) {
                 if (hasNetworkCapabilities()) {
                     SyncWorker.requestSync(this)
                 }
             } else {
-                android.util.Log.d("MyApplication", "Sync not requested as user id is null or -1")
+                android.util.Log.d("MyApplication", "Sync not requested - user not authenticated or invalid ID")
             }
         }
 
@@ -168,6 +173,34 @@ class MyApplication : Application(), Configuration.Provider {
     // Helper method to check if the app is running in test mode
     private fun isTestMode(): Boolean {
         return "true" == System.getProperty("robolectric.enabled") || "true" == System.getProperty("androidx.test.platform.app.InstrumentationRegistry")
+    }
+
+    private fun validateAuthenticationState() {
+        try {
+            val userId = getUserIdFromPreferences(this)
+            val token = AuthUtils.getLoginState(this)
+
+            // If we have a user ID but no valid token, clear everything
+            if (userId != null && userId != -1 && token.isNullOrBlank()) {
+                Log.w(TAG, "Invalid state detected: User ID exists but no valid token")
+                AuthManager.logout(this)
+            }
+
+            // If we have a token but no user ID, clear everything
+            if (!token.isNullOrBlank() && (userId == null || userId == -1)) {
+                Log.w(TAG, "Invalid state detected: Token exists but no valid user ID")
+                AuthManager.logout(this)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error validating authentication state", e)
+            // On any error, clear state to be safe
+            AuthManager.logout(this)
+        }
+    }
+
+    private fun isUserAuthenticated(): Boolean {
+        val token = AuthUtils.getLoginState(this)
+        return !token.isNullOrBlank()
     }
 
     fun registerCurrentFcmToken() {

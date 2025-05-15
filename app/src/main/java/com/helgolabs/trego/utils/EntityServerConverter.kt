@@ -347,6 +347,15 @@ class EntityServerConverter(private val context: Context) {
         user: UserEntity,
         emailOverride: String? = null  // Add optional parameter
     ): Result<User> {
+
+        val serverInvitedById = user.invitedBy?.let { localInvitedById ->
+            if (localInvitedById > 0) {
+                ServerIdUtil.getServerId(localInvitedById, "users", context)
+            } else {
+                null
+            }
+        }
+
         return try {
             Result.success(
                 User(
@@ -361,7 +370,7 @@ class EntityServerConverter(private val context: Context) {
                     defaultCurrency = user.defaultCurrency,
                     lastLoginDate = user.lastLoginDate,
                     isProvisional = user.isProvisional,
-                    invitedBy = user.invitedBy,
+                    invitedBy = serverInvitedById,
                     invitationEmail = user.invitationEmail,
                     mergedIntoUserId = user.mergedIntoUserId,
                     passwordResetExpires = user.passwordResetExpires,
@@ -380,6 +389,15 @@ class EntityServerConverter(private val context: Context) {
         existingUser: UserEntity? = null,
         isCurrentUser: Boolean = false
     ): Result<UserEntity> {
+
+        val localInvitedById = serverUser.invitedBy?.let { serverInvitedById ->
+            if (serverInvitedById > 0) {
+                ServerIdUtil.getLocalId(serverInvitedById, "users", context)
+            } else {
+                null
+            }
+        }
+
         return try {
             Result.success(UserEntity(
                 userId = existingUser?.userId ?: 0,
@@ -395,7 +413,7 @@ class EntityServerConverter(private val context: Context) {
                 lastLoginDate = if (isCurrentUser) existingUser?.lastLoginDate else null,
                 syncStatus = SyncStatus.SYNCED,
                 isProvisional = serverUser.isProvisional,
-                invitedBy = serverUser.invitedBy,
+                invitedBy = localInvitedById,
                 invitationEmail = serverUser.invitationEmail,
                 mergedIntoUserId = serverUser.mergedIntoUserId,
                 passwordResetExpires = serverUser.passwordResetExpires,

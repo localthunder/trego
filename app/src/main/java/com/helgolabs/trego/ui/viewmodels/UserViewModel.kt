@@ -120,15 +120,13 @@ class UserViewModel(
         }
     }
 
-    suspend fun getUserByServerId(serverId: Int): Result<User> = withContext(dispatchers.io) {
+    suspend fun getUserByServerId(serverId: Int): Result<UserEntity> = withContext(dispatchers.io) {
         try {
-            val user = userRepository.getUserByServerId(serverId)?.toModel()
-            if (user != null) {
-                Result.success(user)
-            } else {
-                Result.failure(Exception("User not found"))
-            }
+            // The repository already returns Result<User>, so we can just return it directly
+            userRepository.getUserByServerId(serverId)
         } catch (e: Exception) {
+            // This catch block is for any unexpected exceptions
+            Log.e("UserViewModel", "Unexpected error getting user by server ID", e)
             Result.failure(e)
         }
     }

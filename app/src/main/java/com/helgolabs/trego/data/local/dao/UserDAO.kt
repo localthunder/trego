@@ -29,6 +29,9 @@ interface UserDao {
     @Query("SELECT * FROM users WHERE server_id = :serverId")
     fun getUserByServerId(serverId: Int): UserEntity?
 
+    @Query("SELECT * FROM users WHERE server_id = :serverId LIMIT 1")
+    suspend fun getUserByServerIdSync(serverId: Int): UserEntity?
+
     @Query("SELECT * FROM users WHERE user_id = :userId")
     suspend fun getUserByIdDirect(userId: Int): UserEntity?
 

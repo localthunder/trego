@@ -78,29 +78,38 @@ fun LoginScreen(navController: NavController, inviteCode: String? = null) {
                 // 1. First store the tokens and wait for completion
                 withContext(Dispatchers.IO) {
                     val token = authResponse.token ?: throw IllegalStateException("No token received")
+
+                    // Store the token
                     TokenManager.saveAccessToken(context, token)
                     AuthUtils.storeLoginState(context, token)
-                    WorkManager.getInstance(context).pruneWork() // Clean up any lingering work
-                    // Add a small delay to ensure token propagation
-                    delay(500)
+                    WorkManager.getInstance(context).pruneWork()
+
+                    // Verify token is actually saved with retry mechanism
+                    var tokenSaved = false
+                    var attempts = 0
+
+                    while (!tokenSaved && attempts < 5) {
+                        val savedToken = TokenManager.getAccessToken(context)
+                        if (savedToken == token) {
+                            tokenSaved = true
+                            Log.d("LoginScreen", "Token verified as saved on attempt ${attempts + 1}")
+                        } else {
+                            attempts++
+                            Log.d("LoginScreen", "Token not yet saved, waiting... (attempt $attempts)")
+                            delay(200) // Increase delay
+                        }
+                    }
+
+                    if (!tokenSaved) {
+                        throw IllegalStateException("Failed to save token after 5 attempts")
+                    }
                 }
 
                 // 2. Get user info and store user ID
                 withContext(Dispatchers.IO) {
-                    // Retry logic for getting user info
-                    var attempts = 0
-                    var userResult: Result<User>? = null
-
-                    while (attempts < 3) {
-                        userResult = userViewModel.getUserByServerId(authResponse.userId)
-                        if (userResult.isSuccess) break
-
-                        Log.d("LoginScreen", "Attempt ${attempts + 1} failed, retrying...")
-                        delay(500)
-                        attempts++
-                    }
-                    val user = userResult?.getOrNull()
-                        ?: throw IllegalStateException("Failed to get user info")
+                    val userResult = userViewModel.getUserByServerId(authResponse.userId)
+                    val user = userResult.getOrNull()
+                        ?: throw IllegalStateException("Failed to get user info: ${userResult.exceptionOrNull()?.message}")
 
                     storeUserIdInPreferences(context, user.userId)
                 }

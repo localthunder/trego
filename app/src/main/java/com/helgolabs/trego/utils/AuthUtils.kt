@@ -37,58 +37,96 @@ object AuthUtils {
         keyGenerator.generateKey()
     }
 
-    private fun getSecretKey(): SecretKey {
-        val keyStore = getKeyStore()
-        if (!keyStore.containsAlias(KEY_ALIAS)) {
-            createKey()
+    private fun getSecretKey(): SecretKey? {
+        return try {
+            val keyStore = getKeyStore()
+            if (!keyStore.containsAlias(KEY_ALIAS)) {
+                createKey()
+            }
+            keyStore.getKey(KEY_ALIAS, null) as SecretKey
+        } catch (e: Exception) {
+            Log.e("AuthUtils", "Error getting secret key", e)
+            null
         }
-        return keyStore.getKey(KEY_ALIAS, null) as SecretKey
     }
 
     fun storeLoginState(context: Context, token: String) {
-        val secretKey = getSecretKey()
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, secretKey)
-        val iv = cipher.iv
-        val encryptedData = cipher.doFinal(token.toByteArray(Charsets.UTF_8))
+        try {
+            val secretKey = getSecretKey() ?: return
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey)
+            val iv = cipher.iv
+            val encryptedData = cipher.doFinal(token.toByteArray(Charsets.UTF_8))
 
-        Log.d("AuthUtils", "Storing token: $token")
+            Log.d("AuthUtils", "Storing token: $token")
 
-        val sharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val editor = sharedPreferences.edit()
-        editor.putString(KEY_AUTH_TOKEN, Base64.encodeToString(encryptedData, Base64.DEFAULT))
-        editor.putString("iv", Base64.encodeToString(iv, Base64.DEFAULT))
-        editor.apply()
-        Log.d("AuthUtils", "Token stored successfully")
+            val sharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val editor = sharedPreferences.edit()
+            editor.putString(KEY_AUTH_TOKEN, Base64.encodeToString(encryptedData, Base64.DEFAULT))
+            editor.putString("iv", Base64.encodeToString(iv, Base64.DEFAULT))
+            editor.commit()  // Use commit() for synchronous storage
+            Log.d("AuthUtils", "Token stored successfully")
+        } catch (e: Exception) {
+            Log.e("AuthUtils", "Error storing login state", e)
+            // If there's an error storing, clear any partial data
+            clearLoginState(context)
+        }
     }
 
     fun getLoginState(context: Context): String? {
-        val sharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val encryptedData = sharedPreferences.getString(KEY_AUTH_TOKEN, null)
-        val iv = sharedPreferences.getString("iv", null)?.let { Base64.decode(it, Base64.DEFAULT) }
+        return try {
+            val sharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val encryptedData = sharedPreferences.getString(KEY_AUTH_TOKEN, null)
+            val iv = sharedPreferences.getString("iv", null)?.let { Base64.decode(it, Base64.DEFAULT) }
 
-        if (encryptedData == null || iv == null) {
-            Log.e("AuthUtils", "No token found or IV missing")
+            if (encryptedData == null || iv == null) {
+                Log.e("AuthUtils", "No token found or IV missing")
+                // Clear any partial data
+                clearLoginState(context)
+                return null
+            }
+
+            val secretKey = getSecretKey() ?: run {
+                Log.e("AuthUtils", "Unable to get secret key")
+                clearLoginState(context)
+                return null
+            }
+
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            val spec = GCMParameterSpec(128, iv)
+            cipher.init(Cipher.DECRYPT_MODE, secretKey, spec)
+            val decodedData = Base64.decode(encryptedData, Base64.DEFAULT)
+            val token = String(cipher.doFinal(decodedData), Charsets.UTF_8)
+
+            // Validate that the token is not empty
+            if (token.isBlank()) {
+                Log.e("AuthUtils", "Retrieved token is empty")
+                clearLoginState(context)
+                return null
+            }
+
+            Log.d("AuthUtils", "Retrieved token: $token")
+            return token
+        } catch (e: Exception) {
+            Log.e("AuthUtils", "Error retrieving login state", e)
+            // On any decryption error, clear the state
+            clearLoginState(context)
             return null
         }
-
-        val secretKey = getSecretKey()
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        val spec = GCMParameterSpec(128, iv)
-        cipher.init(Cipher.DECRYPT_MODE, secretKey, spec)
-        val decodedData = Base64.decode(encryptedData, Base64.DEFAULT)
-        val token = String(cipher.doFinal(decodedData), Charsets.UTF_8)
-        Log.d("AuthUtils", "Retrieved token: $token")
-        return token
     }
 
 
     fun clearLoginState(context: Context) {
-        val sharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val editor = sharedPreferences.edit()
-        editor.remove(KEY_AUTH_TOKEN)
-        editor.remove("iv")
-        editor.apply()
+        try {
+            val sharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val editor = sharedPreferences.edit()
+            editor.remove(KEY_AUTH_TOKEN)
+            editor.remove("iv")
+            editor.commit()  // Use commit() for immediate persistence
+            Log.d("AuthUtils", "Login state cleared")
+        } catch (e: Exception) {
+            Log.e("AuthUtils", "Error clearing login state", e)
+        }
     }
 
     fun isPasswordValid(password: String): Boolean {

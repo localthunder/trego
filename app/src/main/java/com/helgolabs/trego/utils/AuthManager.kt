@@ -1,4 +1,3 @@
-// File: AuthManager.kt
 package com.helgolabs.trego.utils
 
 import android.content.Context
@@ -59,6 +58,9 @@ object AuthManager {
 
         // Clear tokens
         TokenManager.clearTokens(context)
+
+        // Clear user ID
+        clearUserIdFromPreferences(context)
     }
 
     // Update isUserLoggedIn to check for timeout
@@ -67,10 +69,28 @@ object AuthManager {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val isAuthenticated = prefs.getBoolean(KEY_AUTHENTICATED, false)
 
-        if (token == null || !isAuthenticated) return false
+        // Enhanced validation
+        if (token.isNullOrBlank() || !isAuthenticated) {
+            // Clear state if token is invalid
+            logout(context)
+            return false
+        }
+
+        // Validate the user ID exists
+        val userId = getUserIdFromPreferences(context)
+        if (userId == null || userId == -1) {
+            // No valid user ID stored
+            logout(context)
+            return false
+        }
 
         // Check for session timeout
-        return !hasSessionTimedOut(context)
+        if (hasSessionTimedOut(context)) {
+            setAuthenticated(context, false)
+            return false
+        }
+
+        return true
     }
 
     private fun updateLastLoginDate(userRepository: UserRepository, userId: Int) {

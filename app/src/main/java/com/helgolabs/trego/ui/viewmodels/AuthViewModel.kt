@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import retrofit2.HttpException
+import java.net.HttpURLConnection
 
 class AuthViewModel(
     private val userRepository: UserRepository,
@@ -61,14 +63,15 @@ class AuthViewModel(
     fun login(context: Context, loginRequest: LoginRequest) {
         viewModelScope.launch(dispatchers.io) {
             _loading.value = true
-            try {
-                // Get login result
-                val result = userRepository.loginUser(context, loginRequest)
 
-                // If login successful, store token and wait for completion
-                result.onSuccess { authResponse ->
+            // Get login result
+            val result = userRepository.loginUser(context, loginRequest)
+
+            // Transform the result to handle rate limiting
+            val transformedResult = result.fold(
+                onSuccess = { authResponse ->
+                    // If login successful, store token and wait for completion
                     authResponse.token?.let { token ->
-                        // Store token and wait for completion
                         withContext(dispatchers.io) {
                             TokenManager.saveAccessToken(context, token)
                             AuthUtils.storeLoginState(context, token)
@@ -79,16 +82,34 @@ class AuthViewModel(
                         // Register FCM token after successful login
                         (context.applicationContext as? MyApplication)?.registerCurrentFcmToken()
                     }
+                    Result.success(authResponse)
+                },
+                onFailure = { exception ->
+                    // Handle rate limiting specifically
+                    val errorMessage = when {
+                        exception.message?.contains("429") == true -> {
+                            // Return a user-friendly message for rate limiting
+                            "Too many login attempts. Please wait 1 minute before trying again."
+                        }
+                        exception.message?.contains("401") == true -> {
+                            "Invalid email or password"
+                        }
+                        exception is HttpException && exception.code() == 429 -> {
+                            "Too many login attempts. Please wait 1 minute before trying again."
+                        }
+                        exception is HttpException && exception.code() == HttpURLConnection.HTTP_UNAUTHORIZED -> {
+                            "Invalid email or password"
+                        }
+                        else -> exception.message ?: "An unexpected error occurred"
+                    }
+
+                    // Create a custom exception with the user-friendly message
+                    Result.failure(Exception(errorMessage))
                 }
+            )
 
-                // Only set result after token is stored
-                _authResult.value = result
-
-            } catch (e: Exception) {
-                _authResult.value = Result.failure(e)
-            } finally {
-                _loading.value = false
-            }
+            _authResult.value = transformedResult
+            _loading.value = false
         }
     }
 

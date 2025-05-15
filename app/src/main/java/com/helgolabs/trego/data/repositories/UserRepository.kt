@@ -60,7 +60,54 @@ class UserRepository(
 
     fun getUserById(userId: Int) = userDao.getUserById(userId)
 
-    fun getUserByServerId(serverId: Int) = userDao.getUserByServerId(serverId)
+    suspend fun getUserByServerId(serverId: Int): Result<UserEntity> = withContext(dispatchers.io) {
+        try {
+            // First check if we have a valid token
+            val token = TokenManager.getAccessToken(context)
+            if (token.isNullOrBlank()) {
+                Log.e(TAG, "No valid token available for getUserByServerId")
+                return@withContext Result.failure(IllegalStateException("No valid token available"))
+            }
+
+            Log.d(TAG, "Fetching user from server with ID: $serverId")
+
+            // Get user from API
+            val serverUser = apiService.getUserById(serverId)
+
+            // Convert to entity
+            val userEntity = myApplication.entityServerConverter
+                .convertUserFromServer(serverUser, null, true)
+                .getOrThrow()
+
+            // Check if user already exists in database
+            val existingUser = userDao.getUserByServerIdSync(serverId)
+
+            if (existingUser != null) {
+                // Update existing user
+                val updatedUser = userEntity.copy(
+                    userId = existingUser.userId,
+                    syncStatus = SyncStatus.SYNCED
+                )
+                userDao.updateUserDirect(updatedUser)
+
+                Log.d(TAG, "Updated existing user with userId: ${updatedUser.userId}")
+                Result.success(updatedUser)
+            } else {
+                // Insert new user
+                val insertedId = userDao.insertUser(userEntity)
+                val insertedUser = userDao.getUserByIdDirect(insertedId.toInt())
+                    ?: throw IllegalStateException("Failed to retrieve inserted user")
+
+                Log.d(TAG, "Inserted new user with userId: ${insertedUser.userId}")
+                Result.success(insertedUser)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting user by server ID", e)
+            Result.failure(e)
+        }
+    }
+
+    fun getUserByServerIdFlow(serverId: Int) = userDao.getUserByServerId(serverId)
 
     fun getUsersByIds(userIds: List<Int>) = userDao.getUsersByIds(userIds)
 
