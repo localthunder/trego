@@ -76,7 +76,7 @@ class TransactionSyncManager(
         val serverUserId = localUser.serverId
             ?: throw IllegalStateException("No server ID found for user $userId")
 
-        return apiService.getTransactionsSince(since, serverUserId)
+        return apiService.getTransactionsSince(since)
     }
 
     override suspend fun applyServerChange(serverEntity: Transaction) {
@@ -199,14 +199,7 @@ class TransactionSyncManager(
         return try {
             Log.d(TAG, "Fetching fresh transactions from GoCardless")
 
-            // Get the server ID from the local user ID
-            val localUser = userDao.getUserByIdDirect(userId)
-                ?: throw IllegalStateException("User not found in local database")
-
-            val serverUserId = localUser.serverId
-                ?: throw IllegalStateException("No server ID found for user $userId")
-
-            val response = apiService.getTransactionsByUserId(serverUserId)
+            val response = apiService.getMyTransactions()
             val transactions = response.transactions
             val accountsNeedingReauth = response.accountsNeedingReauthentication
 

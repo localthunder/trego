@@ -14,7 +14,9 @@ import com.helgolabs.trego.data.local.dao.PaymentDao
 import com.helgolabs.trego.data.local.dao.PaymentSplitDao
 import com.helgolabs.trego.data.local.dao.SyncMetadataDao
 import com.helgolabs.trego.data.local.dao.TransactionDao
+import com.helgolabs.trego.data.local.dao.UserDao
 import com.helgolabs.trego.data.local.dataClasses.BatchConversionResult
+import com.helgolabs.trego.data.local.dataClasses.BatchNotificationRequest
 import com.helgolabs.trego.data.local.dataClasses.ConversionAttempt
 import com.helgolabs.trego.data.local.dataClasses.CurrencyConversionResult
 import com.helgolabs.trego.data.local.dataClasses.ExchangeRateInfo
@@ -37,6 +39,7 @@ import com.helgolabs.trego.data.sync.managers.PaymentSyncManager
 import com.helgolabs.trego.utils.CoroutineDispatchers
 import com.helgolabs.trego.utils.DateUtils
 import com.helgolabs.trego.utils.NetworkUtils
+import com.helgolabs.trego.utils.NetworkUtils.hasNetworkCapabilities
 import com.helgolabs.trego.utils.NetworkUtils.isOnline
 import com.helgolabs.trego.utils.ServerIdUtil
 import com.helgolabs.trego.utils.ServerIdUtil.getLocalId
@@ -68,6 +71,7 @@ class PaymentRepository(
     private val groupDao: GroupDao,
     private val groupMemberDao: GroupMemberDao,
     private val transactionDao: TransactionDao,
+    private val userDao: UserDao,
     private val currencyConversionDao: CurrencyConversionDao,
     private val apiService: ApiService,
     private val dispatchers: CoroutineDispatchers,
@@ -140,7 +144,7 @@ class PaymentRepository(
         // Create a map of local payments by server ID for quick lookup
         val localPaymentMap = localPayments.associateBy { it.serverId }
 
-        if (isOnline()) {
+        if (hasNetworkCapabilities()) {
             try {
                 val serverGroupId = getServerId(groupId, "groups", context) ?: return@flow
                 Log.d(TAG, "Fetching payments from server for group ID: $serverGroupId")
@@ -219,7 +223,7 @@ class PaymentRepository(
             val localId = paymentDao.insertPayment(localPayment)
 
             // Attempt to sync with server if online
-            if (isOnline()) {
+            if (hasNetworkCapabilities()) {
                 try {
                     // Pass the saved local entity to the converter
                     val serverModel = myApplication.entityServerConverter
@@ -269,7 +273,7 @@ class PaymentRepository(
             paymentDao.updatePayment(updatedLocalPayment)
 
             // Attempt to sync with server if online
-            if (isOnline()) {
+            if (hasNetworkCapabilities()) {
                 try {
                     val serverPaymentModel = payment.toModel()
                     val serverPayment = apiService.updatePayment(serverPaymentModel.id, serverPaymentModel)
@@ -325,7 +329,7 @@ class PaymentRepository(
             transactionDao.insertTransaction(localTransaction)
 
             // If online, attempt server sync
-            if (NetworkUtils.isOnline()) {
+            if (hasNetworkCapabilities()) {
                 try {
                     // Convert to server model
                     val serverTransaction = myApplication.entityServerConverter
@@ -374,7 +378,10 @@ class PaymentRepository(
 
             // Adjust the splits based on payment type
             val adjustedSplits = splits.map { split ->
-                split.copy(amount = calculateSplitAmount(split.amount, adjustedPaymentType))
+                split.copy(
+                    amount = calculateSplitAmount(split.amount, adjustedPaymentType),
+                    percentage = split.percentage
+                )
             }
 
             return@withContext createPaymentWithSplits(adjustedPayment, adjustedSplits).also { result ->
@@ -395,9 +402,15 @@ class PaymentRepository(
         payment: PaymentEntity,
         splits: List<PaymentSplitEntity>
     ): Result<PaymentEntity> = withContext(dispatchers.io) {
-        Log.d(TAG, "Starting createPaymentWithSplits")
+        Log.d(TAG, "=== CREATE PAYMENT WITH SPLITS DEBUG START ===")
         Log.d(TAG, "Payment details - id: ${payment.id}, groupId: ${payment.groupId}, amount: ${payment.amount}")
+        Log.d(TAG, "Payment splitMode: ${payment.splitMode}")
         Log.d(TAG, "Incoming splits: ${splits.size}")
+        splits.forEachIndexed { index, split ->
+            Log.d(TAG, "  Input split[$index]: userId=${split.userId}, amount=${split.amount}, percentage=${split.percentage}")
+        }
+        Log.d(TAG, "Is online: ${hasNetworkCapabilities()}")
+        Log.d(TAG, "Network state: ${NetworkUtils.hasNetworkCapabilities()}")
 
         try {
             // Validate memberships (existing validation code remains the same)
@@ -417,10 +430,18 @@ class PaymentRepository(
 
             // Calculate the final amount based on payment type
             val finalAmount = calculateFinalAmount(payment.amount, payment.paymentType)
+            Log.d(TAG, "Final amount after calculation: $finalAmount (original: ${payment.amount})")
 
             // Adjust the splits based on payment type
+            Log.d(TAG, "Adjusting splits based on payment type: ${payment.paymentType}")
             val adjustedSplits = splits.map { split ->
-                split.copy(amount = calculateSplitAmount(split.amount, payment.paymentType))
+                val adjustedAmount = calculateSplitAmount(split.amount, payment.paymentType)
+                val adjustedSplit = split.copy(
+                    amount = adjustedAmount,
+                    percentage = split.percentage  // PRESERVE THE PERCENTAGE
+                )
+                Log.d(TAG, "  Adjusted split: userId=${adjustedSplit.userId}, amount=${adjustedSplit.amount} (was ${split.amount}), percentage=${adjustedSplit.percentage}")
+                adjustedSplit
             }
 
             // Create payment with adjusted amount
@@ -432,33 +453,55 @@ class PaymentRepository(
             Log.d(TAG, "Local payment created with ID: $localPaymentId")
 
             // Create initial local splits with PENDING_SYNC status
+            Log.d(TAG, "Creating initial split entities for local insertion")
             val initialSplitEntities = adjustedSplits.map { split ->
-                split.copy(
+                val initialSplit = split.copy(
                     id = 0,
-                    paymentId = localPaymentId.toInt()
-                ).copy(syncStatus = SyncStatus.PENDING_SYNC)
+                    paymentId = localPaymentId.toInt(),
+                    syncStatus = SyncStatus.PENDING_SYNC
+                )
+                Log.d(TAG, "  Initial split entity: userId=${initialSplit.userId}, amount=${initialSplit.amount}, percentage=${initialSplit.percentage}, paymentId=${initialSplit.paymentId}")
+                initialSplit
             }
 
             // Insert local splits and capture their IDs
             val splitsWithLocalIds = paymentDao.runInTransaction {
                 initialSplitEntities.map { splitEntity ->
+                    Log.d(TAG, "About to insert split: userId=${splitEntity.userId}, amount=${splitEntity.amount}, percentage=${splitEntity.percentage}")
+
                     val splitId = paymentSplitDao.insertPaymentSplit(splitEntity).toInt()
-                    Log.d(TAG, "Created local split with ID: $splitId")
-                    splitEntity.copy(id = splitId)
+                    Log.d(TAG, "Inserted split with ID: $splitId")
+
+                    // Verify what was actually saved
+                    val savedSplit = paymentSplitDao.getPaymentSplitById(splitId)
+                    Log.d(TAG, "Verification - saved split: userId=${savedSplit.userId}, amount=${savedSplit.amount}, percentage=${savedSplit.percentage}")
+
+                    val splitWithId = splitEntity.copy(id = splitId)
+                    Log.d(TAG, "Split with local ID: userId=${splitWithId.userId}, amount=${splitWithId.amount}, percentage=${splitWithId.percentage}, id=${splitWithId.id}")
+                    splitWithId
                 }.also {
                     groupDao.updateGroupTimestamp(payment.groupId, currentTime)
                 }
             }
 
+            Log.d(TAG, "Splits with local IDs (${splitsWithLocalIds.size}):")
+            splitsWithLocalIds.forEachIndexed { index, split ->
+                Log.d(TAG, "  Split[$index] with ID: userId=${split.userId}, amount=${split.amount}, percentage=${split.percentage}, id=${split.id}")
+            }
+
             val createdPayment = localPayment.copy(id = localPaymentId.toInt())
 
             // If online, sync with server
-            if (isOnline()) {
+            if (hasNetworkCapabilities()) {
                 try {
+                    Log.d(TAG, "Device is online, attempting server sync")
+
                     // Convert to server model
                     val paymentServerModel = myApplication.entityServerConverter
                         .convertPaymentToServer(createdPayment)
                         .getOrThrow()
+
+                    Log.d(TAG, "Converted payment to server model: $paymentServerModel")
 
                     // Create payment on server
                     val serverPayment = apiService.createPayment(paymentServerModel)
@@ -480,17 +523,22 @@ class PaymentRepository(
                     }
 
                     // Now create the splits on server using the updated payment
-                    splitsWithLocalIds.map { localSplit ->
+                    Log.d(TAG, "Creating ${splitsWithLocalIds.size} splits on server")
+                    splitsWithLocalIds.forEach { localSplit ->
                         try {
                             val localSplitId = localSplit.id
                             Log.d(TAG, "Processing split with local ID: $localSplitId")
+                            Log.d(TAG, "  Local split before server conversion: userId=${localSplit.userId}, amount=${localSplit.amount}, percentage=${localSplit.percentage}")
 
                             val splitServerModel = myApplication.entityServerConverter
                                 .convertPaymentSplitToServer(localSplit)
                                 .getOrThrow()
 
+                            Log.d(TAG, "  Converted to server model: $splitServerModel")
+
                             val serverSplit = apiService.createPaymentSplit(serverPayment.id, splitServerModel)
-                            Log.d(TAG, "Created server split: ${serverSplit.id} for local split: $localSplitId")
+                            Log.d(TAG, "  Created server split: ${serverSplit.id} for local split: $localSplitId")
+                            Log.d(TAG, "  Server split details: $serverSplit")
 
                             // Convert back to local entity, preserving the local ID
                             val updatedSplit = myApplication.entityServerConverter
@@ -503,9 +551,15 @@ class PaymentRepository(
                                     serverId = serverSplit.id  // Make sure to set the server ID
                                 )
 
+                            Log.d(TAG, "  Updated split for local save: userId=${updatedSplit.userId}, amount=${updatedSplit.amount}, percentage=${updatedSplit.percentage}")
+
                             // Update the local split using the original local ID
                             paymentSplitDao.updatePaymentSplitDirect(updatedSplit)
-                            Log.d(TAG, "Updated local split $localSplitId with server ID ${serverSplit.id}")
+                            Log.d(TAG, "  Updated local split $localSplitId with server ID ${serverSplit.id}")
+
+                            // Verify what was actually updated
+                            val verificationSplit = paymentSplitDao.getPaymentSplitById(localSplitId)
+                            Log.d(TAG, "  Verification after update: userId=${verificationSplit.userId}, amount=${verificationSplit.amount}, percentage=${verificationSplit.percentage}")
 
                         } catch (e: Exception) {
                             Log.e(TAG, "Error processing split", e)
@@ -513,18 +567,22 @@ class PaymentRepository(
                         }
                     }
 
+                    Log.d(TAG, "=== CREATE PAYMENT WITH SPLITS DEBUG END (SUCCESS) ===")
                     return@withContext Result.success(updatedPaymentResult)
                 } catch (e: Exception) {
                     Log.e(TAG, "Server sync failed", e)
                     // Return local version if server sync fails
+                    Log.d(TAG, "=== CREATE PAYMENT WITH SPLITS DEBUG END (SERVER SYNC FAILED) ===")
                     return@withContext Result.success(createdPayment)
                 }
             }
 
             // Return local version if offline
+            Log.d(TAG, "=== CREATE PAYMENT WITH SPLITS DEBUG END (OFFLINE) ===")
             Result.success(createdPayment)
         } catch (e: Exception) {
             Log.e(TAG, "Operation failed", e)
+            Log.d(TAG, "=== CREATE PAYMENT WITH SPLITS DEBUG END (FAILED) ===")
             Result.failure(e)
         }
     }
@@ -540,7 +598,8 @@ class PaymentRepository(
                 val adjustedSplits = splits.map { split ->
                     split.copy(
                         amount = calculateSplitAmount(split.amount, payment.paymentType),
-                        syncStatus = SyncStatus.PENDING_SYNC
+                        syncStatus = SyncStatus.PENDING_SYNC,
+                        percentage = split.percentage
                     )
                 }
 
@@ -571,7 +630,7 @@ class PaymentRepository(
                     groupDao.updateGroupTimestamp(payment.groupId, currentTime)
                 }
 
-                if (isOnline()) {
+                if (hasNetworkCapabilities()) {
                     try {
                         // Convert to server model
                         val paymentServerModel = myApplication.entityServerConverter
@@ -659,13 +718,155 @@ class PaymentRepository(
             }
         }
 
+    suspend fun updatePaymentWithSplitsSkipNotification(payment: PaymentEntity, splits: List<PaymentSplitEntity>): Result<PaymentEntity> =
+        withContext(dispatchers.io) {
+            try {
+                // Calculate the final amount based on payment type
+                val finalAmount = calculateFinalAmount(payment.amount, payment.paymentType)
+                val adjustedPayment = payment.copy(amount = finalAmount)
+
+                // Adjust the splits based on payment type
+                val adjustedSplits = splits.map { split ->
+                    split.copy(
+                        amount = calculateSplitAmount(split.amount, payment.paymentType),
+                        syncStatus = SyncStatus.PENDING_SYNC,
+                        percentage = split.percentage
+                    )
+                }
+
+                // When creating new splits, save the IDs returned from insertion
+                val splitIds = mutableMapOf<PaymentSplitEntity, Int>()
+
+                // First update local data
+                paymentDao.runInTransaction {
+                    // Update payment with PENDING_SYNC status
+                    paymentDao.updatePayment(adjustedPayment.copy(syncStatus = SyncStatus.PENDING_SYNC))
+
+                    // Delete ALL existing splits for this payment
+                    paymentSplitDao.markAllSplitsAsDeletedByPayment(payment.id)
+
+                    // Insert new splits with PENDING_SYNC status
+                    adjustedSplits.forEach { split ->
+                        val id = paymentSplitDao.insertPaymentSplit(
+                            split.copy(
+                                paymentId = payment.id,
+                                syncStatus = SyncStatus.PENDING_SYNC
+                            )
+                        ).toInt()
+                        splitIds[split] = id
+                    }
+
+                    // Update group's timestamp
+                    val currentTime = DateUtils.getCurrentTimestamp()
+                    groupDao.updateGroupTimestamp(payment.groupId, currentTime)
+                }
+
+                if (hasNetworkCapabilities()) {
+                    try {
+                        // Convert to server model
+                        val paymentServerModel = myApplication.entityServerConverter
+                            .convertPaymentToServer(adjustedPayment)
+                            .getOrThrow()
+
+                        // **KEY CHANGE: Add special header to skip expense notifications**
+                        val headers = mapOf(
+                            "x-skip-expense-notification" to "true",
+                            "x-currency-conversion-undo" to "true"
+                        )
+
+                        // Update payment on server
+                        val serverPayment = apiService.updatePayment(
+                            paymentServerModel.id,
+                            paymentServerModel,
+                            headers
+                        )
+
+                        Log.d(TAG, "Server payment updated with skip notification flag: id=${serverPayment.id}")
+
+                        // Convert server payment back to local entity
+                        val updatedPaymentResult = myApplication.entityServerConverter
+                            .convertPaymentFromServer(serverPayment)
+                            .getOrThrow()
+                            .copy(
+                                id = payment.id,  // Preserve our local ID
+                                syncStatus = SyncStatus.SYNCED
+                            )
+
+                        // Update the payment with server response
+                        paymentDao.runInTransaction {
+                            paymentDao.updatePaymentDirect(updatedPaymentResult)
+                            Log.d(TAG, "Updated local payment ${payment.id} with server data")
+                        }
+
+                        // Delete all splits on server
+                        payment.serverId?.let { serverPaymentId ->
+                            apiService.deleteAllSplitsForPayment(serverPaymentId)
+
+                            // Update sync status of deleted splits to LOCALLY_DELETED
+                            paymentSplitDao.runInTransaction {
+                                paymentSplitDao.updateDeletedSplitsSyncStatus(
+                                    paymentId = payment.id,
+                                    syncStatus = SyncStatus.LOCALLY_DELETED
+                                )
+                            }
+                        }
+
+                        // Create new splits on server
+                        adjustedSplits.map { localSplit ->
+                            try {
+                                val localSplitId = splitIds[localSplit] ?: throw Exception("Missing local ID for split")
+                                Log.d(TAG, "Processing split with local ID: $localSplitId")
+
+                                val splitServerModel = myApplication.entityServerConverter
+                                    .convertPaymentSplitToServer(localSplit)
+                                    .getOrThrow()
+
+                                val serverSplit = apiService.createPaymentSplit(serverPayment.id, splitServerModel)
+                                Log.d(TAG, "Created server split: ${serverSplit.id} for local split: $localSplitId")
+
+                                // Convert back to local entity, preserving the local ID
+                                val updatedSplit = myApplication.entityServerConverter
+                                    .convertPaymentSplitFromServer(serverSplit)
+                                    .getOrThrow()
+                                    .copy(
+                                        id = localSplitId,
+                                        paymentId = payment.id,
+                                        syncStatus = SyncStatus.SYNCED,
+                                        serverId = serverSplit.id
+                                    )
+
+                                // Update the local split using the original local ID
+                                paymentSplitDao.updatePaymentSplitDirect(updatedSplit)
+                                Log.d(TAG, "Updated local split $localSplitId with server ID ${serverSplit.id}")
+
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error processing split", e)
+                                throw e
+                            }
+                        }
+
+                        Result.success(updatedPaymentResult)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Server sync failed", e)
+                        // Return local version if server sync fails
+                        Result.success(adjustedPayment)
+                    }
+                } else {
+                    Result.success(adjustedPayment)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to update payment with splits (skip notification)", e)
+                Result.failure(e)
+            }
+        }
+
     // Single split operations
     suspend fun createPaymentSplit(paymentSplit: PaymentSplitEntity): Result<PaymentSplitEntity> = withContext(dispatchers.io) {
         val localId = paymentSplitDao.insertPaymentSplit(paymentSplit.copy(syncStatus = SyncStatus.PENDING_SYNC))
         val localSplit = paymentSplit.copy(id = localId.toInt())
 
         try {
-            if (isOnline()) {
+            if (hasNetworkCapabilities()) {
                 // Convert to server model for API
                 val serverSplitModel = myApplication.entityServerConverter
                     .convertPaymentSplitToServer(localSplit)
@@ -703,7 +904,7 @@ class PaymentRepository(
             }
         } catch (e: Exception) {
             // Mark as failed if server sync fails
-            if (NetworkUtils.isOnline()) {
+            if (NetworkUtils.hasNetworkCapabilities()) {
                 paymentSplitDao.updatePaymentSplitSyncStatus(localSplit.id, SyncStatus.SYNC_FAILED)
             }
             Result.failure(e)
@@ -716,7 +917,7 @@ class PaymentRepository(
             val updatedSplit = paymentSplit.copy(syncStatus = SyncStatus.PENDING_SYNC)
             paymentSplitDao.updatePaymentSplitDirect(updatedSplit)
 
-            if (isOnline()) {
+            if (hasNetworkCapabilities()) {
                 // Convert to server model for API
                 val serverModel = myApplication.entityServerConverter
                     .convertPaymentSplitToServer(updatedSplit)
@@ -757,7 +958,7 @@ class PaymentRepository(
                 Result.success(updatedSplit)
             }
         } catch (e: Exception) {
-            if (NetworkUtils.isOnline()) {
+            if (NetworkUtils.hasNetworkCapabilities()) {
                 paymentSplitDao.updatePaymentSplitSyncStatus(paymentSplit.id, SyncStatus.SYNC_FAILED)
             }
             Result.failure(e)
@@ -766,33 +967,62 @@ class PaymentRepository(
 
     suspend fun archivePayment(paymentId: Int): Result<Unit> = withContext(dispatchers.io) {
         try {
+            Log.d("PaymentRepository", "Starting archive process for payment ID: $paymentId")
+
             // Archive locally first
             val timestamp = DateUtils.getCurrentTimestamp()
+            Log.d("PaymentRepository", "Archiving payment locally with timestamp: $timestamp")
             paymentDao.archivePayment(paymentId, timestamp)
+            Log.d("PaymentRepository", "Payment $paymentId archived locally successfully")
 
-            // Also update the payment's sync status
-            paymentDao.updatePaymentSyncStatus(paymentId, SyncStatus.PENDING_SYNC)
+            // Check basic network connectivity (not server health)
+            val hasNetwork = NetworkUtils.hasNetworkCapabilities()
+            Log.d("PaymentRepository", "Has network capabilities: $hasNetwork")
 
-            // Attempt to sync with server if online
-            if (isOnline()) {
+            // Attempt to sync with server if we have network
+            if (hasNetwork) {
                 try {
-                    apiService.archivePayment(paymentId)
+                    Log.d("PaymentRepository", "Getting server ID for payment $paymentId")
+                    val serverPaymentId = getServerId(paymentId, "payments", context)
+                    Log.d("PaymentRepository", "Server payment ID: $serverPaymentId")
 
-                    // Update sync status to indicate successful sync
+                    if (serverPaymentId == null || serverPaymentId == 0) {
+                        Log.w("PaymentRepository", "No server ID found for payment $paymentId, cannot sync to server")
+                        paymentDao.updatePaymentSyncStatus(paymentId, SyncStatus.LOCAL_ONLY)
+                        Log.d("PaymentRepository", "Payment $paymentId marked as LOCAL_ONLY due to missing server ID")
+                        return@withContext Result.success(Unit)
+                    }
+
+                    Log.d("PaymentRepository", "Calling server archive endpoint for server payment ID: $serverPaymentId")
+                    apiService.archivePayment(serverPaymentId)
+                    Log.d("PaymentRepository", "Server archive call successful for payment $serverPaymentId")
+
+                    // Mark as synced since we successfully called the archive endpoint
                     paymentDao.updatePaymentSyncStatus(paymentId, SyncStatus.SYNCED)
+                    Log.d("PaymentRepository", "Payment $paymentId marked as SYNCED")
+
                 } catch (e: Exception) {
-                    Log.e("PaymentRepository", "Failed to sync payment archive with server", e)
-                    // Don't fail the operation if server sync fails
-                    // The background sync can handle it later
+                    Log.e("PaymentRepository", "Failed to sync payment archive with server for payment $paymentId", e)
+                    Log.e("PaymentRepository", "Exception type: ${e::class.simpleName}")
+                    Log.e("PaymentRepository", "Exception message: ${e.message}")
+
+                    // Mark as LOCAL_ONLY instead of PENDING_SYNC to prevent background sync
+                    paymentDao.updatePaymentSyncStatus(paymentId, SyncStatus.LOCAL_ONLY)
+                    Log.d("PaymentRepository", "Payment $paymentId marked as LOCAL_ONLY due to server sync failure")
                 }
+            } else {
+                Log.d("PaymentRepository", "No network capabilities, marking payment $paymentId as LOCAL_ONLY")
+                paymentDao.updatePaymentSyncStatus(paymentId, SyncStatus.LOCAL_ONLY)
+                Log.d("PaymentRepository", "Payment $paymentId marked as LOCAL_ONLY due to no network")
             }
 
-            // Return success regardless of server sync status
-            // since we've successfully archived locally
+            Log.d("PaymentRepository", "Archive operation completed successfully for payment $paymentId")
             Result.success(Unit)
+
         } catch (e: Exception) {
-            Log.e("PaymentRepository", "Failed to archive payment", e)
-            // Only return failure if local archiving failed
+            Log.e("PaymentRepository", "Failed to archive payment $paymentId", e)
+            Log.e("PaymentRepository", "Local archive exception type: ${e::class.simpleName}")
+            Log.e("PaymentRepository", "Local archive exception message: ${e.message}")
             Result.failure(e)
         }
     }
@@ -804,9 +1034,10 @@ class PaymentRepository(
             paymentDao.updatePaymentSyncStatus(paymentId, SyncStatus.PENDING_SYNC)
 
             // Attempt server sync if online
-            if (NetworkUtils.isOnline()) {
+            if (hasNetworkCapabilities()) {
                 try {
-                    apiService.restorePayment(paymentId)
+                    val serverPaymentId = getServerId(paymentId, "payments", context) ?: 0
+                    apiService.restorePayment(serverPaymentId)
                     paymentDao.updatePaymentSyncStatus(paymentId, SyncStatus.SYNCED)
                 } catch (e: Exception) {
                     Log.e("PaymentRepository", "Failed to sync payment restoration", e)
@@ -1073,14 +1304,52 @@ class PaymentRepository(
                 currentTime = currentTime
             )
 
-            updatePaymentWithSplits(updatedPayment, newSplits)
-                .onSuccess {
-                    currencyConversionDao.markPaymentConversionsAsDeleted(
-                        paymentId = paymentId,
-                        timestamp = currentTime,
-                        syncStatus = SyncStatus.PENDING_SYNC
-                    )
+            // Use a special method that skips expense notifications
+            val result = updatePaymentWithSplitsSkipNotification(updatedPayment, newSplits)
+
+            result.onSuccess {
+                // Mark conversions as deleted locally
+                currencyConversionDao.markPaymentConversionsAsDeleted(
+                    paymentId = paymentId,
+                    timestamp = currentTime,
+                    syncStatus = SyncStatus.PENDING_SYNC
+                )
+
+                // Try to delete on server immediately if online
+                if (hasNetworkCapabilities()) {
+                    try {
+                        conversion.serverId?.let { serverConversionId ->
+                            Log.d(TAG, "Deleting currency conversion on server: $serverConversionId")
+                            apiService.deleteCurrencyConversion(serverConversionId)
+
+                            // Update sync status to LOCALLY_DELETED since server deletion succeeded
+                            currencyConversionDao.markPaymentConversionsAsDeleted(
+                                paymentId = paymentId,
+                                timestamp = currentTime,
+                                syncStatus = SyncStatus.LOCALLY_DELETED
+                            )
+
+                            Log.d(TAG, "Successfully deleted currency conversion on server")
+                        } ?: run {
+                            Log.d(TAG, "No server ID for conversion, marking as LOCAL_ONLY")
+                            // If no server ID, mark as LOCAL_ONLY since nothing to delete on server
+                            currencyConversionDao.markPaymentConversionsAsDeleted(
+                                paymentId = paymentId,
+                                timestamp = currentTime,
+                                syncStatus = SyncStatus.LOCAL_ONLY
+                            )
+                        }
+                    } catch (serverError: Exception) {
+                        Log.e(TAG, "Failed to delete currency conversion on server, will retry via sync", serverError)
+                        // Keep PENDING_SYNC status so the sync manager will retry later
+                    }
+                } else {
+                    Log.d(TAG, "No network connection, will sync deletion later")
+                    // Keep PENDING_SYNC status for when network is available
                 }
+            }
+
+            result
         } catch (e: Exception) {
             Log.e(TAG, "Error undoing currency conversion", e)
             Result.failure(e)
@@ -1092,35 +1361,40 @@ class PaymentRepository(
         userId: Int
     ): Result<BatchConversionResult> = withContext(dispatchers.io) {
         try {
-            // Get group details and validate
+            Log.d(TAG, "=== BATCH CONVERSION START ===")
+
             val group = groupDao.getGroupByIdSync(groupId)
                 ?: return@withContext Result.failure(Exception("Group not found"))
 
             val targetCurrency = group.defaultCurrency
                 ?: return@withContext Result.failure(Exception("Group has no default currency"))
 
-            // Get all non-archived payments for the group
-            val payments = paymentDao.getNonArchivedPaymentsByGroup(groupId)
+            Log.d(TAG, "Target currency: $targetCurrency")
 
-            // Filter payments that need conversion (different currency than group default)
+            val payments = paymentDao.getNonArchivedPaymentsByGroup(groupId)
             val paymentsToConvert = payments.filter { payment ->
                 payment.currency != null && payment.currency != targetCurrency
+            }
+
+            Log.d(TAG, "Found ${paymentsToConvert.size} payments to convert:")
+            paymentsToConvert.forEach { payment ->
+                Log.d(TAG, "  Payment ${payment.id}: ${payment.currency} -> $targetCurrency (amount: ${payment.amount})")
             }
 
             if (paymentsToConvert.isEmpty()) {
                 return@withContext Result.success(BatchConversionResult(0, emptyList(), emptyList()))
             }
 
-            // Track results
             val successfulConversions = mutableListOf<ConversionAttempt>()
             val failedConversions = mutableListOf<ConversionAttempt>()
 
-            // Process each payment
-            paymentsToConvert.forEach { payment ->
+            // Process each payment with detailed logging
+            paymentsToConvert.forEachIndexed { index, payment ->
                 try {
                     val fromCurrency = payment.currency ?: "GBP"
+                    Log.d(TAG, "[$index/${paymentsToConvert.size}] Processing payment ${payment.id}: $fromCurrency -> $targetCurrency")
 
-                    // Convert payment date to LocalDate
+                    // Get exchange rate
                     val localDate = try {
                         payment.paymentDate?.let { dateStr ->
                             java.time.LocalDate.parse(
@@ -1129,11 +1403,10 @@ class PaymentRepository(
                             )
                         }
                     } catch (e: Exception) {
-                        Log.e(TAG, "Error parsing payment date", e)
+                        Log.e(TAG, "Error parsing payment date for ${payment.id}", e)
                         null
                     }
 
-                    // Get exchange rate from service
                     val exchangeRateService = ExchangeRateService()
                     val rate = exchangeRateService.getExchangeRate(
                         fromCurrency = fromCurrency,
@@ -1142,6 +1415,7 @@ class PaymentRepository(
                     ).getOrNull()
 
                     if (rate == null) {
+                        Log.e(TAG, "❌ Could not get exchange rate for payment ${payment.id}")
                         failedConversions.add(
                             ConversionAttempt(
                                 paymentId = payment.id,
@@ -1151,10 +1425,14 @@ class PaymentRepository(
                                 error = "Could not get exchange rate"
                             )
                         )
-                        return@forEach
+                        return@forEachIndexed
                     }
 
-                    // Use CurrencyConversionManager to perform the conversion
+                    Log.d(TAG, "Got exchange rate for ${payment.id}: $rate")
+
+                    // Perform conversion with skipNotification = true (for batch)
+                    val skipIndividualNotification = paymentsToConvert.size > 1
+
                     val result = currencyConversionManager.performConversion(
                         paymentId = payment.id,
                         fromCurrency = fromCurrency,
@@ -1162,11 +1440,13 @@ class PaymentRepository(
                         amount = payment.amount,
                         exchangeRate = rate,
                         userId = userId,
-                        source = "ECB/ExchangeRatesAPI"
+                        source = "ECB/ExchangeRatesAPI",
+                        skipNotification = skipIndividualNotification
                     )
 
                     result.fold(
                         onSuccess = { conversion ->
+                            Log.d(TAG, "✅ Successfully converted payment ${payment.id}")
                             successfulConversions.add(
                                 ConversionAttempt(
                                     paymentId = payment.id,
@@ -1179,6 +1459,7 @@ class PaymentRepository(
                             )
                         },
                         onFailure = { error ->
+                            Log.e(TAG, "❌ Failed to convert payment ${payment.id}: ${error.message}")
                             failedConversions.add(
                                 ConversionAttempt(
                                     paymentId = payment.id,
@@ -1191,6 +1472,7 @@ class PaymentRepository(
                         }
                     )
                 } catch (e: Exception) {
+                    Log.e(TAG, "❌ Exception converting payment ${payment.id}", e)
                     failedConversions.add(
                         ConversionAttempt(
                             paymentId = payment.id,
@@ -1203,6 +1485,31 @@ class PaymentRepository(
                 }
             }
 
+            Log.d(TAG, "Batch conversion completed: ${successfulConversions.size} successful, ${failedConversions.size} failed")
+
+            // Send batch notification if we have multiple conversions and at least one success
+            if (paymentsToConvert.size > 1 && successfulConversions.isNotEmpty()) {
+                Log.d(TAG, "Sending batch notification for ${successfulConversions.size} successful conversions")
+                try {
+                    sendBatchConversionNotification(
+                        groupId = groupId,
+                        userId = userId,
+                        targetCurrency = targetCurrency,
+                        successfulConversions = successfulConversions.size,
+                        totalAttempted = paymentsToConvert.size
+                    )
+                    Log.d(TAG, "✅ Batch notification sent successfully")
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ Failed to send batch notification", e)
+                }
+            } else if (paymentsToConvert.size == 1) {
+                Log.d(TAG, "Single payment conversion - individual notification was sent")
+            } else {
+                Log.d(TAG, "No successful conversions - no notification sent")
+            }
+
+            Log.d(TAG, "=== BATCH CONVERSION END ===")
+
             Result.success(
                 BatchConversionResult(
                     totalPayments = paymentsToConvert.size,
@@ -1214,6 +1521,59 @@ class PaymentRepository(
             Log.e(TAG, "Error in batch currency conversion", e)
             Result.failure(e)
         }
+    }
+
+    private suspend fun sendBatchConversionNotification(
+        groupId: Int,
+        userId: Int,
+        targetCurrency: String,
+        successfulConversions: Int,
+        totalAttempted: Int
+    ) {
+        Log.d(TAG, "=== SENDING BATCH NOTIFICATION ===")
+
+        try {
+            if (!NetworkUtils.hasNetworkCapabilities()) {
+                Log.w(TAG, "No network - skipping batch notification")
+                return
+            }
+
+            val group = groupDao.getGroupByIdSync(groupId) ?: run {
+                Log.e(TAG, "Group not found: $groupId")
+                return
+            }
+
+            val user = userDao.getUserByIdSync(userId) ?: run {
+                Log.e(TAG, "User not found: $userId")
+                return
+            }
+
+            // Use the data class instead of Map
+            val request = BatchNotificationRequest(
+                groupId = group.serverId ?: groupId,
+                userId = user.serverId ?: userId,
+                targetCurrency = targetCurrency,
+                successfulConversions = successfulConversions,
+                totalAttempted = totalAttempted,
+                userName = user.username,
+                groupName = group.name
+            )
+
+            Log.d(TAG, "Sending notification request: $request")
+
+            val response = apiService.sendBatchCurrencyConversionNotification(request)
+
+            if (response.success) {
+                Log.d(TAG, "✅ Batch notification sent to ${response.notificationsSent} members")
+            } else {
+                Log.e(TAG, "❌ Batch notification failed: ${response.error}")
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Exception sending batch notification", e)
+        }
+
+        Log.d(TAG, "=== BATCH NOTIFICATION END ===")
     }
 
     fun getAddedTransactionIds(groupId: Int): Flow<List<String>> {
@@ -1229,7 +1589,7 @@ class PaymentRepository(
         try {
             Log.d(TAG, "Starting payment sync process")
 
-            if (!NetworkUtils.isOnline()) {
+            if (!NetworkUtils.hasNetworkCapabilities()) {
                 Log.e(TAG, "No network connection available")
                 throw IOException("No network connection available")
             }

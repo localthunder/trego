@@ -42,6 +42,7 @@ import com.helgolabs.trego.utils.EntityServerConverter
 import com.helgolabs.trego.utils.NetworkUtils
 import com.helgolabs.trego.utils.NetworkUtils.hasNetworkCapabilities
 import com.helgolabs.trego.utils.PlayStoreReviewManager
+import com.helgolabs.trego.utils.SecureLogger
 import com.helgolabs.trego.utils.SyncUtils
 import com.helgolabs.trego.utils.getUserIdFromPreferences
 import com.helgolabs.trego.workers.CacheCleanupWorker
@@ -145,7 +146,7 @@ class MyApplication : Application(), Configuration.Provider {
                     SyncWorker.requestSync(this)
                 }
             } else {
-                android.util.Log.d("MyApplication", "Sync not requested - user not authenticated or invalid ID")
+                SecureLogger.d("MyApplication", "Sync not requested - user not authenticated or invalid ID")
             }
         }
 
@@ -185,14 +186,14 @@ class MyApplication : Application(), Configuration.Provider {
 
             // If we have a user ID but no valid token, this is truly invalid
             if (userId != null && userId != -1 && token.isNullOrBlank()) {
-                Log.w(TAG, "Invalid state detected: User ID exists but no valid token")
+                SecureLogger.w(TAG, "Invalid state detected: User ID exists but no valid token")
                 AuthManager.logout(this)
                 return
             }
 
             // If we have a token but no user ID, this is invalid
             if (!token.isNullOrBlank() && (userId == null || userId == -1)) {
-                Log.w(TAG, "Invalid state detected: Token exists but no valid user ID")
+                SecureLogger.w(TAG, "Invalid state detected: Token exists but no valid user ID")
                 AuthManager.logout(this)
                 return
             }
@@ -201,7 +202,7 @@ class MyApplication : Application(), Configuration.Provider {
             // The user might just need biometric authentication
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error validating authentication state", e)
+            SecureLogger.e(TAG, "Error validating authentication state", e)
             // On error, be conservative and preserve existing state
             // Only clear if we're certain there's an issue
         }
@@ -218,13 +219,13 @@ class MyApplication : Application(), Configuration.Provider {
                 // Get the current FCM token
                 FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
                     if (!task.isSuccessful) {
-                        Log.w(TAG, "Fetching FCM registration token failed", task.exception)
+                        SecureLogger.w(TAG, "Fetching FCM registration token failed")
                         return@addOnCompleteListener
                     }
 
                     // Get new FCM registration token
                     val token = task.result
-                    Log.d(TAG, "Current FCM token: $token")
+                    SecureLogger.d(TAG, "Current FCM token: $token")
 
                     // Register it if we have a user
                     val userId = getUserIdFromPreferences(this@MyApplication)
@@ -232,15 +233,15 @@ class MyApplication : Application(), Configuration.Provider {
                         applicationScope.launch {
                             try {
                                 notificationRepository.registerDeviceToken(token, userId)
-                                Log.d(TAG, "FCM token registered successfully")
+                                SecureLogger.d(TAG, "FCM token registered successfully")
                             } catch (e: Exception) {
-                                Log.e(TAG, "Failed to register FCM token", e)
+                                SecureLogger.e(TAG, "Failed to register FCM token", e)
                             }
                         }
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error getting FCM token", e)
+                SecureLogger.e(TAG, "Error getting FCM token", e)
             }
         }
     }

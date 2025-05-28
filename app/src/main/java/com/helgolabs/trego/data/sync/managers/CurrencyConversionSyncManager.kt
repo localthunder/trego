@@ -31,6 +31,28 @@ class CurrencyConversionSyncManager(
 
     val myApplication = context.applicationContext as MyApplication
 
+    // Override parent methods to provide CurrencyConversion-specific anti-loop protection
+    override fun shouldSyncEntity(entity: CurrencyConversionEntity): Boolean {
+        // Skip entities that are already synced and recently updated
+        return when (entity.syncStatus) {
+            SyncStatus.SYNCED -> false // Skip recently synced conversions
+            SyncStatus.LOCALLY_DELETED -> true // Allow deleted items to sync (for server cleanup)
+            else -> true
+        }
+    }
+
+    override fun getEntityTimestamp(entity: CurrencyConversionEntity): Long {
+        return try {
+            DateUtils.parseTimestamp(entity.updatedAt).toEpochMilli()
+        } catch (e: Exception) {
+            0L
+        }
+    }
+
+    override fun getEntitySyncStatus(entity: CurrencyConversionEntity): SyncStatus {
+        return entity.syncStatus
+    }
+
     override suspend fun getLocalChanges(): List<CurrencyConversionEntity> =
         currencyConversionDao.getUnsyncedConversions().first()
 
@@ -121,21 +143,7 @@ class CurrencyConversionSyncManager(
 
     override suspend fun getServerChanges(since: Long): List<CurrencyConversionData> {
         Log.d(TAG, "Fetching currency conversions since $since")
-
-        val userId = getUserIdFromPreferences(context)
-            ?: throw IllegalStateException("User ID not found")
-
-        Log.d(TAG, "Local user ID: $userId")
-
-        val localUser = userDao.getUserByIdDirect(userId)
-            ?: throw IllegalStateException("User not found in local database")
-
-        Log.d(TAG, "Found local user: ${localUser.userId}, server ID: ${localUser.serverId}")
-
-        val serverUserId = localUser.serverId
-            ?: throw IllegalStateException("No server ID found for user $userId")
-
-        return apiService.getCurrencyConversionsSince(since, serverUserId).data
+        return apiService.getCurrencyConversionsSince(since).data
     }
 
     override suspend fun applyServerChange(serverData: CurrencyConversionData) {

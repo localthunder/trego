@@ -243,7 +243,7 @@ fun UserList(
         if (availableUsers.isNotEmpty()) {
             item {
                 Text(
-                    "Users from your groups",
+                    "Users from your other groups",
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(16.dp)
                 )

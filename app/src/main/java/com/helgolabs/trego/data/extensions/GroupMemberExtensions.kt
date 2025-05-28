@@ -7,7 +7,7 @@ import com.helgolabs.trego.data.model.GroupMember
 
 fun GroupMember.toEntity(syncStatus: SyncStatus): GroupMemberEntity {
     return GroupMemberEntity(
-        id = this.id,
+        id = 0,
         serverId = this.id,
         groupId = this.groupId,
         userId = this.userId,

@@ -59,13 +59,12 @@ class UserPreferencesRepository(
 
                 try {
                     // First try to see if this preference already exists on the server
-                    val checkResponse = apiService.getUserPreference(serverUserId, PreferenceKeys.THEME_MODE)
+                    val checkResponse = apiService.getUserPreference(PreferenceKeys.THEME_MODE)
 
                     if (checkResponse.success && checkResponse.data != null) {
                         // If it exists, update it
                         Log.d("UserPrefsRepository", "Preference exists on server, updating")
                         val updateResponse = apiService.updateUserPreference(
-                            serverUserId,
                             PreferenceKeys.THEME_MODE,
                             valueWrapper
                         )
@@ -97,7 +96,7 @@ class UserPreferencesRepository(
                         )
 
                         // Create on server
-                        val createResponse = apiService.createUserPreference(serverUserId, serverPreference)
+                        val createResponse = apiService.createUserPreference(serverPreference)
 
                         if (createResponse.isSuccessful && createResponse.body()?.success == true) {
                             // Get server ID from response
@@ -119,7 +118,7 @@ class UserPreferencesRepository(
                             createResponse.body()?.message?.contains("already exists") == true) {
                             // If it already exists (race condition), try to get it and update local entry
                             try {
-                                val getResponse = apiService.getUserPreference(serverUserId, PreferenceKeys.THEME_MODE)
+                                val getResponse = apiService.getUserPreference(PreferenceKeys.THEME_MODE)
 
                                 if (getResponse.success && getResponse.data != null) {
                                     val updatedPreference = preference.copy(
@@ -198,13 +197,12 @@ class UserPreferencesRepository(
 
                 try {
                     // First try to see if this preference already exists on the server
-                    val checkResponse = apiService.getUserPreference(serverUserId, PreferenceKeys.NOTIFICATIONS_ENABLED)
+                    val checkResponse = apiService.getUserPreference(PreferenceKeys.NOTIFICATIONS_ENABLED)
 
                     if (checkResponse.success && checkResponse.data != null) {
                         // If it exists, update it
                         Log.d("UserPrefsRepository", "Notifications preference exists on server, updating")
                         val updateResponse = apiService.updateUserPreference(
-                            serverUserId,
                             PreferenceKeys.NOTIFICATIONS_ENABLED,
                             valueWrapper
                         )
@@ -236,7 +234,7 @@ class UserPreferencesRepository(
                         )
 
                         // Create on server
-                        val createResponse = apiService.createUserPreference(serverUserId, serverPreference)
+                        val createResponse = apiService.createUserPreference(serverPreference)
 
                         if (createResponse.isSuccessful && createResponse.body()?.success == true) {
                             // Get server ID from response
@@ -258,7 +256,7 @@ class UserPreferencesRepository(
                             createResponse.body()?.message?.contains("already exists") == true) {
                             // If it already exists (race condition), try to get it and update local entry
                             try {
-                                val getResponse = apiService.getUserPreference(serverUserId, PreferenceKeys.NOTIFICATIONS_ENABLED)
+                                val getResponse = apiService.getUserPreference(PreferenceKeys.NOTIFICATIONS_ENABLED)
 
                                 if (getResponse.success && getResponse.data != null) {
                                     val updatedPreference = preference.copy(
@@ -373,7 +371,7 @@ class UserPreferencesRepository(
             if (NetworkUtils.isOnline()) {
                 try {
                     val serverUserId = getServerId(userId, "users", context) ?: 0
-                    apiService.deleteUserPreference(serverUserId, key)
+                    apiService.deleteUserPreference(key)
                 } catch (e: Exception) {
                     Log.e("UserPrefsRepository", "Error deleting preference on server: $key", e)
                     // Mark for deletion later if server sync fails
@@ -419,7 +417,7 @@ class UserPreferencesRepository(
             // If online, sync the deletion to the server
             if (NetworkUtils.isOnline()) {
                 try {
-                    apiService.deleteAllUserPreferences(userId)
+                    apiService.deleteAllUserPreferences()
                 } catch (e: Exception) {
                     Log.e("UserPrefsRepository", "Error deleting all preferences on server", e)
                     // Mark for batch deletion later
@@ -445,7 +443,6 @@ class UserPreferencesRepository(
             val jsonObject = mapOf("value" to preference.preferenceValue)
             // Send the preference to the server
             val response = apiService.updateUserPreference(
-                userId = preference.userId,
                 key = preference.preferenceKey,
                 value = jsonObject
             )
@@ -464,8 +461,7 @@ class UserPreferencesRepository(
     suspend fun refreshUserPreferences(userId: Int) = withContext(dispatchers.io) {
         try {
             // Get all preferences from the server
-            val serverUserId = getServerId(userId, "users", context) ?: 0
-            val response = apiService.getUserPreferences(serverUserId)
+            val response = apiService.getUserPreferences()
 
             // Update local database with server data if successful
             if (response.success && response.data != null) {

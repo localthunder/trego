@@ -405,8 +405,8 @@ fun GroupMemberSplits(
                                         )
                                     }
 
-                                    // Error indicator if needed
-                                    if (isSelected && split.amount > editablePayment.amount) {
+                                    // Error indicator
+                                    if (isSelected && split.amount > kotlin.math.abs(editablePayment.amount)) {
                                         Spacer(modifier = Modifier.width(4.dp))
                                         ErrorTooltip(message = "Amount exceeds total payment")
                                     }
@@ -528,8 +528,10 @@ private fun AutoCalculateRemainder(
                     }
                 }
             }
+
             "unequally" -> {
                 val totalAmount = editablePayment.amount
+                val absTotalAmount = kotlin.math.abs(totalAmount)
 
                 // Calculate the sum of all amounts except the auto-calculated member
                 val otherMembersAmount = editableSplits
@@ -537,23 +539,25 @@ private fun AutoCalculateRemainder(
                         split.userId != memberToAutoCalculate &&
                                 selectedMemberIds.contains(split.userId)
                     }
-                    .sumOf { it.amount }
+                    .sumOf { kotlin.math.abs(it.amount) } // Use absolute values for splits
 
                 // Calculate what the auto-calculated member's amount should be
-                val autoCalculatedAmount = totalAmount - otherMembersAmount
+                val autoCalculatedAmount = absTotalAmount - otherMembersAmount
 
-                // Only update if it's a reasonable value
-                if (autoCalculatedAmount >= 0 && autoCalculatedAmount <= totalAmount) {
+                // Only update if it's a reasonable value (non-negative and doesn't exceed total)
+                if (autoCalculatedAmount in 0.0..absTotalAmount) {
                     // Round to 2 decimal places
                     val roundedAmount = (autoCalculatedAmount * 100).toInt() / 100.0
 
+                    // Apply the same sign as other splits (which should match payment type)
+                    val signedAmount = if (totalAmount >= 0) roundedAmount else -roundedAmount
+
                     // Check if we need to update
-                    if (roundedAmount != splitToAutoCalculate.amount) {
-                        // Use the isAutoCalculated flag when updating to avoid recording in edit history
+                    if (kotlin.math.abs(signedAmount - splitToAutoCalculate.amount) > 0.01) {
                         paymentViewModel.processAction(
                             PaymentAction.UpdateSplit(
                                 memberToAutoCalculate,
-                                roundedAmount
+                                signedAmount
                             )
                         )
                     }

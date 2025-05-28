@@ -62,6 +62,7 @@ import com.helgolabs.trego.ui.viewmodels.PaymentsViewModel
 import com.helgolabs.trego.ui.viewmodels.UserPreferencesViewModel
 import com.helgolabs.trego.utils.DateUtils
 import com.helgolabs.trego.utils.FormattingUtils.formatAsCurrency
+import com.helgolabs.trego.utils.SecureLogger
 import kotlinx.coroutines.delay
 import java.time.Instant
 import java.time.LocalDate
@@ -140,7 +141,7 @@ fun GroupTotalsScreen(
                         }
                     }
                 } catch (e: Exception) {
-                    Log.e("GroupTotalsScreen", "Error parsing date: ${payment.payment.paymentDate}", e)
+                    SecureLogger.e("GroupTotalsScreen", "Error parsing date: ${payment.payment.paymentDate}", e)
                     null
                 }
             }
@@ -217,7 +218,7 @@ fun GroupTotalsScreen(
 
                     YearMonth.from(paymentDate) == selectedDateTime
                 } catch (e: Exception) {
-                    Log.e(
+                    SecureLogger.e(
                         "GroupTotalsScreen",
                         "Error parsing date: ${payment.payment.paymentDate}",
                         e
@@ -727,7 +728,7 @@ fun calculateMemberActivity(
     payments.forEach { paymentWithSplits ->
         val paidByUserId = paymentWithSplits.payment.paidByUserId
         val fromUserId = paymentWithSplits.payment.paidByUserId
-        val toUserId = paymentWithSplits.splits.first().userId
+        val toUserId = paymentWithSplits.splits.firstOrNull()?.userId
 
         // Add payer if not already in our list
         if (paidByUserId > 0 && !userSummaries.containsKey(paidByUserId)) {
@@ -817,21 +818,24 @@ fun calculateMemberActivity(
                 }
             }
             "transferred" -> {
-                // Process transfers between users
-                val fromUserId = payment.paidByUserId
-                val toUserId = paymentWithSplits.splits.first().userId
+                if (paymentWithSplits.splits.isNotEmpty()) {
 
-                // Add to sent total for the sender
-                if (fromUserId != null) {
-                    updateCurrencySummary(userSummaries, fromUserId, currency) { summary ->
-                        summary.copy(transferSentTotal = summary.transferSentTotal + amount)
+                    // Process transfers between users
+                    val fromUserId = payment.paidByUserId
+                    val toUserId = paymentWithSplits.splits.firstOrNull()?.userId
+
+                    // Add to sent total for the sender
+                    if (fromUserId != null) {
+                        updateCurrencySummary(userSummaries, fromUserId, currency) { summary ->
+                            summary.copy(transferSentTotal = summary.transferSentTotal + amount)
+                        }
                     }
-                }
 
-                // Add to received total for the receiver
-                if (toUserId != null) {
-                    updateCurrencySummary(userSummaries, toUserId, currency) { summary ->
-                        summary.copy(transferReceivedTotal = summary.transferReceivedTotal + amount)
+                    // Add to received total for the receiver
+                    if (toUserId != null && !userSummaries.containsKey(toUserId)) {
+                        updateCurrencySummary(userSummaries, toUserId, currency) { summary ->
+                            summary.copy(transferReceivedTotal = summary.transferReceivedTotal + amount)
+                        }
                     }
                 }
             }

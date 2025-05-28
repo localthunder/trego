@@ -3,6 +3,7 @@ package com.helgolabs.trego.data.sync
 import android.util.Log
 import com.helgolabs.trego.data.local.dao.SyncMetadataDao
 import com.helgolabs.trego.utils.CoroutineDispatchers
+import com.helgolabs.trego.utils.DateUtils
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -20,6 +21,15 @@ abstract class OptimizedSyncManager<LocalType : Any, ServerType : Any>(
     protected abstract suspend fun getServerChanges(since: Long): List<ServerType>
     protected abstract suspend fun applyServerChange(serverEntity: ServerType)
 
+    // Optional: Override this to provide entity-specific filtering logic
+    protected open fun shouldSyncEntity(entity: LocalType): Boolean = true
+
+    // Optional: Override this to extract timestamp from entity for anti-loop protection
+    protected open fun getEntityTimestamp(entity: LocalType): Long = System.currentTimeMillis()
+
+    // Optional: Override this to extract sync status from entity
+    protected open fun getEntitySyncStatus(entity: LocalType): SyncStatus = SyncStatus.PENDING_SYNC
+
     suspend fun performSync() = withContext(dispatchers.io) {
         try {
             Log.d(TAG, "Starting sync for $entityType")
@@ -29,8 +39,14 @@ abstract class OptimizedSyncManager<LocalType : Any, ServerType : Any>(
             var successCount = 0
             var failureCount = 0
 
+            // Get local changes and apply anti-loop filtering
+            val localChanges = getLocalChanges()
+            val filteredChanges = filterRecentChanges(localChanges)
+
+            Log.d(TAG, "Found ${localChanges.size} local changes, ${filteredChanges.size} after anti-loop filtering")
+
             // Sync local changes
-            getLocalChanges().chunked(batchSize).forEach { batch ->
+            filteredChanges.chunked(batchSize).forEach { batch ->
                 batch.forEach { entity ->
                     try {
                         withRetry {
@@ -90,6 +106,75 @@ abstract class OptimizedSyncManager<LocalType : Any, ServerType : Any>(
         }
     }
 
+    /**
+     * Filters out entities that were recently updated to prevent sync loops
+     */
+    private fun filterRecentChanges(entities: List<LocalType>): List<LocalType> {
+        val currentTime = System.currentTimeMillis()
+
+        return entities.filter { entity ->
+            try {
+                // Apply custom entity filtering first
+                if (!shouldSyncEntity(entity)) {
+                    Log.d(TAG, "Entity filtered out by shouldSyncEntity check")
+                    return@filter false
+                }
+
+                val entityTimestamp = getEntityTimestamp(entity)
+                val syncStatus = getEntitySyncStatus(entity)
+                val timeDiff = currentTime - entityTimestamp
+
+                // Skip entities that were recently synced successfully (within 5 seconds)
+                if (syncStatus == SyncStatus.SYNCED && timeDiff < RECENT_SYNC_THRESHOLD_MS) {
+                    Log.d(TAG, "Skipping recently synced $entityType (${timeDiff}ms ago, status: $syncStatus)")
+                    return@filter false
+                }
+
+                // Skip entities that were very recently updated (within 2 seconds)
+                // This prevents sync loops from rapid successive updates
+                if (syncStatus == SyncStatus.PENDING_SYNC && timeDiff < RAPID_UPDATE_THRESHOLD_MS) {
+                    Log.d(TAG, "Skipping very recent $entityType update (${timeDiff}ms ago)")
+                    return@filter false
+                }
+
+                true
+            } catch (e: Exception) {
+                Log.w(TAG, "Error filtering entity, including in sync", e)
+                true // Include in sync if we can't determine
+            }
+        }
+    }
+
+    /**
+     * Enhanced syncToServer wrapper that provides additional safety checks
+     */
+    protected suspend fun safeSyncToServer(entity: LocalType): Result<LocalType> {
+        return try {
+            // Double-check entity should still be synced
+            if (!shouldSyncEntity(entity)) {
+                Log.d(TAG, "Entity no longer needs sync, skipping")
+                return Result.success(entity)
+            }
+
+            val syncStatus = getEntitySyncStatus(entity)
+            val entityTimestamp = getEntityTimestamp(entity)
+            val currentTime = System.currentTimeMillis()
+            val timeDiff = currentTime - entityTimestamp
+
+            // Additional safety check for very recent syncs
+            if (syncStatus == SyncStatus.SYNCED && timeDiff < RECENT_SYNC_THRESHOLD_MS) {
+                Log.d(TAG, "Entity was recently synced, skipping duplicate sync")
+                return Result.success(entity)
+            }
+
+            // Proceed with actual sync
+            syncToServer(entity)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in safeSyncToServer", e)
+            Result.failure(e)
+        }
+    }
+
     private suspend fun <T> withRetry(
         maxAttempts: Int = 3,
         initialDelay: Long = 1000,
@@ -116,5 +201,7 @@ abstract class OptimizedSyncManager<LocalType : Any, ServerType : Any>(
 
     companion object {
         private const val TAG = "OptimizedSyncManager"
+        private const val RECENT_SYNC_THRESHOLD_MS = 5000L // 5 seconds
+        private const val RAPID_UPDATE_THRESHOLD_MS = 2000L // 2 seconds
     }
 }

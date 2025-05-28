@@ -36,10 +36,12 @@ import com.helgolabs.trego.data.sync.SyncableRepository
 import com.helgolabs.trego.data.sync.managers.GroupDefaultSplitSyncManager
 import com.helgolabs.trego.data.sync.managers.GroupMemberSyncManager
 import com.helgolabs.trego.data.sync.managers.UserGroupArchiveSyncManager
+import com.helgolabs.trego.utils.ColorSchemeCache
 import com.helgolabs.trego.utils.CoroutineDispatchers
 import com.helgolabs.trego.utils.DateUtils
 import com.helgolabs.trego.utils.ImageUtils
 import com.helgolabs.trego.utils.NetworkUtils
+import com.helgolabs.trego.utils.NetworkUtils.hasNetworkCapabilities
 import com.helgolabs.trego.utils.NetworkUtils.isOnline
 import com.helgolabs.trego.utils.PlaceholderImageGenerator
 import com.helgolabs.trego.utils.ServerIdUtil
@@ -54,6 +56,7 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -86,6 +89,10 @@ class GroupRepository(
     val myApplication = context.applicationContext as MyApplication
     val userRepository = myApplication.syncManagerProvider.provideUserRepository()
 
+    private val membersMutex = Mutex()
+    private val usernameMutex = Mutex()
+    private val loadBalancesMutex = Mutex()
+
     fun getAllGroupMembersIncludingArchived(groupId: Int): Flow<List<GroupMemberEntity>> {
         return groupMemberDao.getAllGroupMembersIncludingArchived(groupId)
     }
@@ -104,7 +111,16 @@ class GroupRepository(
 
     fun getGroupById(groupId: Int): Flow<GroupEntity?> = flow {
         try {
+            Log.d("GroupRepository", "=== GET GROUP BY ID DEBUG ===")
+            Log.d("GroupRepository", "Requested groupId: $groupId")
+
             val localGroup = groupDao.getGroupById(groupId).first()
+            Log.d("GroupRepository", "Local group from DAO:")
+            Log.d("GroupRepository", "  ID: ${localGroup?.id}")
+            Log.d("GroupRepository", "  ServerId: ${localGroup?.serverId}")
+            Log.d("GroupRepository", "  Name: '${localGroup?.name}'")
+            Log.d("GroupRepository", "  UpdatedAt: '${localGroup?.updatedAt}'")
+
             if (localGroup != null) {
                 // Check if the group needs a placeholder image
                 val groupWithImage = if (localGroup.groupImg == null && localGroup.localImagePath == null) {
@@ -118,14 +134,27 @@ class GroupRepository(
                     )
                 }
 
+                Log.d("GroupRepository", "Emitting local group:")
+                Log.d("GroupRepository", "  ID: ${groupWithImage.id}")
+                Log.d("GroupRepository", "  ServerId: ${groupWithImage.serverId}")
+                Log.d("GroupRepository", "  Name: '${groupWithImage.name}'")
+
                 emit(groupWithImage)
+            } else {
+                Log.d("GroupRepository", "No local group found, emitting null")
+                emit(null)
             }
 
-            if (NetworkUtils.isOnline()) {
+            if (NetworkUtils.hasNetworkCapabilities()) {
                 try {
+                    Log.d("GroupRepository", "Fetching from server...")
                     val remoteGroup = withTimeout(5000) { // Add timeout
                         apiService.getGroupById(localGroup?.serverId ?: 0)
                     }
+
+                    Log.d("GroupRepository", "Remote group from server:")
+                    Log.d("GroupRepository", "  Server ID: ${remoteGroup.id}")
+                    Log.d("GroupRepository", "  Name: '${remoteGroup.name}'")
 
                     if (remoteGroup.groupImg != null) {
                         try {
@@ -139,14 +168,30 @@ class GroupRepository(
                         }
                     }
 
-                    val updatedGroup = remoteGroup.toEntity(SyncStatus.SYNCED).copy(
-                        localImagePath = localGroup?.localImagePath
-                    )
+                    val updatedGroup = myApplication.entityServerConverter.convertGroupFromServer(remoteGroup, localGroup)
+                        .getOrElse { error ->
+                            Log.e("GroupRepository", "Failed to convert server group", error)
+                            // Handle the error appropriately
+                            throw error // or return a default value
+                        }
+
+                    Log.d("GroupRepository", "Converted server group to entity:")
+                    Log.d("GroupRepository", "  ID: ${updatedGroup.id}")
+                    Log.d("GroupRepository", "  ServerId: ${updatedGroup.serverId}")
+                    Log.d("GroupRepository", "  Name: '${updatedGroup.name}'")
+
                     groupDao.insertGroup(updatedGroup)
 
-                    emit(updatedGroup.copy(
+                    val finalGroup = updatedGroup.copy(
                         groupImg = localGroup?.localImagePath ?: remoteGroup.groupImg
-                    ))
+                    )
+
+                    Log.d("GroupRepository", "Final group to emit:")
+                    Log.d("GroupRepository", "  ID: ${finalGroup.id}")
+                    Log.d("GroupRepository", "  ServerId: ${finalGroup.serverId}")
+                    Log.d("GroupRepository", "  Name: '${finalGroup.name}'")
+
+                    emit(finalGroup)
                 } catch (e: Exception) {
                     Log.e("GroupRepository", "Server error", e)
                     // Don't throw if we have local data
@@ -155,6 +200,7 @@ class GroupRepository(
                     }
                 }
             }
+            Log.d("GroupRepository", "=== END GET GROUP BY ID DEBUG ===")
         } catch (e: Exception) {
             Log.e("GroupRepository", "Error in getGroupById", e)
             emit(null)
@@ -168,10 +214,9 @@ class GroupRepository(
         emit(localGroups)
 
         if (forceRefresh || SyncUtils.isDataStale("user_groups_$userId")) {
-            if (NetworkUtils.isOnline()) {
+            if (hasNetworkCapabilities()) {
                 try {
-                    val localUser = userDao.getUserByIdDirect(userId)
-                    val remoteGroups = apiService.getGroupsByUserId(localUser?.serverId ?: 0)
+                    val remoteGroups = apiService.getMyGroups()
                     Log.d("GroupRepository", "Remote groups: ${remoteGroups.size}")
 
                     // Insert all groups first
@@ -288,7 +333,7 @@ class GroupRepository(
 
             Log.d("GroupRepository", "Successfully created local group and member")
 
-            if (NetworkUtils.isOnline()) {
+            if (NetworkUtils.hasNetworkCapabilities()) {
                 try {
                     val userEntity = userDao.getUserByIdSync(userId)
                     Log.d("GroupRepository", "Found user for server sync: ${userEntity?.userId}, serverId: ${userEntity?.serverId}")
@@ -348,23 +393,52 @@ class GroupRepository(
     suspend fun updateGroup(group: GroupEntity): Result<GroupEntity> = withContext(dispatchers.io) {
         try {
             Log.d(TAG, "Updating group ${group.id}")
+
+            // Check if the group is already marked as SYNCED and up-to-date
+            val currentGroup = groupDao.getGroupByIdSync(group.id)
+            if (currentGroup != null &&
+                currentGroup.syncStatus == SyncStatus.SYNCED &&
+                currentGroup.updatedAt == group.updatedAt) {
+                Log.d(TAG, "Group ${group.id} is already synced and up-to-date, skipping update")
+                return@withContext Result.success(group)
+            }
+
             // First save locally with pending sync status
             val localEntity = group.copy(syncStatus = SyncStatus.PENDING_SYNC)
-            groupDao.updateGroup(localEntity)
+            groupDao.updateGroupDirect(localEntity)
 
-            if (NetworkUtils.isOnline()) {
-                // Convert the local entity to server model
-                val serverModel = myApplication.entityServerConverter.convertGroupToServer(localEntity)
-                    .getOrThrow() // This will throw if conversion fails
+            if (hasNetworkCapabilities()) {
+                try {
+                    // Convert the local entity to server model
+                    val serverModel = myApplication.entityServerConverter.convertGroupToServer(localEntity)
+                        .getOrThrow()
 
-                // Make API call with converted model
-                val serverGroup = apiService.updateGroup(serverModel.id, serverModel)
+                    // Make API call with converted model
+                    val serverResponse = apiService.updateGroup(serverModel.id, serverModel)
 
-                // Update local database with server response
-                groupDao.updateGroup(serverGroup.toEntity(SyncStatus.SYNCED))
-                Result.success(serverGroup.toEntity())
+                    // Instead of blindly using server response, merge it with local data
+                    val serverGroup = serverResponse.toEntity(SyncStatus.SYNCED)
+
+                    // Ensure we keep the local changes by merging important fields
+                    val finalGroup = localEntity.copy(
+                        syncStatus = SyncStatus.SYNCED,
+                        serverId = serverGroup.serverId,
+                        // Keep any server-side timestamps if they exist
+                        updatedAt = serverGroup.updatedAt.takeIf { it.isNotEmpty() } ?: localEntity.updatedAt
+                    )
+
+                    groupDao.updateGroupDirect(finalGroup)
+                    Log.d(TAG, "Group updated on server and locally synced")
+
+                    Result.success(finalGroup)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to sync to server, keeping local changes", e)
+                    // Keep local changes even if server sync fails
+                    Result.success(localEntity)
+                }
             } else {
-                Result.success(group)
+                Log.d(TAG, "No network, keeping local changes")
+                Result.success(localEntity)
             }
         } catch (e: Exception) {
             Log.e("GroupRepository", "Error updating group", e)
@@ -387,45 +461,52 @@ class GroupRepository(
             val user = userDao.getUserByIdSync(userId)
                 ?: return@withContext Result.failure(Exception("User not found"))
 
-
             val groupMember = GroupMemberEntity(
-                id = 0,
+                id = 0, // Let Room generate the ID
+                serverId = null, // No server ID yet
                 groupId = groupId,
                 userId = userId,
                 createdAt = currentTime,
                 updatedAt = currentTime,
-                removedAt = null
+                removedAt = null,
+                syncStatus = SyncStatus.PENDING_SYNC
             )
 
             try {
-                val localId = groupMemberDao.insertGroupMember(
-                    groupMember.copy(syncStatus = SyncStatus.PENDING_SYNC)
-                ).toInt()
+                // Insert locally first and get the generated local ID
+                val localId = groupMemberDao.insertGroupMember(groupMember).toInt()
+                val localMember = groupMember.copy(id = localId)
 
                 if (NetworkUtils.isOnline()) {
                     try {
-                        // Create server request using server IDs
-                        val serverMemberRequest = GroupMember(
-                            id = 0,
-                            groupId = group.serverId ?: 0,
-                            userId = user.serverId ?: 0,
-                            createdAt = currentTime,
-                            updatedAt = currentTime,
-                            removedAt = null
+                        // Convert local entity to server model using EntityServerConverter
+                        val serverMemberRequest = myApplication.entityServerConverter
+                            .convertGroupMemberToServer(localMember)
+                            .getOrThrow()
+
+                        // Send to server
+                        val serverGroupMember = apiService.addMemberToGroup(
+                            serverMemberRequest.groupId,
+                            serverMemberRequest
                         )
 
-                        val serverGroupMember = apiService.addMemberToGroup(group.serverId ?: 0, serverMemberRequest)
-                        val updatedGroupMember = serverGroupMember.copy(id = localId)
-                        val updatedLocalGroupMember = updatedGroupMember.toEntity(SyncStatus.SYNCED)
-                        groupMemberDao.insertGroupMember(updatedLocalGroupMember)
+                        // Convert server response back to local entity using EntityServerConverter
+                        val updatedLocalGroupMember = myApplication.entityServerConverter
+                            .convertGroupMemberFromServer(serverGroupMember, localMember)
+                            .getOrThrow()
+                            .copy(syncStatus = SyncStatus.SYNCED)
+
+                        // Update the local database with server information
+                        groupMemberDao.updateGroupMember(updatedLocalGroupMember)
+
                         Result.success(updatedLocalGroupMember)
                     } catch (e: Exception) {
                         Log.e("GroupRepository", "Server sync failed for group member", e)
                         // Return local version if server sync fails
-                        Result.success(groupMember.copy(id = localId))
+                        Result.success(localMember)
                     }
                 } else {
-                    Result.success(groupMember.copy(id = localId))
+                    Result.success(localMember)
                 }
             } catch (e: Exception) {
                 Log.e("GroupRepository", "Database insertion failed", e)
@@ -446,7 +527,7 @@ class GroupRepository(
         Log.d("GroupRepository", "Local active members: ${localMembers.size}")
         emit(localMembers)
 
-        if (NetworkUtils.isOnline()) {
+        if (NetworkUtils.hasNetworkCapabilities()) {
             try {
                 // Get the server group ID
                 val group = groupDao.getGroupByIdSync(groupId)
@@ -558,7 +639,7 @@ class GroupRepository(
             groupMemberDao.updateGroupMember(archivedMember)
 
             // Sync with server if online
-            if (NetworkUtils.isOnline()) {
+            if (hasNetworkCapabilities()) {
                 try {
                     member.serverId?.let { serverId ->
                         // Convert to server model and update on server
@@ -589,19 +670,28 @@ class GroupRepository(
             val member = groupMemberDao.getGroupMemberByIdSync(memberId)
                 ?: return@withContext Result.failure(Exception("Member not found"))
 
+            Log.d("GroupRepository", "Removing member completely - member ID: $memberId, user ID: ${member.userId}, server ID: ${member.serverId}")
+
             // Delete from local database completely
             groupMemberDao.deleteGroupMember(memberId)
+            Log.d("GroupRepository", "Successfully deleted member from local database")
 
             // Delete from server if online
-            if (NetworkUtils.isOnline()) {
-                try {
-                    member.serverId?.let { serverId ->
-                        apiService.removeMemberFromGroup(serverId)
+            if (hasNetworkCapabilities()) {
+                if (member.serverId != null) {
+                    try {
+                        Log.d("GroupRepository", "Attempting to remove member from server with server ID: ${member.serverId}")
+                        apiService.removeMemberFromGroup(member.serverId)
+                        Log.d("GroupRepository", "Successfully removed member from server")
+                    } catch (e: Exception) {
+                        Log.e("GroupRepository", "Failed to remove member from server", e)
+                        // Don't fail the operation if server sync fails
                     }
-                } catch (e: Exception) {
-                    Log.e("GroupRepository", "Failed to remove member from server", e)
-                    // Don't fail the operation if server sync fails
+                } else {
+                    Log.d("GroupRepository", "Skipping server removal because server ID is null")
                 }
+            } else {
+                Log.d("GroupRepository", "Skipping server removal because device is offline")
             }
 
             Result.success(Unit)
@@ -656,7 +746,7 @@ class GroupRepository(
                 groupMemberDao.updateGroupMember(archivedMember)
 
                 // Sync with server if online
-                if (NetworkUtils.isOnline()) {
+                if (NetworkUtils.hasNetworkCapabilities()) {
                     member.serverId?.let { serverId ->
                         apiService.removeMemberFromGroup(serverId)
                         groupMemberDao.updateGroupMember(archivedMember.copy(syncStatus = SyncStatus.SYNCED))
@@ -691,7 +781,7 @@ class GroupRepository(
             groupMemberDao.updateGroupMember(restoredMember)
 
             // Sync with server if online
-            if (NetworkUtils.isOnline()) {
+            if (NetworkUtils.hasNetworkCapabilities()) {
                 try {
                     // Re-add member to group on server
                     member.serverId?.let { serverMemberId ->
@@ -744,7 +834,7 @@ class GroupRepository(
             }
 
             // Only if we don't have a local invite link and we're online, try to fetch from API
-            if (NetworkUtils.isOnline()) {
+            if (NetworkUtils.hasNetworkCapabilities()) {
                 try {
                     val serverGroupId = localGroup.serverId
                         ?: return@withContext Result.failure(Exception("Group has no server ID"))
@@ -823,7 +913,6 @@ class GroupRepository(
         }
     }
 
-
     suspend fun handleGroupImageUpload(groupId: Int, imageUri: Uri): Result<GroupImageUploadResult> =
         withContext(dispatchers.io) {
             try {
@@ -835,7 +924,7 @@ class GroupRepository(
                 val localPath = ImageUtils.getLocalImagePath(context, localFileName)
                 val currentTime = DateUtils.getCurrentTimestamp()
 
-                if (NetworkUtils.isOnline()) {
+                if (hasNetworkCapabilities()) {
                     try {
                         val requestBody = imageData.toRequestBody(
                             "image/jpeg".toMediaTypeOrNull(),
@@ -849,39 +938,46 @@ class GroupRepository(
                             body = requestBody
                         )
 
-                        // Get the server ID from the local user ID
+                        // Get the local group data
                         val localGroup = groupDao.getGroupByIdSync(groupId)
-                            ?: throw IllegalStateException("User not found in local database")
+                            ?: throw IllegalStateException("Group not found in local database")
 
                         val serverGroupId = localGroup.serverId
                             ?: throw IllegalStateException("No server ID found for group $groupId")
 
-                        // Upload image first
+                        // Upload image first to get the new image path
                         val imageResponse = apiService.uploadGroupImage(serverGroupId, imagePart)
 
-                        // Get fresh group data from server
-                        val updatedGroup = apiService.getGroupById(serverGroupId)
+                        Log.d("GroupRepository", "Image uploaded successfully: ${imageResponse.imagePath}")
 
-                        // Update local database
+                        // Now call updateGroup with the NEW image path - this will trigger notifications
+                        val groupWithNewImage = localGroup.toModel().copy(
+                            groupImg = imageResponse.imagePath,  // This is the NEW path from upload
+                            updatedAt = currentTime
+                        )
+
+                        Log.d("GroupRepository", "Calling updateGroup API to trigger notifications")
+                        Log.d("GroupRepository", "Original image: ${localGroup.groupImg}")
+                        Log.d("GroupRepository", "New image: ${imageResponse.imagePath}")
+
+                        // This call will compare the new image path with the existing one and send notifications
+                        val serverGroup = apiService.updateGroup(serverGroupId, groupWithNewImage)
+
+                        // Update local database with the final result and mark as SYNCED
+                        // This is important to prevent the sync manager from trying to sync again
                         groupDao.runInTransaction {
-                            val existingGroup = groupDao.getGroupById(groupId).first()
-                            if (existingGroup != null) {
-                                val newGroup = updatedGroup.toEntity(SyncStatus.SYNCED).copy(
-                                    id = existingGroup.id,
-                                    localImagePath = localPath,
-                                    groupImg = imageResponse.imagePath,
-                                    imageLastModified = currentTime,
-                                    updatedAt = currentTime
-                                )
-                                Log.d("GroupRepository", "Updating group with new timestamps - " +
-                                        "imageLastModified: ${newGroup.imageLastModified}, " +
-                                        "updatedAt: ${newGroup.updatedAt}")
-                                groupDao.updateGroup(newGroup)
-                            }
+                            val newGroup = serverGroup.toEntity(SyncStatus.SYNCED).copy(
+                                id = localGroup.id,
+                                localImagePath = localPath,
+                                imageLastModified = currentTime,
+                                updatedAt = serverGroup.updatedAt // Use server timestamp
+                            )
+                            Log.d("GroupRepository", "Updating local group with SYNCED status to prevent double sync")
+                            groupDao.updateGroup(newGroup)
                         }
 
-                        // Trigger sync managers to handle any related data
-                        groupSyncManager.performSync()
+                        // DO NOT call groupSyncManager.performSync() here as it will cause duplicate calls
+                        Log.d("GroupRepository", "Skipping sync manager call to prevent duplicate API requests")
 
                         Result.success(
                             GroupImageUploadResult(
@@ -946,6 +1042,82 @@ class GroupRepository(
             }
         }
 
+    // Also add this method to handle placeholder image regeneration with notifications
+    suspend fun regeneratePlaceholderImageWithNotification(groupId: Int): Result<Unit> = withContext(dispatchers.io) {
+        try {
+            // Get the latest group data from the repository
+            val latestGroup = groupDao.getGroupByIdSync(groupId)
+                ?: throw Exception("Group not found")
+
+            Log.d("GroupRepository", "Starting placeholder regeneration for groupId: $groupId")
+
+            // Invalidate the color scheme cache
+            ColorSchemeCache.removeColorScheme(context, groupId)
+
+            // Generate a new placeholder reference with timestamp for uniqueness
+            val placeholderReference = PlaceholderImageGenerator.generatePlaceholderReference(
+                groupId = groupId,
+                groupName = latestGroup.name,
+                useTimestamp = true
+            )
+
+            if (!placeholderReference.startsWith("placeholder://")) {
+                throw IllegalStateException("Invalid placeholder reference generated")
+            }
+
+            Log.d("GroupRepository", "Generated new reference: $placeholderReference")
+
+            // Generate a local image for immediate display
+            val localPath = PlaceholderImageGenerator.getImageForPath(context, placeholderReference)
+
+            // For placeholder images, we need to update both local and server
+            // First update local database
+            val updatedGroup = latestGroup.copy(
+                groupImg = placeholderReference,
+                localImagePath = localPath,
+                imageLastModified = DateUtils.getCurrentTimestamp(),
+                updatedAt = DateUtils.getCurrentTimestamp(),
+                syncStatus = SyncStatus.PENDING_SYNC
+            )
+
+            groupDao.updateGroup(updatedGroup)
+
+            // If online, sync to server which will trigger notifications
+            if (hasNetworkCapabilities()) {
+                try {
+                    val serverGroupId = latestGroup.serverId
+                        ?: throw Exception("No server ID found")
+
+                    // Convert to server model and update - this will trigger notifications
+                    val serverModel = updatedGroup.toModel()
+
+                    Log.d("GroupRepository", "Sending placeholder image update to server")
+                    Log.d("GroupRepository", "Original image: ${latestGroup.groupImg}")
+                    Log.d("GroupRepository", "New placeholder: $placeholderReference")
+
+                    val serverGroup = apiService.updateGroup(serverGroupId, serverModel)
+
+                    // Update local database with server response
+                    groupDao.updateGroup(serverGroup.toEntity(SyncStatus.SYNCED).copy(
+                        id = latestGroup.id,
+                        localImagePath = localPath,
+                        imageLastModified = updatedGroup.imageLastModified
+                    ))
+
+                    Log.d("GroupRepository", "Placeholder image updated on server with notifications")
+                } catch (e: Exception) {
+                    Log.e("GroupRepository", "Failed to sync placeholder to server", e)
+                    // Keep local update even if server sync fails
+                }
+            }
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("GroupRepository", "Error generating placeholder image", e)
+            Result.failure(e)
+        }
+    }
+
     suspend fun updateGroupImage(groupId: Int, imagePath: String): Result<Unit> {
         return try {
             withContext(Dispatchers.IO) {
@@ -967,7 +1139,7 @@ class GroupRepository(
                 downloadAndSaveGroupImage(group)
 
                 // Try to update the server if online
-                if (isOnline()) {
+                if (hasNetworkCapabilities()) {
                     try {
                         // Use the SERVER ID here, not the local ID
                         val updatedGroup = group.toModel().copy(
@@ -996,7 +1168,7 @@ class GroupRepository(
     }
 
     suspend fun ensureGroupImagesDownloaded() {
-        if (!NetworkUtils.isOnline()) return
+        if (!NetworkUtils.hasNetworkCapabilities()) return
 
         try {
             val groups = groupDao.getAllGroups().first()
@@ -1063,7 +1235,7 @@ class GroupRepository(
 
     //Syncs pending image uploads to the server
     suspend fun syncPendingImageUploads() = withContext(dispatchers.io) {
-        if (!NetworkUtils.isOnline()) {
+        if (!NetworkUtils.hasNetworkCapabilities()) {
             return@withContext
         }
 
@@ -1180,7 +1352,7 @@ class GroupRepository(
             Log.d(TAG, "Group $groupId archived locally for user $userId at $timestamp")
 
             // If online, attempt server sync
-            if (NetworkUtils.isOnline()) {
+            if (NetworkUtils.hasNetworkCapabilities()) {
                 try {
                     // Convert local IDs to server IDs
                     val serverIds = myApplication.entityServerConverter.convertUserGroupArchiveToServer(archiveEntry)
@@ -1229,7 +1401,7 @@ class GroupRepository(
             Log.d(TAG, "Group $groupId restored locally for user $userId")
 
             // If online, attempt server sync
-            if (NetworkUtils.isOnline()) {
+            if (NetworkUtils.hasNetworkCapabilities()) {
                 try {
                     // Convert local IDs to server IDs using the existing archive entry
                     val serverIds = myApplication.entityServerConverter.convertUserGroupArchiveToServer(existingArchive)
@@ -1455,7 +1627,7 @@ class GroupRepository(
 
     suspend fun joinGroupByInvite(inviteCode: String, userId: Int): Result<Int> = withContext(dispatchers.io) {
         try {
-            if (isOnline()) {
+            if (hasNetworkCapabilities()) {
                 val serverResponse = apiService.joinGroupByInvite(inviteCode)
                 val localGroup = serverResponse.toEntity(SyncStatus.SYNCED)
 
@@ -1497,7 +1669,7 @@ class GroupRepository(
             groupDefaultSplitDao.insertOrUpdateDefaultSplit(localSplit)
 
             // Attempt to sync with server if online
-            if (NetworkUtils.isOnline()) {
+            if (NetworkUtils.hasNetworkCapabilities()) {
                 try {
                     // Convert to server model
                     val serverModelResult = myApplication.entityServerConverter.convertGroupDefaultSplitToServer(localSplit)
@@ -1564,7 +1736,7 @@ class GroupRepository(
             groupDefaultSplitDao.insertOrUpdateDefaultSplits(localSplits)
 
             // Attempt to sync with server if online
-            if (NetworkUtils.isOnline()) {
+            if (NetworkUtils.hasNetworkCapabilities()) {
                 try {
                     // Convert to server models - handling Results properly
                     val serverModelResults = localSplits.map { split ->
@@ -1641,7 +1813,7 @@ class GroupRepository(
             val serverGroupId = ServerIdUtil.getServerId(groupId, "groups", context) ?: 0
 
             // Attempt to delete from server if online
-            if (NetworkUtils.isOnline()) {
+            if (NetworkUtils.hasNetworkCapabilities()) {
                 try {
                     apiService.deleteGroupDefaultSplits(serverGroupId)
                     // Hard deletes happen on the server, so we don't need to update our local DB
@@ -1670,7 +1842,7 @@ class GroupRepository(
             groupDefaultSplitDao.softDeleteDefaultSplit(splitId, timestamp)
 
             // Attempt to delete from server if online
-            if (NetworkUtils.isOnline() && split.serverId != null) {
+            if (NetworkUtils.hasNetworkCapabilities() && split.serverId != null) {
                 try {
                     apiService.deleteGroupDefaultSplit(groupId, split.serverId)
                     // Hard deletes happen on the server, so we don't need to update our local DB
@@ -1714,7 +1886,7 @@ class GroupRepository(
 
     // Sync pending changes for default splits
     suspend fun syncPendingDefaultSplits(): Result<Unit> = withContext(dispatchers.io) {
-        if (!NetworkUtils.isOnline()) {
+        if (!NetworkUtils.hasNetworkCapabilities()) {
             return@withContext Result.failure(Exception("No network connection"))
         }
 

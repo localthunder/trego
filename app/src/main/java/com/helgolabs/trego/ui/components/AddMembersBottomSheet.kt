@@ -4,8 +4,6 @@ import android.content.Intent
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,8 +13,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -51,7 +47,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -59,15 +54,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.helgolabs.trego.MyApplication
-import com.helgolabs.trego.data.local.entities.GroupMemberEntity
 import com.helgolabs.trego.data.local.entities.UserEntity
 import com.helgolabs.trego.ui.viewmodels.GroupViewModel
 import com.helgolabs.trego.ui.viewmodels.UserViewModel
 import com.helgolabs.trego.utils.DateUtils
+import com.helgolabs.trego.utils.NetworkDebouncer
 import com.helgolabs.trego.utils.getUserIdFromPreferences
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -86,8 +80,14 @@ fun AddMembersBottomSheet(
     var inviteLater by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
+    // Improved loading state management
+    var isLoadingData by remember { mutableStateOf(true) }
+    var isInitialized by remember { mutableStateOf(false) }
+    var loadDataAttempted by remember { mutableStateOf(false) }
+    var initialLoadCompleted by remember { mutableStateOf(false) }
+
     val usernames by groupViewModel.usernames.observeAsState(emptyMap())
-    val loading by groupViewModel.loading.collectAsState(false)
+    val globalLoading by groupViewModel.loading.collectAsState(false)
     val error by groupViewModel.error.collectAsState(null)
     val addMemberResult by groupViewModel.addMemberResult.observeAsState()
     val groupDetailsState by groupViewModel.groupDetailsState.collectAsState()
@@ -154,18 +154,99 @@ fun AddMembersBottomSheet(
         activeMembers + availableUsers
     }
 
+    // Improved data loading with clear timeouts
     LaunchedEffect(Unit) {
-        groupViewModel.fetchUsernamesForInvitation(groupId)
-        groupViewModel.loadGroupMembersWithUsers(groupId)
+        if (!isInitialized) {
+            isInitialized = true
+            isLoadingData = true
+            loadDataAttempted = true
+
+            try {
+                Log.d("AddMembersBottomSheet", "Starting initial data load")
+
+                // First: Load members with users (includes all user data we need)
+                groupViewModel.loadGroupMembersWithUsers(groupId)
+
+                // Allow a small delay for the UI to update
+                delay(300)
+
+                // Then: Fetch usernames for invitation
+                groupViewModel.fetchUsernamesForInvitation(groupId)
+
+                // Mark data as loaded after a short delay
+                delay(800)
+
+                initialLoadCompleted = true
+                isLoadingData = false
+
+                Log.d("AddMembersBottomSheet", "Initial data loading complete - UI should now update")
+            } catch (e: Exception) {
+                Log.e("AddMembersBottomSheet", "Error loading data", e)
+                initialLoadCompleted = true // Force complete even on error
+                isLoadingData = false
+            }
+        }
     }
 
+    // Always observe data to update loading state
+    LaunchedEffect(groupDetailsState.users, usernames) {
+        // If we have both users and usernames, we can consider the data loaded
+        if (groupDetailsState.users.isNotEmpty() || usernames.isNotEmpty()) {
+            // Only log once when transitioning from loading to loaded
+            if (isLoadingData) {
+                Log.d("AddMembersBottomSheet", "Data detected, ending loading state")
+            }
+            initialLoadCompleted = true
+            isLoadingData = false
+        }
+    }
+
+    // Force end loading after a timeout period
+    LaunchedEffect(loadDataAttempted) {
+        if (loadDataAttempted) {
+            // Ensure loading state ends after a maximum timeout
+            delay(3000) // Reduced timeout for better user experience
+            if (isLoadingData) {
+                Log.d("AddMembersBottomSheet", "Loading indicator forced off due to timeout")
+                initialLoadCompleted = true // Mark as completed
+                isLoadingData = false
+            }
+        }
+    }
+
+    // Handle add member result
     LaunchedEffect(addMemberResult) {
         addMemberResult?.let { result ->
             result.onSuccess { member ->
-                Toast.makeText(context, "${usernames[member.userId]} added to group", Toast.LENGTH_SHORT).show()
-                // Refresh the user list after adding a member
-                groupViewModel.fetchUsernamesForInvitation(groupId)
-                groupViewModel.loadGroupMembersWithUsers(groupId)
+                // Check if current group has percentage split mode
+                val currentGroup = groupDetailsState.group
+                val hadPercentageSplits = currentGroup?.defaultSplitMode == "percentage"
+
+                // Add the member toast (existing functionality)
+                Toast.makeText(context, "${usernames[member.userId] ?: "User"} added to group", Toast.LENGTH_SHORT).show()
+
+                // If the group had percentage splits, show a second toast about the split mode change
+                if (hadPercentageSplits) {
+                    // Delay the second toast slightly so they don't overlap
+                    delay(2000)
+                    Toast.makeText(
+                        context,
+                        "Default split mode has been reset to equal due to new member",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+
+                // Refresh the user list after adding a member - without setting loading state
+                scope.launch {
+                    try {
+                        // Don't set isLoadingData=true here to avoid showing the spinner again
+                        groupViewModel.loadGroupMembersWithUsers(groupId)
+                        delay(300)
+                        groupViewModel.fetchUsernamesForInvitation(groupId)
+                    } catch (e: Exception) {
+                        Log.e("AddMembersBottomSheet", "Error refreshing after adding member", e)
+                    }
+                }
             }.onFailure { exception ->
                 Toast.makeText(context, "Failed to add member: ${exception.message}", Toast.LENGTH_SHORT).show()
             }
@@ -281,8 +362,11 @@ fun AddMembersBottomSheet(
                                     inviteLater = false
                                     isAddingNew = false
 
-                                    // Refresh members list
+                                    // Refresh members list with loading indicator
+                                    isLoadingData = true
                                     groupViewModel.loadGroupMembersWithUsers(groupId)
+                                    delay(500)
+                                    isLoadingData = false
                                 }.onFailure { error ->
                                     Log.e("AddMembersBottomSheet", "Failed to create user and add to group", error)
                                     Toast.makeText(context, "Failed to add user: ${error.message}", Toast.LENGTH_SHORT).show()
@@ -307,14 +391,70 @@ fun AddMembersBottomSheet(
                     Text("Add Someone New")
                 }
 
-                // Use our new user list component
-                if (loading) {
-                    Box(modifier = Modifier.fillMaxWidth()) {
-                        CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                // Show loading state or content with improved state management
+                if (isLoadingData) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp), // Fixed height for loading spinner
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator()
+                            Spacer(Modifier.height(16.dp))
+                            Text(
+                                "Loading members...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 } else if (error != null) {
-                    Text(error!!, color = MaterialTheme.colorScheme.error)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                error!!,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            Button(
+                                onClick = {
+                                    scope.launch {
+                                        isLoadingData = true
+                                        groupViewModel.loadGroupMembersWithUsers(groupId)
+                                        delay(300)
+                                        groupViewModel.fetchUsernamesForInvitation(groupId)
+                                        delay(300)
+                                        isLoadingData = false
+                                    }
+                                }
+                            ) {
+                                Text("Retry")
+                            }
+                        }
+                    }
+                } else if (combinedUserList.isEmpty()) {
+                    // Handle empty state
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "No members found. Add someone new to this group.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 } else {
+                    // Show the user list
                     UserList(
                         groupMembers = combinedUserList,
                         currentUserId = currentUserId,
@@ -327,7 +467,6 @@ fun AddMembersBottomSheet(
                             }
                         },
                         onAddClick = { userId ->
-                            // Add debugging
                             Log.d("AddMembersBottomSheet", "Attempting to add user with ID: $userId")
 
                             // Verify user exists
@@ -338,10 +477,22 @@ fun AddMembersBottomSheet(
                                 return@UserList
                             }
 
-                            groupViewModel.addMemberToGroup(groupId, userId)
-                            groupViewModel.loadGroupMembersWithUsers(groupId)
+                            // Add member with debouncing to prevent duplicate additions
+                            scope.launch {
+                                val shouldProceed = NetworkDebouncer.shouldProceed("add_member_$userId")
+                                if (shouldProceed) {
+                                    // Do NOT set loading indicator here - keep the UI responsive
+                                    groupViewModel.addMemberToGroup(groupId, userId)
+                                    // Show a toast to let user know action is in progress
+                                    Toast.makeText(context, "Adding member...", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    // This is a duplicate tap - ignore
+                                    Log.d("AddMembersBottomSheet", "Prevented duplicate add for user $userId")
+                                }
+                            }
                         }
                     )
+
                     // Archived members section
                     if (archivedMembers.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(16.dp))
@@ -398,7 +549,21 @@ fun AddMembersBottomSheet(
                                         trailingContent = {
                                             IconButton(
                                                 onClick = {
-                                                    groupViewModel.restoreArchivedMember(member.id)
+                                                    scope.launch {
+                                                        // Don't set isLoadingData here - just show a toast
+                                                        Toast.makeText(context, "Restoring member...", Toast.LENGTH_SHORT).show()
+                                                        try {
+                                                            groupViewModel.restoreArchivedMember(member.id)
+                                                            // After restoration, refresh the members list
+                                                            delay(300)
+                                                            groupViewModel.loadGroupMembersWithUsers(groupId)
+                                                            // And toggle archived visibility
+                                                            showArchivedMembers = false
+                                                        } catch (e: Exception) {
+                                                            Log.e("AddMembersBottomSheet", "Failed to restore member", e)
+                                                            Toast.makeText(context, "Failed to restore member", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
                                                 }
                                             ) {
                                                 Icon(

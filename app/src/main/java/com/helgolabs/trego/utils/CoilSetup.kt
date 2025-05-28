@@ -28,7 +28,7 @@ object CoilSetup {
     }
 
     private fun createImageLoader(context: Context): ImageLoader {
-        Log.d(TAG, "Creating custom ImageLoader")
+        SecureLogger.d(TAG, "Creating custom ImageLoader")
 
         return ImageLoader.Builder(context)
 

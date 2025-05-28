@@ -44,11 +44,16 @@ interface GroupDao {
 
     @Transaction
     suspend fun updateGroup(group: GroupEntity) {
-        // Create a copy of the group with the current timestamp
-        val updatedGroup = group.copy(
-            updatedAt = DateUtils.getCurrentTimestamp(),
-            syncStatus = SyncStatus.PENDING_SYNC
-        )
+        // Only set timestamp and sync status if they weren't explicitly provided
+        val updatedGroup = if (group.updatedAt.isEmpty() || group.syncStatus == SyncStatus.SYNCED) {
+            group.copy(
+                updatedAt = DateUtils.getCurrentTimestamp(),
+                syncStatus = SyncStatus.PENDING_SYNC
+            )
+        } else {
+            // Use the provided values - they were set intentionally
+            group
+        }
         updateGroupDirect(updatedGroup)
     }
 

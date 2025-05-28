@@ -9,7 +9,6 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import android.util.Base64
-import android.util.Log
 
 object AuthUtils {
 
@@ -45,7 +44,7 @@ object AuthUtils {
             }
             keyStore.getKey(KEY_ALIAS, null) as SecretKey
         } catch (e: Exception) {
-            Log.e("AuthUtils", "Error getting secret key", e)
+            SecureLogger.e("AuthUtils", "Error getting secret key", e)
             null
         }
     }
@@ -58,16 +57,16 @@ object AuthUtils {
             val iv = cipher.iv
             val encryptedData = cipher.doFinal(token.toByteArray(Charsets.UTF_8))
 
-            Log.d("AuthUtils", "Storing token: $token")
+            SecureLogger.d("AuthUtils", "Storing token: $token")
 
             val sharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val editor = sharedPreferences.edit()
             editor.putString(KEY_AUTH_TOKEN, Base64.encodeToString(encryptedData, Base64.DEFAULT))
             editor.putString("iv", Base64.encodeToString(iv, Base64.DEFAULT))
             editor.commit()  // Use commit() for synchronous storage
-            Log.d("AuthUtils", "Token stored successfully")
+            SecureLogger.d("AuthUtils", "Token stored successfully")
         } catch (e: Exception) {
-            Log.e("AuthUtils", "Error storing login state", e)
+            SecureLogger.e("AuthUtils", "Error storing SecureLoggerin state", e)
             // If there's an error storing, clear any partial data
             clearLoginState(context)
         }
@@ -80,14 +79,14 @@ object AuthUtils {
             val iv = sharedPreferences.getString("iv", null)?.let { Base64.decode(it, Base64.DEFAULT) }
 
             if (encryptedData == null || iv == null) {
-                Log.e("AuthUtils", "No token found or IV missing")
+                SecureLogger.e("AuthUtils", "No token found or IV missing")
                 // Clear any partial data
                 clearLoginState(context)
                 return null
             }
 
             val secretKey = getSecretKey() ?: run {
-                Log.e("AuthUtils", "Unable to get secret key")
+                SecureLogger.e("AuthUtils", "Unable to get secret key")
                 clearLoginState(context)
                 return null
             }
@@ -100,15 +99,15 @@ object AuthUtils {
 
             // Validate that the token is not empty
             if (token.isBlank()) {
-                Log.e("AuthUtils", "Retrieved token is empty")
+                SecureLogger.e("AuthUtils", "Retrieved token is empty")
                 clearLoginState(context)
                 return null
             }
 
-            Log.d("AuthUtils", "Retrieved token: $token")
+            SecureLogger.d("AuthUtils", "Retrieved token: $token")
             return token
         } catch (e: Exception) {
-            Log.e("AuthUtils", "Error retrieving login state", e)
+            SecureLogger.e("AuthUtils", "Error retrieving SecureLoggerin state", e)
             // On any decryption error, clear the state
             clearLoginState(context)
             return null
@@ -123,9 +122,9 @@ object AuthUtils {
             editor.remove(KEY_AUTH_TOKEN)
             editor.remove("iv")
             editor.commit()  // Use commit() for immediate persistence
-            Log.d("AuthUtils", "Login state cleared")
+            SecureLogger.d("AuthUtils", "SecureLoggerin state cleared")
         } catch (e: Exception) {
-            Log.e("AuthUtils", "Error clearing login state", e)
+            SecureLogger.e("AuthUtils", "Error clearing SecureLoggerin state", e)
         }
     }
 

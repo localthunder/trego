@@ -241,6 +241,7 @@ class SyncManagerProvider(
         groupDao = database.groupDao(),
         groupMemberDao = database.groupMemberDao(),
         transactionDao = database.transactionDao(),
+        userDao = database.userDao(),
         currencyConversionDao = database.currencyConversionDao(),
         apiService = apiService,
         dispatchers = dispatchers,

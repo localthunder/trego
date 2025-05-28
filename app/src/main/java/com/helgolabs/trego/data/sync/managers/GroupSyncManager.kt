@@ -34,6 +34,24 @@ class GroupSyncManager(
 
     val myApplication = context.applicationContext as MyApplication
 
+    // Override parent methods to provide Group-specific anti-loop protection
+    override fun shouldSyncEntity(entity: GroupEntity): Boolean {
+        // Keep existing logic - allow sync unless it's a very recent successful sync
+        return entity.syncStatus != SyncStatus.SYNCED || entity.serverId == null
+    }
+
+    override fun getEntityTimestamp(entity: GroupEntity): Long {
+        return try {
+            DateUtils.parseTimestamp(entity.updatedAt).toEpochMilli()
+        } catch (e: Exception) {
+            0L
+        }
+    }
+
+    override fun getEntitySyncStatus(entity: GroupEntity): SyncStatus {
+        return entity.syncStatus
+    }
+
     override suspend fun getLocalChanges(): List<GroupEntity> =
         groupDao.getUnsyncedGroups().first()
 
@@ -121,18 +139,8 @@ class GroupSyncManager(
 
     override suspend fun getServerChanges(since: Long): List<Group> {
         try {
-            val userId = getUserIdFromPreferences(context)
-                ?: throw IllegalStateException("User ID not found")
-
-            // Get the server ID from the local user ID
-            val localUser = userDao.getUserByIdDirect(userId)
-                ?: throw IllegalStateException("User not found in local database")
-
-            val serverUserId = localUser.serverId
-                ?: throw IllegalStateException("No server ID found for user $userId")
-
-            Log.d(TAG, "Fetching groups since $since for server user ID: $serverUserId")
-            return apiService.getGroupsSince(since, serverUserId)
+            Log.d(TAG, "Fetching groups since $since")
+            return apiService.getGroupsSince(since)
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching server changes", e)
             throw e

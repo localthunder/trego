@@ -26,7 +26,9 @@ object AuthManager {
     // Add this method to check if user needs biometric authentication
     fun needsBiometricAuthentication(context: Context): Boolean {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return prefs.getBoolean(KEY_NEEDS_BIOMETRIC, false)
+        val needsBiometric = prefs.getBoolean(KEY_NEEDS_BIOMETRIC, false)
+        SecureLogger.d("AuthManager", "needsBiometricAuthentication: $needsBiometric")
+        return needsBiometric
     }
 
     // Set whether user needs biometric on next app open
@@ -41,13 +43,13 @@ object AuthManager {
     fun hasSessionTimedOut(context: Context): Boolean {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val isAuthenticated = prefs.getBoolean(KEY_AUTHENTICATED, false)
-
-        if (!isAuthenticated) return true
-
         val lastAuthTime = prefs.getLong(KEY_AUTH_TIMESTAMP, 0)
         val currentTime = System.currentTimeMillis()
+        val timeDiff = currentTime - lastAuthTime
+        val timedOut = !isAuthenticated || timeDiff > SESSION_TIMEOUT_MS
 
-        return (currentTime - lastAuthTime) > SESSION_TIMEOUT_MS
+        SecureLogger.d("AuthManager", "hasSessionTimedOut: $timedOut (isAuth: $isAuthenticated, timeDiff: ${timeDiff}ms)")
+        return timedOut
     }
 
     // Update setAuthenticated to also store the timestamp
@@ -80,7 +82,7 @@ object AuthManager {
         clearUserIdFromPreferences(context)
 
         // Log completion
-        Log.d(TAG, "Logout completed - all authentication state cleared")
+        SecureLogger.d(TAG, "Logout completed - all authentication state cleared")
     }
 
     // Updated isUserLoggedIn to be more lenient
@@ -109,7 +111,7 @@ object AuthManager {
         CoroutineScope(Dispatchers.IO).launch {
             userRepository.updateLastLoginDate(userId)
                 .onFailure { e ->
-                    Log.e(TAG, "Failed to update last login date", e)
+                    SecureLogger.e(TAG, "Failed to update last login date", e)
                 }
         }
     }
@@ -121,7 +123,7 @@ object AuthManager {
         onSuccess: () -> Unit,
         onFailure: () -> Unit
     ) {
-        Log.d(TAG, "Starting biometric prompt")
+        SecureLogger.d(TAG, "Starting biometric prompt")
         val biometricManager = BiometricManager.from(activity)
 
         // Update authenticator types to include both biometrics and device credential
@@ -131,7 +133,7 @@ object AuthManager {
 
         val canAuthenticateResult = biometricManager.canAuthenticate(authenticators)
 
-        Log.d(TAG, "Authentication capability result: $canAuthenticateResult")
+        SecureLogger.d(TAG, "Authentication capability result: $canAuthenticateResult")
 
         when (canAuthenticateResult) {
             BiometricManager.BIOMETRIC_SUCCESS,
@@ -140,7 +142,7 @@ object AuthManager {
                 val biometricPrompt = BiometricPrompt(activity, executor,
                     object : BiometricPrompt.AuthenticationCallback() {
                         override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                            Log.d(TAG, "Authentication succeeded")
+                            SecureLogger.d(TAG, "Authentication succeeded")
                             setAuthenticated(activity, true)
                             setNeedsBiometric(activity, false)
                             updateLastLoginDate(userRepository, userId)
@@ -148,10 +150,10 @@ object AuthManager {
                         }
 
                         override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                            Log.e(TAG, "Authentication error $errorCode: $errString")
+                            SecureLogger.e(TAG, "Authentication error $errorCode: $errString")
                             if (errorCode == BiometricPrompt.ERROR_NO_BIOMETRICS ||
                                 errorCode == BiometricPrompt.ERROR_NO_DEVICE_CREDENTIAL) {
-                                Log.d(TAG, "No biometrics or device credentials enrolled, allowing access")
+                                SecureLogger.d(TAG, "No biometrics or device credentials enrolled, allowing access")
                                 setAuthenticated(activity, true)
                                 setNeedsBiometric(activity, false)
                                 updateLastLoginDate(userRepository, userId)
@@ -163,7 +165,7 @@ object AuthManager {
                         }
 
                         override fun onAuthenticationFailed() {
-                            Log.e(TAG, "Authentication failed")
+                            SecureLogger.e(TAG, "Authentication failed")
                             // Don't change authentication state on failure - let user retry
                             // setAuthenticated(activity, false)
                             // onFailure()
@@ -178,14 +180,14 @@ object AuthManager {
 
                 try {
                     biometricPrompt.authenticate(promptInfo)
-                    Log.d(TAG, "Authentication prompt shown")
+                    SecureLogger.d(TAG, "Authentication prompt shown")
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error showing authentication prompt", e)
+                    SecureLogger.e(TAG, "Error showing authentication prompt", e)
                     onFailure()
                 }
             }
             else -> {
-                Log.e(TAG, "Device cannot authenticate: $canAuthenticateResult")
+                SecureLogger.e(TAG, "Device cannot authenticate: $canAuthenticateResult")
                 // If device can't authenticate, just let them in
                 setAuthenticated(activity, true)
                 setNeedsBiometric(activity, false)

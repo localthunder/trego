@@ -59,14 +59,13 @@ class UserPreferencesSyncManager(
             // First check if the preference already exists on the server
             // This helps handle cases where local db thinks it's new but it already exists on server
             try {
-                val checkResponse = apiService.getUserPreference(serverUserId, entity.preferenceKey)
+                val checkResponse = apiService.getUserPreference(entity.preferenceKey)
 
                 if (checkResponse.success && checkResponse.data != null) {
                     // Preference exists on server, just update it regardless of local sync status
                     Log.d(TAG, "Preference already exists on server (ID: ${checkResponse.data.id}), updating via PUT")
 
                     val updateResponse = apiService.updateUserPreference(
-                        serverUserId,
                         entity.preferenceKey,
                         jsonObject
                     )
@@ -98,12 +97,11 @@ class UserPreferencesSyncManager(
 
                 // Try to create new preference
                 Log.d(TAG, "Attempting to create new preference on server for user ID: $serverUserId")
-                apiService.createUserPreference(serverUserId, serverPreferenceDto)
+                apiService.createUserPreference(serverPreferenceDto)
             } else {
                 // Update existing preference
                 Log.d(TAG, "Updating existing preference on server with ID: ${localEntity.serverId}")
                 apiService.updateUserPreference(
-                    serverUserId,
                     entity.preferenceKey,
                     jsonObject
                 )
@@ -137,12 +135,11 @@ class UserPreferencesSyncManager(
 
                 try {
                     // Get the existing preference to get its ID
-                    val getResponse = apiService.getUserPreference(serverUserId, entity.preferenceKey)
+                    val getResponse = apiService.getUserPreference(entity.preferenceKey)
 
                     if (getResponse.success && getResponse.data != null) {
                         // Now update it
                         val updateResponse = apiService.updateUserPreference(
-                            serverUserId,
                             entity.preferenceKey,
                             jsonObject
                         )
@@ -200,7 +197,7 @@ class UserPreferencesSyncManager(
 
         Log.d(TAG, "Fetching preferences changes since $since")
 
-        val response = apiService.getUserPreferencesSince(serverUserId, since)
+        val response = apiService.getUserPreferencesSince(since)
         return if (response.success) {
             response.data
         } else {

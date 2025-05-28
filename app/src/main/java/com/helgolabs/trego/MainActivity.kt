@@ -6,7 +6,6 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.util.Log
 import android.widget.Toast
 import android.Manifest
 import android.app.Activity
@@ -52,6 +51,7 @@ import com.helgolabs.trego.ui.theme.LocalThemeMode
 import com.helgolabs.trego.ui.theme.ThemeManager
 import com.helgolabs.trego.ui.viewmodels.UserPreferencesViewModel
 import com.helgolabs.trego.utils.AuthManager
+import com.helgolabs.trego.utils.SecureLogger
 import com.helgolabs.trego.utils.getUserIdFromPreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -90,6 +90,7 @@ class MainActivity : FragmentActivity() {
         data class GroupDetails(val groupId: Int) : DeepLinkTarget()
         data class PaymentDetails(val groupId: Int, val paymentId: Int) : DeepLinkTarget()
         data class SettleUp(val groupId: Int) : DeepLinkTarget()
+        data class GroupSettings(val groupId: Int) : DeepLinkTarget()
     }
 
     private val requestPermissionLauncher = registerForActivityResult(
@@ -107,7 +108,7 @@ class MainActivity : FragmentActivity() {
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
         if (result.resultCode != RESULT_OK) {
-            Log.e("MainActivity", "Update flow failed! Result code: ${result.resultCode}")
+            SecureLogger.e("MainActivity", "Update flow failed! Result code: ${result.resultCode}")
             // Maybe show a message to the user about the failed update
         }
     }
@@ -116,7 +117,7 @@ class MainActivity : FragmentActivity() {
     private fun checkForAppUpdates() {
         updateManager.checkForUpdates(
             onUpdateAvailable = { appUpdateInfo ->
-                Log.d("MainActivity", "Update available: ${appUpdateInfo.availableVersionCode()}")
+                SecureLogger.d("MainActivity", "Update available: ${appUpdateInfo.availableVersionCode()}")
 
                 // The update manager will have determined the best update type (FLEXIBLE or IMMEDIATE)
                 // based on priority, staleness, etc.
@@ -135,7 +136,7 @@ class MainActivity : FragmentActivity() {
                 )
             },
             onNoUpdateAvailable = {
-                Log.d("MainActivity", "No updates available")
+                SecureLogger.d("MainActivity", "No updates available")
             }
         )
     }
@@ -143,17 +144,17 @@ class MainActivity : FragmentActivity() {
     private fun getFCMToken() {
         FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
             if (!task.isSuccessful) {
-                Log.w("MainActivity", "Fetching FCM registration token failed", task.exception)
+                SecureLogger.w("MainActivity", "Fetching FCM registration token failed")
                 return@addOnCompleteListener
             }
 
             val token = task.result
-            Log.d("MainActivity", "FCM Token: $token")
+            SecureLogger.d("MainActivity", "FCM Token: $token")
 
             // Get current user ID
             val userId = getUserIdFromPreferences(this)
 
-            // If user is logged in, register the token
+            // If user is SecureLoggerged in, register the token
             if (userId != null) {
                 val myApplication = applicationContext as MyApplication
                 val repository = myApplication.notificationRepository
@@ -162,9 +163,9 @@ class MainActivity : FragmentActivity() {
                 lifecycleScope.launch(Dispatchers.IO) {
                     try {
                         repository.registerDeviceToken(token, userId)
-                        Log.d("MainActivity", "Successfully registered FCM token")
+                        SecureLogger.d("MainActivity", "Successfully registered FCM token")
                     } catch (e: Exception) {
-                        Log.e("MainActivity", "Failed to register FCM token", e)
+                        SecureLogger.e("MainActivity", "Failed to register FCM token", e)
                     }
                 }
             }
@@ -173,7 +174,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Log.d("MainActivity", "onCreate called, intent: ${intent?.data}")
+        SecureLogger.d("MainActivity", "onCreate called, intent: ${intent?.data}")
 
         // Initialize the update manager
         updateManager = InAppUpdateManager(this)
@@ -235,7 +236,7 @@ class MainActivity : FragmentActivity() {
                         modifier = Modifier.fillMaxSize(),
                         color = MaterialTheme.colorScheme.background
                     ) {
-                        Log.d("MainActivity", "User ID: $userId")
+                        SecureLogger.d("MainActivity", "User ID: $userId")
 
                         // Show update progress for flexible updates
                         val updateProgress by updateManager.updateProgress.collectAsState()
@@ -312,12 +313,12 @@ class MainActivity : FragmentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        Log.d("MainActivity", "onNewIntent called")
-        Log.d("MainActivity", "New intent: $intent")
-        Log.d("MainActivity", "Intent data: ${intent.data}")
-        Log.d("MainActivity", "Intent action: ${intent.action}")
-        Log.d("MainActivity", "Intent categories: ${intent.categories}")
-        Log.d("MainActivity", "Intent flags: ${intent.flags}")
+        SecureLogger.d("MainActivity", "onNewIntent called")
+        SecureLogger.d("MainActivity", "New intent: $intent")
+        SecureLogger.d("MainActivity", "Intent data: ${intent.data}")
+        SecureLogger.d("MainActivity", "Intent action: ${intent.action}")
+        SecureLogger.d("MainActivity", "Intent categories: ${intent.categories}")
+        SecureLogger.d("MainActivity", "Intent flags: ${intent.flags}")
 
         setIntent(intent)  // Important: update the stored intent
 
@@ -328,9 +329,9 @@ class MainActivity : FragmentActivity() {
 
     override fun onResume() {
         super.onResume()
-        Log.d("MainActivity", "onResume called")
-        Log.d("MainActivity", "Current intent: ${intent}")
-        Log.d("MainActivity", "Intent data: ${intent?.data}")
+        SecureLogger.d("MainActivity", "onResume called")
+        SecureLogger.d("MainActivity", "Current intent: ${intent}")
+        SecureLogger.d("MainActivity", "Intent data: ${intent?.data}")
 
         // Resume any updates that were in progress
         updateManager.resumeUpdates(updateResultLauncher)
@@ -338,35 +339,27 @@ class MainActivity : FragmentActivity() {
         // Check if we have an update that's already downloaded
         updateManager.checkIfUpdateDownloaded {
             // Show a UI prompt when the update is ready
-            Log.d("MainActivity", "Update is downloaded and ready to install")
+            SecureLogger.d("MainActivity", "Update is downloaded and ready to install")
             // This will be handled in the Compose UI with the snackbar
         }
 
-        // Check if user is authenticated and prompt for biometrics if needed
+        // Check if user needs biometric authentication
         val userId = getUserIdFromPreferences(this)
-        if (userId != null && !AuthManager.isUserLoggedIn(this)) {
-            Log.d("MainActivity", "User returning to app, prompting for biometrics")
-            // Only prompt for biometrics if user exists but isn't authenticated
+        if (userId != null && AuthManager.needsBiometricAuthentication(this)) {
+            SecureLogger.d("MainActivity", "User needs biometric authentication, prompting...")
             AuthManager.promptForBiometrics(
                 this,
                 userRepository = userRepository,
                 userId = userId,
                 onSuccess = {
-                    Log.d("MainActivity", "Biometric authentication succeeded")
-                    // User is already on the correct screen, just update authentication state
-                    AuthManager.setAuthenticated(this, true)
+                    SecureLogger.d("MainActivity", "Biometric authentication succeeded")
+                    // Authentication state is already updated in the callback
                 },
                 onFailure = {
-                    Log.e("MainActivity", "Biometric authentication failed")
-                    // Navigate to login screen
-                    lifecycleScope.launch {
-                        setContent {
-                            val navController = rememberNavController()
-                            navController.navigate("login") {
-                                popUpTo("home") { inclusive = true }
-                            }
-                        }
-                    }
+                    SecureLogger.e("MainActivity", "Biometric authentication failed")
+                    // Navigate to Login screen or handle failure
+                    AuthManager.logout(this)
+                    // You might need to recreate the activity or navigate to login
                 }
             )
         }
@@ -374,9 +367,12 @@ class MainActivity : FragmentActivity() {
 
     override fun onPause() {
         super.onPause()
+        SecureLogger.d("MainActivity", "onPause called")
+
         // When app goes to background, mark that biometric will be needed on return
         val userId = getUserIdFromPreferences(this)
         if (userId != null && AuthManager.isUserLoggedIn(this)) {
+            SecureLogger.d("MainActivity", "Setting needsBiometric to true")
             AuthManager.setNeedsBiometric(this, true)
         }
     }
@@ -407,9 +403,9 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun handleIntent(intent: Intent) {
-        Log.d("MainActivity", "handleIntent START")
+        SecureLogger.d("MainActivity", "handleIntent START")
         val data = intent.data
-        Log.d("MainActivity", "handleIntent called with data: $data")
+        SecureLogger.d("MainActivity", "handleIntent called with data: $data")
         if (data != null) {
             val uriString = data.toString().replace("&amp;", "&")
             val decodedUri = data
@@ -417,12 +413,12 @@ class MainActivity : FragmentActivity() {
             val host = decodedUri.host
             val path = decodedUri.path
 
-            Log.d("MainActivity", "Decoded URI: $decodedUri")
-            Log.d("MainActivity", "scheme: $scheme, host: $host, path: $path")
+            SecureLogger.d("MainActivity", "Decoded URI: $decodedUri")
+            SecureLogger.d("MainActivity", "scheme: $scheme, host: $host, path: $path")
 
             if (scheme == "trego") {
                 when (host) {
-                    // Handle group invites
+                    // Handle group invites and regular group navigation
                     "groups" -> {
                         when {
                             // Group invite links
@@ -431,7 +427,7 @@ class MainActivity : FragmentActivity() {
                                 referenceState.value = null
                                 pendingInvite.value = InviteData.GroupInvite(inviteCode)
                             }
-                            // Regular group navigation (for REMOVED_FROM_GROUP notification)
+                            // Regular group navigation (for most group-related notifications)
                             else -> {
                                 val groupId = path?.removePrefix("/")?.toIntOrNull()
                                 if (groupId != null) {
@@ -457,7 +453,6 @@ class MainActivity : FragmentActivity() {
                                 )
                             } else {
                                 // Legacy approach - fallback to direct user ID if present
-                                // This can be removed once all clients have updated
                                 val provisionalUserId = decodedUri.getQueryParameter("userId")?.toIntOrNull()
                                 if (provisionalUserId != null) {
                                     referenceState.value = null
@@ -472,11 +467,10 @@ class MainActivity : FragmentActivity() {
 
                     // Handle bank account links
                     "bankaccounts" -> {
-                        // Check for both reference (from GoCardless) and ref (from our app)
                         val reference = decodedUri.getQueryParameter("reference")
                         val returnRoute = decodedUri.getQueryParameter("returnRoute")
 
-                        Log.d(
+                        SecureLogger.d(
                             "MainActivity",
                             "Bank account deep link - reference: $reference, returnRoute: $returnRoute"
                         )
@@ -486,12 +480,12 @@ class MainActivity : FragmentActivity() {
                             previousRoute.value = returnRoute
                             pendingInvite.value = null
                         } else {
-                            Log.e("MainActivity", "No reference found in deep link")
+                            SecureLogger.e("MainActivity", "No reference found in deep link")
                         }
                     }
 
-                    // Handle group details with payment ID (for NEW_EXPENSE, UPDATED_EXPENSE, TRANSFER_COMPLETED, CURRENCY_CONVERTED)
-                    "groupDetails" -> {
+                    // Handle payment details (for NEW_EXPENSE, UPDATED_EXPENSE, TRANSFER_COMPLETED, CURRENCY_CONVERTED, PAYMENT_SPLITS_UPDATED)
+                    "paymentDetails" -> {
                         val segments = path?.removePrefix("/")?.split("/")
                         if (segments?.size == 2) {
                             val groupId = segments[0].toIntOrNull()
@@ -499,21 +493,49 @@ class MainActivity : FragmentActivity() {
 
                             if (groupId != null && paymentId != null) {
                                 // Store navigation target for later execution
-                                pendingDeepLink.value =
-                                    DeepLinkTarget.PaymentDetails(groupId, paymentId)
-                            } else if (groupId != null) {
-                                // If only group ID is valid, navigate to group details
-                                pendingDeepLink.value = DeepLinkTarget.GroupDetails(groupId)
+                                pendingDeepLink.value = DeepLinkTarget.PaymentDetails(groupId, paymentId)
                             }
                         }
                     }
 
-                    // Handle settle up links (for SETTLE_UP_REMINDER)
+                    // Handle settle up links (for SETTLE_UP_REMINDER, SETTLE_UP_COMPLETED)
                     "settleUp" -> {
                         val groupId = path?.removePrefix("/")?.toIntOrNull()
                         if (groupId != null) {
                             // Store navigation target for later execution
                             pendingDeepLink.value = DeepLinkTarget.SettleUp(groupId)
+                        }
+                    }
+
+                    // Handle group settings links (for GROUP_DEFAULT_SPLIT_CHANGED, GROUP_DEFAULT_CURRENCY_CHANGED)
+                    "groupSettings" -> {
+                        val groupId = path?.removePrefix("/")?.toIntOrNull()
+                        if (groupId != null) {
+                            // Store navigation target for later execution
+                            pendingDeepLink.value = DeepLinkTarget.GroupSettings(groupId)
+                        }
+                    }
+
+                    // Handle legacy groupDetails links (for backward compatibility)
+                    "groupDetails" -> {
+                        val segments = path?.removePrefix("/")?.split("/")
+                        if (segments?.size == 2) {
+                            val groupId = segments[0].toIntOrNull()
+                            val paymentId = segments[1].toIntOrNull()
+
+                            if (groupId != null && paymentId != null) {
+                                // This is actually a payment details link
+                                pendingDeepLink.value = DeepLinkTarget.PaymentDetails(groupId, paymentId)
+                            } else if (groupId != null) {
+                                // Just group details
+                                pendingDeepLink.value = DeepLinkTarget.GroupDetails(groupId)
+                            }
+                        } else {
+                            // Single group ID
+                            val groupId = path?.removePrefix("/")?.toIntOrNull()
+                            if (groupId != null) {
+                                pendingDeepLink.value = DeepLinkTarget.GroupDetails(groupId)
+                            }
                         }
                     }
                 }
@@ -547,7 +569,7 @@ class MainActivity : FragmentActivity() {
 
         SideEffect {
             activity?.let { act ->
-                Log.d("StatusBarDebug", "NavigationSetup: Setting status bar with isDarkTheme=$isDarkTheme, themeMode=$themeMode")
+                SecureLogger.d("StatusBarDebug", "NavigationSetup: Setting status bar with isDarkTheme=$isDarkTheme, themeMode=$themeMode")
 
                 // Set status bar to transparent for edge-to-edge layout
                 act.window.statusBarColor = android.graphics.Color.TRANSPARENT
@@ -560,14 +582,14 @@ class MainActivity : FragmentActivity() {
                 // In light theme we want dark icons (isAppearanceLightStatusBars = true)
                 val targetState = !isDarkTheme
 
-                Log.d("StatusBarDebug", "NavigationSetup: current=$currentState, target=$targetState")
+                SecureLogger.d("StatusBarDebug", "NavigationSetup: current=$currentState, target=$targetState")
 
                 if (currentState != targetState) {
-                    Log.d("StatusBarDebug", "NavigationSetup: CHANGING status bar icons from " +
+                    SecureLogger.d("StatusBarDebug", "NavigationSetup: CHANGING status bar icons from " +
                             "${if (currentState) "DARK" else "LIGHT"} to ${if (targetState) "DARK" else "LIGHT"}")
                     insetsController.isAppearanceLightStatusBars = targetState
                 } else {
-                    Log.d("StatusBarDebug", "NavigationSetup: No change needed for status bar icons")
+                    SecureLogger.d("StatusBarDebug", "NavigationSetup: No change needed for status bar icons")
                 }
             }
         }
@@ -579,35 +601,35 @@ class MainActivity : FragmentActivity() {
             // Get fresh user ID
             val currentUserId = getUserIdFromPreferences(context)
 
-            // Check login state
+            // Check authentication states
             val isLoggedIn = AuthManager.isUserLoggedIn(context)
             val needsBiometric = AuthManager.needsBiometricAuthentication(context)
+            val hasTimedOut = AuthManager.hasSessionTimedOut(context)
 
-            Log.d("MainActivity", "Navigation check - isLoggedIn: $isLoggedIn, needsBiometric: $needsBiometric, userId: $currentUserId")
+            SecureLogger.d("MainActivity", "Navigation check - isLoggedIn: $isLoggedIn, needsBiometric: $needsBiometric, hasTimedOut: $hasTimedOut, userId: $currentUserId")
 
             when {
-                // User is logged in and doesn't need biometric
-                isLoggedIn && !needsBiometric -> {
-                    Log.d("MainActivity", "User is authenticated, navigating to home")
-                    navController.navigate("home") {
-                        popUpTo("login") { inclusive = true }
-                    }
-                }
-
-                // User is logged in but needs biometric
-                isLoggedIn && needsBiometric -> {
-                    Log.d("MainActivity", "User needs biometric, prompting...")
-                    // Don't navigate yet, let onResume handle biometric
-                    navController.navigate("home") {
-                        popUpTo("login") { inclusive = true }
-                    }
-                }
-
                 // User is not logged in at all
-                else -> {
-                    Log.d("MainActivity", "User not logged in, navigating to login")
-                    navController.navigate("login") {
+                !isLoggedIn -> {
+                    SecureLogger.d("MainActivity", "User not logged in, navigating to Login")
+                    navController.navigate("Login") {
                         popUpTo("home") { inclusive = true }
+                    }
+                }
+
+                // User is logged in but needs biometric (will be handled in onResume)
+                isLoggedIn && (needsBiometric || hasTimedOut) -> {
+                    SecureLogger.d("MainActivity", "User logged in but needs biometric, navigating to home (biometric will be prompted)")
+                    navController.navigate("home") {
+                        popUpTo("Login") { inclusive = true }
+                    }
+                }
+
+                // User is fully authenticated
+                else -> {
+                    SecureLogger.d("MainActivity", "User is fully authenticated, navigating to home")
+                    navController.navigate("home") {
+                        popUpTo("Login") { inclusive = true }
                     }
                 }
             }
@@ -641,7 +663,7 @@ class MainActivity : FragmentActivity() {
         LaunchedEffect(referenceState.value) {
             val reference = referenceState.value
             if (reference != null) {
-                Log.d("HandleDeepLink", "Processing reference: $reference")
+                SecureLogger.d("HandleDeepLink", "Processing reference: $reference")
                 coroutineScope.launch {
                     fetchRequisitionAndNavigate(reference, navController, context)
                     // Clear the reference state after handling
@@ -660,20 +682,24 @@ class MainActivity : FragmentActivity() {
         LaunchedEffect(pendingDeepLink.value) {
             val target = pendingDeepLink.value
             if (target != null) {
-                Log.d("HandleDeepLinkTarget", "Processing deep link target: $target")
+                SecureLogger.d("HandleDeepLinkTarget", "Processing deep link target: $target")
 
                 when (target) {
                     is DeepLinkTarget.GroupDetails -> {
-                        Log.d("HandleDeepLinkTarget", "Navigating to group details for group ${target.groupId}")
+                        SecureLogger.d("HandleDeepLinkTarget", "Navigating to group details for group ${target.groupId}")
                         navController.navigate("groupDetails/${target.groupId}")
                     }
                     is DeepLinkTarget.PaymentDetails -> {
-                        Log.d("HandleDeepLinkTarget", "Navigating to payment details for group ${target.groupId}, payment ${target.paymentId}")
+                        SecureLogger.d("HandleDeepLinkTarget", "Navigating to payment details for group ${target.groupId}, payment ${target.paymentId}")
                         navController.navigate("paymentDetails/${target.groupId}/${target.paymentId}")
                     }
                     is DeepLinkTarget.SettleUp -> {
-                        Log.d("HandleDeepLinkTarget", "Navigating to settle up for group ${target.groupId}")
+                        SecureLogger.d("HandleDeepLinkTarget", "Navigating to settle up for group ${target.groupId}")
                         navController.navigate("settleUp/${target.groupId}")
+                    }
+                    is DeepLinkTarget.GroupSettings -> {
+                        SecureLogger.d("HandleDeepLinkTarget", "Navigating to group settings for group ${target.groupId}")
+                        navController.navigate("groupSettings/${target.groupId}")
                     }
                 }
 
@@ -699,18 +725,18 @@ class MainActivity : FragmentActivity() {
             when (val invite = pendingInvite.value) {
                 is InviteData.GroupInvite -> {
                     if (userId != null) {
-                        // User is logged in, navigate directly to group join
+                        // User is SecureLoggerged in, navigate directly to group join
                         navController.navigate("invite/${invite.inviteCode}")
                     } else {
-                        // User needs to log in first, pass invite code
-                        navController.navigate("login?pendingInvite=${invite.inviteCode}")
+                        // User needs to SecureLogger in first, pass invite code
+                        navController.navigate("Login?pendingInvite=${invite.inviteCode}")
                     }
                     pendingInvite.value = null
                 }
 
                 is InviteData.ProvisionalUserInvite -> {
                     if (userId != null) {
-                        // User is logged in, handle merge
+                        // User is SecureLoggerged in, handle merge
                         try {
                             userRepository.mergeProvisionalUser(
                                 provisionalUserId = invite.provisionalUserId,
@@ -721,11 +747,11 @@ class MainActivity : FragmentActivity() {
                                     navController.navigate("invite/$code")
                                 } ?: navController.navigate("home")
                             }.onFailure {
-                                // Show error dialog
+                                // Show error diaSecureLogger
                                 // You'll need to implement error handling UI
                             }
                         } catch (e: Exception) {
-                            Log.e("MainActivity", "Error merging users", e)
+                            SecureLogger.e("MainActivity", "Error merging users", e)
                             // Handle error
                         }
                     } else {
@@ -750,7 +776,7 @@ class MainActivity : FragmentActivity() {
 
                                 provisionalUserResult.onSuccess { provisionalUser ->
                                     if (userId != null) {
-                                        // User is logged in, handle merge
+                                        // User is SecureLoggerged in, handle merge
                                         try {
                                             userRepository.mergeProvisionalUser(
                                                 provisionalUserId = provisionalUser.userId,
@@ -769,7 +795,7 @@ class MainActivity : FragmentActivity() {
                                                 navController.navigate("home")
                                             }
                                         } catch (e: Exception) {
-                                            Log.e("MainActivity", "Error merging users", e)
+                                            SecureLogger.e("MainActivity", "Error merging users", e)
                                             Toast.makeText(
                                                 context,
                                                 "Error merging users: ${e.message}",
@@ -785,27 +811,27 @@ class MainActivity : FragmentActivity() {
                                         )
                                     }
                                 }.onFailure { error ->
-                                    Log.e("MainActivity", "Error getting provisional user", error)
+                                    SecureLogger.e("MainActivity", "Error getting provisional user", error)
                                     Toast.makeText(
                                         context,
                                         "Error processing invite: ${error.message}",
                                         Toast.LENGTH_LONG
                                     ).show()
-                                    navController.navigate("login")
+                                    navController.navigate("Login")
                                 }
                             }.onFailure { error ->
-                                Log.e("MainActivity", "Error resolving token", error)
+                                SecureLogger.e("MainActivity", "Error resolving token", error)
                                 Toast.makeText(
                                     context,
                                     "Invalid or expired invitation link",
                                     Toast.LENGTH_LONG
                                 ).show()
-                                navController.navigate("login")
+                                navController.navigate("Login")
                             }
                         } catch (e: Exception) {
-                            Log.e("MainActivity", "Error processing token invite", e)
+                            SecureLogger.e("MainActivity", "Error processing token invite", e)
                             Toast.makeText(context, "Error processing invite", Toast.LENGTH_LONG).show()
-                            navController.navigate("login")
+                            navController.navigate("Login")
                         }
 
                         pendingInvite.value = null
@@ -822,27 +848,27 @@ class MainActivity : FragmentActivity() {
         navController: NavController,
         context: Context
     ) {
-        Log.d("fetchRequisitionAndNavigate", "Fetching requisition for reference: $reference")
+        SecureLogger.d("fetchRequisitionAndNavigate", "Fetching requisition for reference: $reference")
         try {
             val requisition = requisitionRepository.getRequisitionByReference(reference)
-            Log.d("fetchRequisitionAndNavigate", "Requisition response: $requisition")
+            SecureLogger.d("fetchRequisitionAndNavigate", "Requisition response: $requisition")
 
             if (requisition != null) {
                 // First navigate to bank accounts screen
-                Log.d("fetchRequisitionAndNavigate", "Navigating to bankaccounts/${requisition.requisitionId}")
+                SecureLogger.d("fetchRequisitionAndNavigate", "Navigating to bankaccounts/${requisition.requisitionId}")
                 navController.navigate("bankaccounts/${requisition.requisitionId}")
 
                 // IMPORTANT: Only process return route if explicitly requested by user
                 // Otherwise, we let the BankAccountsScreen handle the navigation flow
                 val returnRoute = intent?.data?.getQueryParameter("manualReturn")
-                Log.d("fetchRequisitionAndNavigate", "Manual return route from deep link: $returnRoute")
+                SecureLogger.d("fetchRequisitionAndNavigate", "Manual return route from deep link: $returnRoute")
 
                 if (!returnRoute.isNullOrEmpty()) {
                     // Only give more time for bank account processing if manual return is requested
                     kotlinx.coroutines.delay(1500)
 
                     val decodedRoute = Uri.decode(returnRoute)
-                    Log.d(
+                    SecureLogger.d(
                         "fetchRequisitionAndNavigate",
                         "Navigating back to decoded route: $decodedRoute"
                     )
@@ -854,13 +880,13 @@ class MainActivity : FragmentActivity() {
                 }
                 // Otherwise, let the account selection flow complete naturally
             } else {
-                Log.e(
+                SecureLogger.e(
                     "fetchRequisitionAndNavigate",
                     "Requisition not found for reference: $reference"
                 )
             }
         } catch (e: Exception) {
-            Log.e("fetchRequisitionAndNavigate", "Error fetching requisition", e)
+            SecureLogger.e("fetchRequisitionAndNavigate", "Error fetching requisition", e)
         }
     }
 

@@ -154,7 +154,7 @@ fun PaymentScreen(
     // Handle system back button/gesture
     BackHandler {
         checkUnsavedChangesBeforeNavigation {
-            navController.popBackStack()
+            navController.popBackStack("groupDetails/$groupId", inclusive = false)
         }
     }
 
@@ -304,6 +304,20 @@ fun PaymentScreen(
             // Give the component time to process the trigger
             delay(100)
             showConversionSheetTrigger = false
+        }
+    }
+
+    // Check for error status and display toast
+    LaunchedEffect(paymentOperationStatus) {
+        if (paymentOperationStatus is PaymentsViewModel.PaymentOperationStatus.Error) {
+            Toast.makeText(
+                context,
+                paymentOperationStatus.message,
+                Toast.LENGTH_LONG
+            ).show()
+
+            // Reset error state after showing toast
+            paymentsViewModel.resetOperationStatus()
         }
     }
 
@@ -745,22 +759,6 @@ fun PaymentScreen(
                 }
             }
         )
-    }
-    // Check for error status and display message
-    if (paymentOperationStatus is PaymentsViewModel.PaymentOperationStatus.Error) {
-        Snackbar(
-            modifier = Modifier.padding(16.dp),
-            action = {
-                TextButton(onClick = {
-                    // Reset error state
-                    paymentsViewModel.resetOperationStatus()
-                }) {
-                    Text("Dismiss")
-                }
-            }
-        ) {
-            Text(paymentOperationStatus.message)
-        }
     }
 }
 

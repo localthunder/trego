@@ -743,22 +743,11 @@ class UserRepository(
     suspend fun updateUsername(userId: Int, newUsername: String): Result<Unit> =
         withContext(dispatchers.io) {
             try {
-                val user = userDao.getUserByIdDirect(userId)
-                    ?: return@withContext Result.failure(Exception("User not found"))
-
-                if (!NetworkUtils.isOnline()) {
+                if (!NetworkUtils.hasNetworkCapabilities()) {
                     return@withContext Result.failure(IOException("Internet connection required"))
                 }
 
-                // Update on server first
-                val serverUser = myApplication.entityServerConverter
-                    .convertUserToServer(user.copy(username = newUsername))
-                    .getOrThrow()
-
-                val response = apiService.updateUsername(
-                    userId = serverUser.userId,
-                    request = mapOf("username" to newUsername)
-                )
+                val response = apiService.updateUsername(request = mapOf("username" to newUsername))
 
                 // Update local database
                 userDao.updateUsername(

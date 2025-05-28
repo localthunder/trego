@@ -71,21 +71,8 @@ class UserGroupArchiveSyncManager(
     }
 
     override suspend fun getServerChanges(since: Long): List<UserGroupArchiveEntity> {
-        val userId = getUserIdFromPreferences(context)
-            ?: throw IllegalStateException("User ID not found")
-
-        Log.d(TAG, "Local user ID: $userId")
-
-        val localUser = userDao.getUserByIdDirect(userId)
-            ?: throw IllegalStateException("User not found in local database")
-
-        Log.d(TAG, "Found local user: ${localUser.userId}, server ID: ${localUser.serverId}")
-
-        val serverUserId = localUser.serverId
-            ?: throw IllegalStateException("No server ID found for user $userId")
-
         // Get all archived group server IDs for the user
-        val serverArchives = apiService.getArchivedGroups(serverUserId)
+        val serverArchives = apiService.getMyArchivedGroups()
         Log.d(TAG, "Received server archives: $serverArchives")
 
         return serverArchives.mapNotNull { serverArchive ->

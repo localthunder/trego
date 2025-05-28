@@ -4,6 +4,7 @@ import android.net.Uri
 import com.google.gson.annotations.SerializedName
 import com.helgolabs.trego.data.local.dataClasses.ApiResponse
 import com.helgolabs.trego.data.local.dataClasses.AuthResponse
+import com.helgolabs.trego.data.local.dataClasses.BatchNotificationRequest
 import com.helgolabs.trego.data.local.dataClasses.CreateInviteTokenRequest
 import com.helgolabs.trego.data.local.dataClasses.CurrencyConversionResponse
 import com.helgolabs.trego.data.local.dataClasses.GroupMemberResponse
@@ -12,6 +13,7 @@ import com.helgolabs.trego.data.local.dataClasses.InviteTokenResponse
 import com.helgolabs.trego.data.local.dataClasses.LoginRequest
 import com.helgolabs.trego.data.local.dataClasses.MergeUsersRequest
 import com.helgolabs.trego.data.local.dataClasses.MergeUsersResponse
+import com.helgolabs.trego.data.local.dataClasses.NotificationResponse
 import com.helgolabs.trego.data.local.dataClasses.PaymentSyncResponse
 import com.helgolabs.trego.data.local.dataClasses.RegisterRequest
 import com.helgolabs.trego.data.local.dataClasses.RequisitionRequest
@@ -38,9 +40,6 @@ import retrofit2.http.*
 interface ApiService {
     @GET("/api/users/{userId}")
     suspend fun getUserById(@Path("userId") userId: Int): User
-
-    @POST("/api/users/batch")
-    suspend fun getUsersByIds(@Body userIds: List<Int>): List<User>
 
     @POST("/api/users/create")
     suspend fun createUser(@Body user: User): User
@@ -84,8 +83,8 @@ interface ApiService {
     @DELETE("api/notifications/unregister-device/{tokenId}")
     suspend fun unregisterDeviceToken(@Path("tokenId") tokenId: Int)
 
-    @PUT("api/users/{userId}/username")
-    suspend fun updateUsername(@Path("userId") userId: Int, @Body request: Map<String, String>): User
+    @PUT("api/users/me/username")
+    suspend fun updateUsername(@Body request: Map<String, String>): User
 
     @POST("/api/gocardless/requisition")
     suspend fun createRequisition(@Body requisitionRequest: RequisitionRequest): RequisitionResponseWithRedirect
@@ -105,29 +104,16 @@ interface ApiService {
     @GET("/api/gocardless/requisition/{reference}")
     suspend fun getRequisitionByReference(@Path("reference") reference: String): Requisition
 
-    @GET("/api/gocardless/requisition/user/{userId}")
-    suspend fun getRequisitionsByUserId(@Path("userId") userId: Int): List<Requisition>
-
-    @GET("/api/gocardless/listUserAccounts")
-    suspend fun listUserAccounts(): List<BankAccount>
-
-    @GET("/api/gocardless/transactions/{userId}")
-    suspend fun getTransactionsByUserId(@Path("userId") userId: Int): TransactionsApiResponse
-
-    @GET("api/transactions/{transactionId}")
-    suspend fun getTransactionById(@Path("transactionId") transactionId: String): Transaction
+    @GET("/api/gocardless/transactions/me")
+    suspend fun getMyTransactions(): TransactionsApiResponse
 
     @GET("/api/gocardless/transactions/recent/{userId}")
-    suspend fun getRecentTransactions(
-        @Path("userId") userId: Int,
-        @Query("date_from") dateFrom: String
-    ): List<Transaction>
+    suspend fun getMyRecentTransactions(@Query("date_from") dateFrom: String): List<Transaction>
+
 
     @GET("/api/gocardless/transactions/non-recent/{userId}")
-    suspend fun getNonRecentTransactions(
-        @Path("userId") userId: Int,
-        @Query("date_to") dateTo: String
-    ): List<Transaction>
+    suspend fun getMyNonRecentTransactions(@Query("date_to") dateTo: String): List<Transaction>
+
 
     @POST("/api/gocardless/transactions")
     suspend fun createTransaction(@Body transaction: Transaction): Transaction
@@ -135,8 +121,8 @@ interface ApiService {
     @GET("/api/gocardless/transactions/account/{accountId}")
     suspend fun getAccountTransactions(@Path("accountId") accountId: String, ): List<Transaction>
 
-    @GET("/api/gocardless/{userId}/accounts")
-    suspend fun getUserAccounts(@Path("userId") userId: Int): List<BankAccount>
+    @GET("/api/gocardless/accounts/me")
+    suspend fun getMyBankAccounts(): List<BankAccount>
 
     @DELETE("/api/gocardless/accounts/{accountId}")
     suspend fun deleteBankAccount(@Path("accountId") accountId: String): Response<Unit>
@@ -168,8 +154,8 @@ interface ApiService {
         @Query("userId") userId: Int
     ): Boolean
 
-    @GET("api/groups/archives/{userId}")
-    suspend fun getArchivedGroups(@Path("userId") userId: Int): List<Map<String, Any>>
+    @GET("api/groups/archives/me")
+    suspend fun getMyArchivedGroups(): List<Map<String, Any>>
 
     @POST("api/groups/{groupId}/members")
     suspend fun addMemberToGroup(
@@ -193,65 +179,35 @@ interface ApiService {
     @GET("api/users/invite-tokens/{token}")
     suspend fun resolveInviteToken(@Path("token") token: String): InviteTokenResponse
 
-    @GET("api/groups/user/{userId}")
-    suspend fun getGroupsByUserId(@Path("userId") userId: Int): List<Group>
-
-    @GET("users/{userId}/group-memberships")
-    suspend fun getAllGroupMembershipsForUser(@Path("userId") userId: Int): List<GroupMember>
+    @GET("api/groups/me")
+    suspend fun getMyGroups(): List<Group>
 
     @GET("api/gocardless/changes")
-    suspend fun getAccountsSince(
-        @Query("since") timestamp: Long,
-        @Query("userId") userId: Int
-    ): List<BankAccount>
+    suspend fun getAccountsSince(@Query("since") timestamp: Long, ): List<BankAccount>
 
     @GET("api/groups/changes")
-    suspend fun getGroupsSince(
-        @Query("since") timestamp: Long,
-        @Query("userId") userId: Int
-    ): List<Group>
+    suspend fun getGroupsSince(@Query("since") timestamp: Long): List<Group>
 
     @GET("api/groups/members/changes")
-    suspend fun getGroupMembersSince(
-        @Query("since") timestamp: Long,
-        @Query("userId") userId: Int
-    ): List<GroupMemberWithGroupResponse>
+    suspend fun getGroupMembersSince(@Query("since") timestamp: Long): List<GroupMemberWithGroupResponse>
 
     @GET("api/payments/changes")
-    suspend fun getPaymentsSince(
-        @Query("since") timestamp: Long,
-        @Query("userId") userId: Int
-    ): PaymentSyncResponse
+    suspend fun getPaymentsSince(@Query("since") timestamp: Long): PaymentSyncResponse
 
     @GET("api/gocardless/requisition/changes")
-    suspend fun getRequisitionsSince(
-        @Query("since") timestamp: Long,
-        @Query("userId") userId: Int
-    ): List<Requisition>
+    suspend fun getRequisitionsSince(@Query("since") timestamp: Long): List<Requisition>
 
     @GET("api/gocardless/transaction/changes")
-    suspend fun getTransactionsSince(
-        @Query("since") timestamp: Long,
-        @Query("userId") userId: Int
-    ): List<Transaction>
+    suspend fun getTransactionsSince(@Query("since") timestamp: Long): List<Transaction>
 
     @GET("api/users/changes")
-    suspend fun getUsersSince(
-        @Query("since") timestamp: Long,
-        @Query("userId") userId: Int
-    ): List<User>
+    suspend fun getUsersSince(@Query("since") timestamp: Long): List<User>
 
     @GET("api/payments/currency-conversions/changes")
-    suspend fun getCurrencyConversionsSince(
-        @Query("since") timestamp: Long,
-        @Query("userId") userId: Int
-    ): CurrencyConversionResponse
+    suspend fun getCurrencyConversionsSince(@Query("since") timestamp: Long): CurrencyConversionResponse
 
     @GET("api/groups/default-splits/changes")
-    suspend fun getGroupDefaultSplitsSince(
-        @Query("since") timestamp: Long,
-        @Query("userId") userId: Int
-    ): List<GroupDefaultSplit>
+    suspend fun getGroupDefaultSplitsSince(@Query("since") timestamp: Long): List<GroupDefaultSplit>
 
 
     @GET("api/groups/{groupId}/members")
@@ -260,20 +216,18 @@ interface ApiService {
     @PUT("api/groups/members/{memberId}")
     suspend fun removeMemberFromGroup(@Path("memberId") memberId: Int): GroupMember
 
-    @GET("api/groups/{groupId}/balances")
-    suspend fun getGroupBalances(@Path("groupId") groupId: Int): List<UserBalanceWithCurrency>
-
     @POST("api/payments")
     suspend fun createPayment(@Body payment: Payment): Payment
 
     @PUT("api/payments/{paymentId}")
-    suspend fun updatePayment(@Path("paymentId") paymentId: Int, @Body payment: Payment): Payment
+    suspend fun updatePayment(
+        @Path("paymentId") paymentId: Int,
+        @Body payment: Payment,
+        @HeaderMap headers: Map<String, String> = emptyMap()
+    ): Payment
 
     @GET("api/payments/{paymentId}")
     suspend fun getPaymentById(@Path("paymentId") paymentId: Int): Payment
-
-    @GET("api/payments/{transactionId}")
-    suspend fun getPaymentByTransactionId(@Path("transactionId") transactionId: String): Payment
 
     @GET("api/payments/groups/{groupId}")
     suspend fun getPaymentsByGroup(@Path("groupId") groupId: Int): List<Payment>
@@ -322,8 +276,8 @@ interface ApiService {
         @Body needsReauthentication: Boolean
     ): Unit
 
-    @GET("/api/accounts/reauthentication")
-    suspend fun getAccountsNeedingReauthentication(): List<BankAccount>
+    @GET("/api/accounts/reauthentication/me")
+    suspend fun getMyAccountsNeedingReauthentication(): List<BankAccount>
 
     @GET("/api/accounts/{accountId}/reauthentication")
     suspend fun getNeedsReauthentication(@Path("accountId") accountId: String): Map<String, Boolean>
@@ -337,14 +291,22 @@ interface ApiService {
     @GET("/api/health")
     suspend fun healthCheck(): Response<Unit>
 
-    @POST("/api/payments/currency-conversions")
-    suspend fun createCurrencyConversion(@Body conversion: CurrencyConversion): CurrencyConversion
+    @POST("api/payments/currency-conversions")
+    suspend fun createCurrencyConversion(
+        @Body conversion: CurrencyConversion,
+        @HeaderMap headers: Map<String, String> = emptyMap()
+    ): CurrencyConversion
 
     @PUT("/api/payments/currency-conversions/{id}")
     suspend fun updateCurrencyConversion(@Path("id") id: Int, @Body conversion: CurrencyConversion): CurrencyConversion
 
     @DELETE("api/payments/currency-conversions/{id}")
     suspend fun deleteCurrencyConversion(@Path("id") id: Int): Response<Unit>
+
+    @POST("api/notifications/batch-currency-conversion")
+    suspend fun sendBatchCurrencyConversionNotification(
+        @Body request: BatchNotificationRequest
+    ): NotificationResponse
 
     @POST("api/groups/join/{inviteCode}")
     suspend fun joinGroupByInvite(@Path("inviteCode") inviteCode: String): Group
@@ -367,27 +329,27 @@ interface ApiService {
     @DELETE("api/groups/{groupId}/default-splits/{splitId}")
     suspend fun deleteGroupDefaultSplit(@Path("groupId") groupId: Int, @Path("splitId") splitId: Int): Response<Unit>
 
-    @GET("api/users/{userId}/preferences")
-    suspend fun getUserPreferences(@Path("userId") userId: Int): ApiResponse<List<UserPreference>>
+    @GET("api/users/me/preferences")
+    suspend fun getUserPreferences(): ApiResponse<List<UserPreference>>
 
-    @GET("api/users/{userId}/preferences/{key}")
-    suspend fun getUserPreference(@Path("userId") userId: Int, @Path("key") key: String): ApiResponse<UserPreference>
+    @GET("api/users/me/preferences/{key}")
+    suspend fun getUserPreference(@Path("key") key: String): ApiResponse<UserPreference>
 
-    @PUT("api/users/{userId}/preferences/{key}")
-    suspend fun updateUserPreference(@Path("userId") userId: Int, @Path("key") key: String, @Body value: Map<String, String>): Response<ApiResponse<Unit>>
+    @PUT("api/users/me/preferences/{key}")
+    suspend fun updateUserPreference(@Path("key") key: String, @Body value: Map<String, String>): Response<ApiResponse<Unit>>
 
-    @DELETE("api/users/{userId}/preferences/{key}")
-    suspend fun deleteUserPreference(@Path("userId") userId: Int, @Path("key") key: String): Response<ApiResponse<Unit>>
+    @DELETE("api/users/me/preferences/{key}")
+    suspend fun deleteUserPreference(@Path("key") key: String): Response<ApiResponse<Unit>>
 
-    @DELETE("api/users/{userId}/preferences")
-    suspend fun deleteAllUserPreferences(@Path("userId") userId: Int): Response<ApiResponse<Unit>>
+    @DELETE("api/users/me/preferences")
+    suspend fun deleteAllUserPreferences(): Response<ApiResponse<Unit>>
 
-    @POST("api/users/{userId}/preferences/batch")
-    suspend fun batchUpdatePreferences(@Path("userId") userId: Int, @Body preferences: List<UserPreference>): Response<ApiResponse<Unit>>
+    @POST("api/users/me/preferences/batch")
+    suspend fun batchUpdatePreferences(@Body preferences: List<UserPreference>): Response<ApiResponse<Unit>>
 
-    @GET("api/users/{userId}/preferences/since")
-    suspend fun getUserPreferencesSince(@Path("userId") userId: Int, @Query("timestamp") timestamp: Long): ApiResponse<List<UserPreference>>
+    @GET("api/users/me/preferences/since")
+    suspend fun getUserPreferencesSince(@Query("timestamp") timestamp: Long): ApiResponse<List<UserPreference>>
 
-    @POST("api/users/{userId}/preferences")
-    suspend fun createUserPreference(@Path("userId") userId: Int, @Body preference: UserPreference): Response<ApiResponse<Map<String, Any>>>
+    @POST("api/users/me/preferences")
+    suspend fun createUserPreference(@Body preference: UserPreference): Response<ApiResponse<Map<String, Any>>>
 }

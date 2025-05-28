@@ -19,6 +19,7 @@ import com.helgolabs.trego.data.sync.OptimizedSyncManager
 import com.helgolabs.trego.data.sync.SyncStatus
 import com.helgolabs.trego.utils.CoroutineDispatchers
 import com.helgolabs.trego.utils.DateUtils
+import com.helgolabs.trego.utils.SecureLogger
 import com.helgolabs.trego.utils.getUserIdFromPreferences
 import kotlinx.coroutines.flow.first
 
@@ -42,21 +43,21 @@ class GroupMemberSyncManager(
 
 
     override suspend fun syncToServer(entity: GroupMemberEntity): Result<GroupMemberEntity> = try {
-        Log.d(TAG, "Starting syncToServer for group member: ${entity.id}")
+        SecureLogger.d(TAG, "Starting syncToServer for group member: ${entity.id}")
 
         // First convert local entity to server model for API call
         val serverModel = myApplication.entityServerConverter.convertGroupMemberToServer(entity)
             .getOrElse {
-                Log.e(TAG, "Failed to convert local entity to server model", it)
+                SecureLogger.e(TAG, "Failed to convert local entity to server model", it)
                 return Result.failure(it)
             }
 
         // Make API call based on whether this is a new or existing member
         val serverResponse = if (entity.serverId == null) {
-            Log.d(TAG, "Creating new group member on server")
+            SecureLogger.d(TAG, "Creating new group member on server")
             apiService.addMemberToGroup(serverModel.groupId, serverModel)
         } else {
-            Log.d(TAG, "Updating existing group member ${entity.id} on server")
+            SecureLogger.d(TAG, "Updating existing group member ${entity.id} on server")
             apiService.updateGroupMember(serverModel.groupId, entity.serverId, serverModel).data
         }
 
@@ -65,7 +66,7 @@ class GroupMemberSyncManager(
             serverResponse,
             groupMemberDao.getGroupMemberByIdSync(entity.id)
         ).onSuccess { localMember ->
-            Log.d(TAG, """
+            SecureLogger.d(TAG, """
                 About to update database with:
                 ID: ${localMember.id}
                 Server ID: ${localMember.serverId}
@@ -92,7 +93,7 @@ class GroupMemberSyncManager(
 
                 // Verify update within transaction
                 val verifiedEntity = groupMemberDao.getGroupMemberByIdSync(entity.id)
-                Log.d(TAG, """
+                SecureLogger.d(TAG, """
                     Verification within transaction:
                     ID: ${verifiedEntity?.id}
                     Server ID: ${verifiedEntity?.serverId}
@@ -102,7 +103,7 @@ class GroupMemberSyncManager(
         }.map { localMember ->
             // Final verification after transaction
             val finalEntity = groupMemberDao.getGroupMemberByIdSync(entity.id)
-            Log.d(TAG, """
+            SecureLogger.d(TAG, """
                 Final verification:
                 ID: ${finalEntity?.id}
                 Server ID: ${finalEntity?.serverId}
@@ -112,62 +113,96 @@ class GroupMemberSyncManager(
             localMember
         }
     } catch (e: Exception) {
-        Log.e(TAG, "Error syncing group member to server", e)
+        SecureLogger.e(TAG, "Error syncing group member to server", e)
         groupMemberDao.updateGroupMemberSyncStatus(entity.id, SyncStatus.SYNC_FAILED)
         Result.failure(e)
     }
 
     override suspend fun getServerChanges(since: Long): List<GroupMemberWithGroupResponse> {
-
-        val userId = getUserIdFromPreferences(context)
-            ?: throw IllegalStateException("User ID not found")
-
-        // Get the server ID from the local user ID
-        val localUser = userDao.getUserByIdDirect(userId)
-            ?: throw IllegalStateException("User not found in local database")
-
-        val serverUserId = localUser.serverId
-            ?: throw IllegalStateException("No server ID found for user $userId")
-
-        Log.d(TAG, "Fetching group members since $since")
-        return apiService.getGroupMembersSince(since, serverUserId)
+        SecureLogger.d(TAG, "Fetching group members since $since")
+        return apiService.getGroupMembersSince(since)
     }
 
     override suspend fun applyServerChange(serverEntity: GroupMemberWithGroupResponse) {
-        groupMemberDao.runInTransaction {
-            // First sync the embedded group if present
-            serverEntity.group?.let { serverGroup ->
-                val localGroup = myApplication.entityServerConverter.convertGroupFromServer(
-                    serverGroup,
-                    groupDao.getGroupByIdSync(serverGroup.id)
-                ).getOrNull()?.copy(syncStatus = SyncStatus.SYNCED)
+        try {
+            groupMemberDao.runInTransaction {
+                // First ensure the group exists locally
+                val group = serverEntity.group
+                if (group != null) {
+                    // Try to convert and insert the group first
+                    try {
+                        val localGroup = myApplication.entityServerConverter.convertGroupFromServer(
+                            group,
+                            groupDao.getGroupByServerId(group.id) // Look up by server ID
+                        ).getOrNull()?.copy(syncStatus = SyncStatus.SYNCED)
 
-                localGroup?.let { groupDao.insertGroup(it) }
+                        if (localGroup != null) {
+                            groupDao.insertGroup(localGroup)
+                            SecureLogger.d(TAG, "Ensured group exists locally: Server ID=${group.id}, Local ID=${localGroup.id}")
+                        }
+                    } catch (e: Exception) {
+                        SecureLogger.e(TAG, "Failed to ensure group exists locally: ${e.message}")
+                        // Continue anyway - we'll try to handle the member
+                    }
+
+                    // Also ensure the user exists in the database
+                    try {
+                        val userId = serverEntity.user_id  // Note: using snake_case as per your class definition
+
+                        // Try to fetch the user if not already in database
+                        if (userDao.getUserByServerIdSync(userId) == null) {
+                            try {
+                                val serverUser = apiService.getUserById(userId)
+                                val localUser = myApplication.entityServerConverter.convertUserFromServer(
+                                    serverUser,
+                                    null,
+                                    false
+                                ).getOrNull()?.copy(syncStatus = SyncStatus.SYNCED)
+
+                                if (localUser != null) {
+                                    userDao.insertUser(localUser)
+                                    SecureLogger.d(TAG, "Added missing user: Server ID=$userId, Local ID=${localUser.userId}")
+                                }
+                            } catch (e: Exception) {
+                                SecureLogger.e(TAG, "Failed to fetch user $userId: ${e.message}")
+                                // Continue anyway
+                            }
+                        }
+                    } catch (e: Exception) {
+                        SecureLogger.e(TAG, "Failed to ensure users exist locally: ${e.message}")
+                        // Continue anyway
+                    }
+                }
+
+                // Now try to convert and insert/update the group member
+                try {
+                    // Convert GroupMemberWithGroupResponse to GroupMember object
+                    val groupMember = serverEntity.toGroupMember()
+
+                    val localMember = myApplication.entityServerConverter.convertGroupMemberFromServer(
+                        groupMember,
+                        groupMemberDao.getGroupMemberByServerId(serverEntity.id)
+                    ).getOrNull()
+
+                    if (localMember != null) {
+                        if (localMember.id == 0) {
+                            groupMemberDao.insertGroupMember(localMember)
+                            SecureLogger.d(TAG, "Inserted new group member: Server ID=${serverEntity.id}")
+                        } else {
+                            groupMemberDao.updateGroupMember(localMember)
+                            SecureLogger.d(TAG, "Updated existing group member: Server ID=${serverEntity.id}")
+                        }
+                    } else {
+                        SecureLogger.e(TAG, "Couldn't convert server member to local entity")
+                    }
+                } catch (e: Exception) {
+                    SecureLogger.e(TAG, "Error handling group member: ${e.message}")
+                    throw e  // Re-throw to abort transaction
+                }
             }
-
-            // Convert server member to local entity
-            val localMember = myApplication.entityServerConverter.convertGroupMemberFromServer(
-                serverEntity.toGroupMember(),
-                groupMemberDao.getGroupMemberByServerId(serverEntity.id)  // Look up by server ID instead
-            ).getOrNull() ?: throw Exception("Failed to convert server member")
-
-            when {
-                localMember.id == 0 -> {
-                    Log.d(TAG, "Inserting new group member from server: ${serverEntity.id}")
-                    groupMemberDao.insertGroupMember(localMember)
-                }
-                DateUtils.isUpdateNeeded(
-                    serverEntity.updated_at,
-                    localMember.updatedAt,
-                    "GroupMember-${localMember.id}-Group-${serverEntity.group?.id}"
-                ) -> {
-                    Log.d(TAG, "Updating existing group member from server: ${serverEntity.id}")
-                    groupMemberDao.updateGroupMember(localMember)
-                }
-                else -> {
-                    Log.d(TAG, "Local group member ${serverEntity.id} is up to date")
-                }
-            }
+        } catch (e: Exception) {
+            SecureLogger.e(TAG, "Failed to apply server change for group member", e)
+            throw Exception("Failed to convert server member", e)
         }
     }
 

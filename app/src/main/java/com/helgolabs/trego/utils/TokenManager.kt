@@ -18,7 +18,7 @@ object TokenManager {
     }
 
     fun saveAccessToken(context: Context, token: String) {
-        Log.d(TAG, "Saving access token: ${token.take(15)}...")
+        SecureLogger.d(TAG, "Saving access token: ${token.take(15)}...")
         // Use AuthUtils for secure storage of the access token
         AuthUtils.storeLoginState(context, token)
     }
@@ -26,12 +26,12 @@ object TokenManager {
     fun getAccessToken(context: Context): String? {
         // Get the token from AuthUtils secure storage
         val token = AuthUtils.getLoginState(context)
-        Log.d(TAG, "Retrieved access token: ${token?.take(15) ?: "null"}...")
+        SecureLogger.d(TAG, "Retrieved access token: ${token?.take(15) ?: "null"}...")
         return token
     }
 
     fun saveRefreshToken(context: Context, token: String) {
-        Log.d(TAG, "Saving refresh token: ${token.take(15)}...")
+        SecureLogger.d(TAG, "Saving refresh token: ${token.take(15)}...")
         val editor = getPreferences(context).edit()
         editor.putString(KEY_REFRESH_TOKEN, token)
         editor.apply()
@@ -39,12 +39,12 @@ object TokenManager {
 
     fun getRefreshToken(context: Context): String? {
         val token = getPreferences(context).getString(KEY_REFRESH_TOKEN, null)
-        Log.d(TAG, "Retrieved refresh token: ${token?.take(15) ?: "null"}...")
+        SecureLogger.d(TAG, "Retrieved refresh token: ${token?.take(15) ?: "null"}...")
         return token
     }
 
     fun clearTokens(context: Context) {
-        Log.d(TAG, "Clearing all tokens")
+        SecureLogger.d(TAG, "Clearing all tokens")
         // Clear the access token using AuthUtils
         AuthUtils.clearLoginState(context)
 
@@ -65,7 +65,7 @@ object TokenManager {
         try {
             val parts = token.split(".")
             if (parts.size < 2) {
-                Log.e(TAG, "Invalid token format")
+                SecureLogger.e(TAG, "Invalid token format")
                 return true
             }
 
@@ -79,13 +79,13 @@ object TokenManager {
 
             val isExpired = now.after(expirationDate)
             if (isExpired) {
-                Log.d(TAG, "Token is expired. Exp: ${expirationDate}, Now: ${now}")
+                SecureLogger.d(TAG, "Token is expired. Exp: ${expirationDate}, Now: ${now}")
             }
 
             return isExpired
         } catch (e: Exception) {
             // If there's any error in decoding, assume the token is expired
-            Log.e(TAG, "Error checking token expiration", e)
+            SecureLogger.e(TAG, "Error checking token expiration", e)
             return true
         }
     }

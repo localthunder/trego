@@ -2,7 +2,6 @@ package com.helgolabs.trego.data.local.dao
 
 import androidx.room.*
 import com.helgolabs.trego.data.local.entities.CurrencyConversionEntity
-import com.helgolabs.trego.data.local.entities.UserGroupArchiveEntity
 import com.helgolabs.trego.data.sync.SyncStatus
 import kotlinx.coroutines.flow.Flow
 
@@ -33,10 +32,7 @@ interface CurrencyConversionDao {
     @Query("SELECT * FROM currency_conversions WHERE payment_id = :paymentId ORDER BY created_at DESC")
     fun getConversionsByPayment(paymentId: Int): Flow<List<CurrencyConversionEntity>>
 
-    @Query("""
-        SELECT * FROM currency_conversions 
-        WHERE sync_status != 'SYNCED' || 'LOCALLY_DELETED'
-    """)
+    @Query("SELECT * FROM currency_conversions WHERE sync_status NOT IN ('SYNCED', 'LOCALLY_DELETED')")
     fun getUnsyncedConversions(): Flow<List<CurrencyConversionEntity>>
 
     @Query("""
@@ -105,15 +101,8 @@ interface CurrencyConversionDao {
     """)
     fun getConversionsUpdatedSince(timestamp: String): Flow<List<CurrencyConversionEntity>>
 
-    @Transaction
-    suspend fun insertOrUpdateConversion(conversion: CurrencyConversionEntity) {
-        val existingConversion = conversion.serverId?.let { getConversionByServerId(it) }
-        if (existingConversion != null) {
-            updateConversion(conversion.copy(id = existingConversion.id))
-        } else {
-            insertConversion(conversion)
-        }
-    }
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOrUpdateConversion(conversion: CurrencyConversionEntity): Long
 
     @Query("SELECT COUNT(*) FROM currency_conversions WHERE payment_id = :paymentId AND deleted_at IS NULL")
     suspend fun getConversionCountForPayment(paymentId: Int): Int

@@ -1,6 +1,7 @@
 package com.helgolabs.trego.ui.screens
 
 import android.annotation.SuppressLint
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -53,6 +55,31 @@ import com.helgolabs.trego.utils.DateUtils
 import com.helgolabs.trego.utils.getUserIdFromPreferences
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+fun calculateEqualPercentages(memberCount: Int): List<Double> {
+    if (memberCount == 0) return emptyList()
+    if (memberCount == 1) return listOf(100.0)
+
+    // Calculate base percentage to 1 decimal place
+    val basePercentage = kotlin.math.floor(100.0 / memberCount * 10) / 10.0
+
+    // Start with base percentage for everyone
+    val percentages = MutableList(memberCount) { basePercentage }
+
+    // Calculate how much we're short
+    val currentTotal = percentages.sum()
+    val shortfall = 100.0 - currentTotal
+
+    // Convert shortfall to tenths and distribute
+    val tenthsToDistribute = kotlin.math.round(shortfall * 10).toInt()
+
+    // Add 0.1% to the first N members to reach exactly 100%
+    for (i in 0 until kotlin.math.min(tenthsToDistribute, memberCount)) {
+        percentages[i] += 0.1
+    }
+
+    return percentages
+}
 
 @Composable
 fun GroupSettingsScreen(
@@ -114,6 +141,17 @@ fun GroupSettingsScreen(
             delay(2000)
             showToast = false
             toastMessage = null
+        }
+    }
+
+    // Handle operation state errors with toast
+    LaunchedEffect(operationState) {
+        val currentState = operationState // Capture state in local variable
+        if (currentState is GroupViewModel.OperationState.Error) {
+            val errorMessage = currentState.message
+            Toast.makeText(context, errorMessage, Toast.LENGTH_LONG).show()
+
+            groupViewModel.resetDefaultSplitOperationState()
         }
     }
 
@@ -202,21 +240,6 @@ fun GroupSettingsScreen(
                             .fillMaxWidth()
                             .align(Alignment.TopCenter)
                     )
-                }
-
-                // Error message
-                if (operationState is GroupViewModel.OperationState.Error) {
-                    val errorMessage =
-                        (operationState as GroupViewModel.OperationState.Error).message
-                    Snackbar(
-                        modifier = Modifier
-                            .padding(16.dp)
-                            .align(Alignment.BottomCenter),
-                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                        contentColor = MaterialTheme.colorScheme.onErrorContainer
-                    ) {
-                        Text(errorMessage)
-                    }
                 }
             }
 
@@ -392,9 +415,6 @@ fun GroupSettingsScreen(
     }
 }
 
-/**
- * Section for showing and editing general group details (name, description, currency)
- */
 @Composable
 fun GroupDetailsSection(
     group: GroupEntity?,
@@ -403,32 +423,43 @@ fun GroupDetailsSection(
 ) {
     var editingGroupName by remember { mutableStateOf(false) }
     var editingGroupDescription by remember { mutableStateOf(false) }
-    var groupName by remember(group) { mutableStateOf(group?.name ?: "") }
-    var groupDescription by remember(group) { mutableStateOf(group?.description ?: "") }
-    val scope = rememberCoroutineScope()
+    val groupDetailsState by groupViewModel.groupDetailsState.collectAsState()
+    var groupName by remember { mutableStateOf("") }
+    var groupDescription by remember { mutableStateOf("") }
 
-    // Save group name
-    fun saveGroupName() {
-        if (group == null || groupName.isBlank()) return
+    val context = LocalContext.current
+    val currentGroup = groupDetailsState.group
 
-        val updatedGroup = group.copy(
-            name = groupName,
-            updatedAt = DateUtils.getCurrentTimestamp()
-        )
-        groupViewModel.updateGroup(updatedGroup)
-        editingGroupName = false
+    // Track what field was being edited for specific success messages
+    var lastEditedField by remember { mutableStateOf<String?>(null) }
+
+    // Observe the group update status from ViewModel (if you have this)
+    val groupUpdateStatus by groupViewModel.groupUpdateStatus.observeAsState()
+
+    // Handle update success/failure toasts
+    LaunchedEffect(groupUpdateStatus) {
+        groupUpdateStatus?.let { result ->
+            result.onSuccess { updatedGroup ->
+                when (lastEditedField) {
+                    "name" -> Toast.makeText(context, "Group name updated successfully", Toast.LENGTH_SHORT).show()
+                    "description" -> Toast.makeText(context, "Group description updated successfully", Toast.LENGTH_SHORT).show()
+                }
+                lastEditedField = null
+            }.onFailure { error ->
+                Toast.makeText(context, "Update failed: ${error.message}", Toast.LENGTH_SHORT).show()
+                lastEditedField = null
+            }
+        }
     }
 
-    // Save group description
-    fun saveGroupDescription() {
-        if (group == null || groupDescription.isBlank()) return
-
-        val updatedGroup = group.copy(
-            description = groupDescription,
-            updatedAt = DateUtils.getCurrentTimestamp()
-        )
-        groupViewModel.updateGroup(updatedGroup)
-        editingGroupDescription = false
+    // Sync local state with group data from state
+    LaunchedEffect(currentGroup) {
+        if (currentGroup != null && !editingGroupName) {
+            groupName = currentGroup.name
+        }
+        if (currentGroup != null && !editingGroupDescription) {
+            groupDescription = currentGroup.description ?: ""
+        }
     }
 
     Column(
@@ -446,35 +477,65 @@ fun GroupDetailsSection(
         ) {
             EditableField(
                 label = "Name",
-                value = group?.name ?: "Loading...",
+                value = currentGroup?.name ?: "Loading...",
                 isEditing = editingGroupName,
                 editedValue = groupName,
                 onEditStart = {
                     editingGroupName = true
-                    groupName = group?.name ?: ""
+                    groupName = currentGroup?.name ?: ""
                 },
                 onValueChange = { groupName = it },
-                onSave = { saveGroupName() },
-                onCancel = { editingGroupName = false }
+                onSave = {
+                    if (currentGroup != null && groupName.isNotBlank()) {
+                        lastEditedField = "name" // Track what we're updating
+
+                        val updatedGroup = currentGroup.copy(
+                            name = groupName,
+                            updatedAt = DateUtils.getCurrentTimestamp()
+                        )
+
+                        groupViewModel.updateGroup(updatedGroup)
+                    }
+                    editingGroupName = false
+                },
+                onCancel = {
+                    editingGroupName = false
+                    groupName = currentGroup?.name ?: ""
+                }
             )
         }
 
         // Group description
         EditableField(
             label = "Description",
-            value = group?.description ?: "Loading...",
+            value = currentGroup?.description ?: "No description",
             isEditing = editingGroupDescription,
             editedValue = groupDescription,
             onEditStart = {
                 editingGroupDescription = true
-                groupDescription = group?.description ?: ""
+                groupDescription = currentGroup?.description ?: ""
             },
             onValueChange = { groupDescription = it },
-            onSave = { saveGroupDescription() },
-            onCancel = { editingGroupDescription = false }
+            onSave = {
+                if (currentGroup != null) {
+                    lastEditedField = "description" // Track what we're updating
+
+                    val updatedGroup = currentGroup.copy(
+                        description = if (groupDescription.isBlank()) null else groupDescription,
+                        updatedAt = DateUtils.getCurrentTimestamp()
+                    )
+
+                    groupViewModel.updateGroup(updatedGroup)
+                }
+                editingGroupDescription = false
+            },
+            onCancel = {
+                editingGroupDescription = false
+                groupDescription = currentGroup?.description ?: ""
+            }
         )
 
-        val currencyCode = group?.defaultCurrency ?: "GBP"
+        val currencyCode = currentGroup?.defaultCurrency ?: "GBP"
         val symbol = CurrencyUtils.currencySymbols[currencyCode] ?: currencyCode
 
         // Currency selector
@@ -487,9 +548,6 @@ fun GroupDetailsSection(
     }
 }
 
-/**
- * Section for managing group members (active and archived)
- */
 @Composable
 fun MembersSection(
     groupId: Int,
@@ -809,9 +867,6 @@ fun ArchivedMembersList(
     }
 }
 
-/**
- * Section for configuring default split settings
- */
 @Composable
 fun SplitSettingsSection(
     groupId: Int,
@@ -827,6 +882,11 @@ fun SplitSettingsSection(
     val users = groupDetailsState.users
     val context = LocalContext.current
 
+    // Calculate active members at the function level so it's accessible everywhere
+    val activeMembers = remember(members) {
+        members.filter { it.removedAt == null }
+    }
+
     // State for modal dialogs
     var showDeleteConfirmation by remember { mutableStateOf(false) }
 
@@ -841,10 +901,56 @@ fun SplitSettingsSection(
     // State for percentage splits
     val memberPercentages = remember { mutableStateMapOf<Int, String>() }
 
+    // Add the helper function
+    fun calculateEqualPercentages(memberCount: Int): List<Double> {
+        if (memberCount == 0) return emptyList()
+
+        // Calculate base percentage (floor to 1 decimal place)
+        val basePercentage = kotlin.math.floor(100.0 / memberCount * 10) / 10.0
+
+        // Calculate remainder in 0.1% increments
+        val totalAssigned = basePercentage * memberCount
+        val remainderInTenths = kotlin.math.round((100.0 - totalAssigned) * 10).toInt()
+
+        return (0 until memberCount).map { index ->
+            if (index < remainderInTenths) {
+                basePercentage + 0.1
+            } else {
+                basePercentage
+            }
+        }
+    }
+
     // Force expand the section whenever split mode is percentage
     LaunchedEffect(selectedSplitMode) {
         if (selectedSplitMode == "percentage") {
             expandedSplitSection = true
+        }
+    }
+
+    // Initialize percentages when members and splits are loaded
+    LaunchedEffect(members, defaultSplits) {
+        memberPercentages.clear()
+
+        if (defaultSplits.isNotEmpty()) {
+            defaultSplits.forEach { split ->
+                memberPercentages[split.userId] = split.percentage?.toString() ?: "0.0"
+            }
+        } else {
+            // Now activeMembers is accessible
+            if (activeMembers.isNotEmpty()) {
+                val percentages = calculateEqualPercentages(activeMembers.size)
+
+                activeMembers.forEachIndexed { index, member ->
+                    val percentage = percentages[index]
+                    val formattedPercentage = if (percentage % 1 == 0.0) {
+                        percentage.toInt().toString()
+                    } else {
+                        String.format("%.1f", percentage)
+                    }
+                    memberPercentages[member.userId] = formattedPercentage
+                }
+            }
         }
     }
 
@@ -861,36 +967,25 @@ fun SplitSettingsSection(
             // Clear all existing percentages in the UI
             memberPercentages.clear()
 
-            // Get only active members
-            val activeMembers = members.filter { it.removedAt == null }
+            // Reset percentages to equal values using the distribution algorithm
+            if (activeMembers.isNotEmpty()) {
+                val percentages = calculateEqualPercentages(activeMembers.size)
 
-            // Reset percentages to equal values ONLY for active members
-            val equalPercentage = if (activeMembers.isNotEmpty()) (100.0 / activeMembers.size) else 0.0
-            activeMembers.forEach { member ->
-                memberPercentages[member.userId] = String.format("%.1f", equalPercentage)
-            }
-        }
-    }
-
-    // Initialize percentages when members and splits are loaded
-    LaunchedEffect(members, defaultSplits) {
-        memberPercentages.clear()
-
-        if (defaultSplits.isNotEmpty()) {
-            defaultSplits.forEach { split ->
-                memberPercentages[split.userId] = split.percentage?.toString() ?: "0.0"
-            }
-        } else {
-            val activeMembers = members.filter { it.removedAt == null }
-            val equalPercentage = if (activeMembers.isNotEmpty()) (100.0 / activeMembers.size) else 0.0
-            activeMembers.forEach { member ->
-                memberPercentages[member.userId] = String.format("%.1f", equalPercentage)
+                activeMembers.forEachIndexed { index, member ->
+                    val percentage = percentages[index]
+                    val formattedPercentage = if (percentage % 1 == 0.0) {
+                        percentage.toInt().toString()
+                    } else {
+                        String.format("%.1f", percentage)
+                    }
+                    memberPercentages[member.userId] = formattedPercentage
+                }
             }
         }
     }
 
     // Save split settings
-    fun saveSplitSettings() {
+    fun saveSplitSettings(collapseAfterSave: Boolean = false) {
         if (group == null) return
 
         val updatedGroup = group.copy(
@@ -928,9 +1023,14 @@ fun SplitSettingsSection(
                 groupViewModel.deleteAllGroupDefaultSplits(groupId)
             }
 
-            // Don't collapse if we're in percentage mode
-            if (selectedSplitMode != "percentage") {
+            // If requested, collapse the section after saving
+            if (collapseAfterSave) {
                 expandedSplitSection = false
+            } else {
+                // Original behavior: don't collapse if we're in percentage mode
+                if (selectedSplitMode != "percentage") {
+                    expandedSplitSection = false
+                }
             }
         }
     }
@@ -1039,7 +1139,13 @@ fun SplitSettingsSection(
                 defaultSplits = defaultSplits,
                 selectedSplitMode = selectedSplitMode,
                 onSaveSettings = { saveSplitSettings() },
-                onResetClick = { showDeleteConfirmation = true }
+                onResetClick = { showDeleteConfirmation = true },
+                collapseAfterSave = { shouldCollapse ->
+                    if (shouldCollapse) {
+                        expandedSplitSection = false
+                        Toast.makeText(context, "Split settings saved", Toast.LENGTH_SHORT).show()
+                    }
+                }
             )
         }
     }
@@ -1082,7 +1188,8 @@ fun PercentageSplitSection(
     defaultSplits: List<GroupDefaultSplitEntity>,
     selectedSplitMode: String,
     onSaveSettings: () -> Unit,
-    onResetClick: () -> Unit
+    onResetClick: () -> Unit,
+    collapseAfterSave: (Boolean) -> Unit  // New parameter to handle collapsing
 ) {
     // Filter to only include active members
     val activeMembers = members.filter { it.removedAt == null }
@@ -1250,17 +1357,18 @@ fun PercentageSplitSection(
                 // Equal distribution button
                 OutlinedButton(
                     onClick = {
-                        // First clear all existing percentages (including for archived members)
+                        // First clear all existing percentages
                         memberPercentages.clear()
 
-                        // Then set equal percentage ONLY for active members
-                        val equalPercentage = 100.0 / activeMembers.size
-                        activeMembers.forEach { member ->
-                            // Format with no decimal if it's a whole number
-                            val formattedPercentage = if (equalPercentage % 1 == 0.0) {
-                                equalPercentage.toInt().toString()
+                        // Then set distributed percentages for active members
+                        val percentages = calculateEqualPercentages(activeMembers.size)
+
+                        activeMembers.forEachIndexed { index, member ->
+                            val percentage = percentages[index]
+                            val formattedPercentage = if (percentage % 1 == 0.0) {
+                                percentage.toInt().toString()
                             } else {
-                                String.format("%.1f", equalPercentage)
+                                String.format("%.1f", percentage)
                             }
                             memberPercentages[member.userId] = formattedPercentage
                         }
@@ -1271,7 +1379,13 @@ fun PercentageSplitSection(
                 }
 
                 Button(
-                    onClick = onSaveSettings,
+                    onClick = {
+                        // First save the settings
+                        onSaveSettings()
+
+                        // Then tell the parent to collapse
+                        collapseAfterSave(true)
+                              },
                     modifier = Modifier.weight(1f),
                     enabled = totalPercentage == 100.0
                 ) {

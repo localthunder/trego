@@ -14,6 +14,7 @@ import com.google.firebase.messaging.RemoteMessage
 import com.helgolabs.trego.MainActivity
 import com.helgolabs.trego.MyApplication
 import com.helgolabs.trego.R
+import com.helgolabs.trego.utils.SecureLogger
 import com.helgolabs.trego.utils.getUserIdFromPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -112,7 +113,7 @@ class FCMService : FirebaseMessagingService() {
                                 val notificationRepository = myApplication.notificationRepository
                                 notificationRepository.registerDeviceToken(task.result!!, userId)
                             } catch (e: Exception) {
-                                Log.e("FCMService", "Failed to register token", e)
+                                SecureLogger.e("FCMService", "Failed to register token", e)
                             }
                         }
                     }

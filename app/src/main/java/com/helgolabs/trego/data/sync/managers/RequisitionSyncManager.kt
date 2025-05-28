@@ -44,18 +44,8 @@ class RequisitionSyncManager(
     }
 
     override suspend fun getServerChanges(since: Long): List<Requisition> {
-        val userId = getUserIdFromPreferences(context)
-            ?: throw IllegalStateException("User ID not found")
-
-        // Get the server ID from the local user ID
-        val localUser = userDao.getUserByIdDirect(userId)
-            ?: throw IllegalStateException("User not found in local database")
-
-        val serverUserId = localUser.serverId
-            ?: throw IllegalStateException("No server ID found for user $userId")
-
-        Log.d(TAG, "Fetching requisitions for user $userId")
-        return apiService.getRequisitionsSince(since, serverUserId)
+        Log.d(TAG, "Fetching requisitions since $since")
+        return apiService.getRequisitionsSince(since)
     }
 
     override suspend fun applyServerChange(serverEntity: Requisition) {

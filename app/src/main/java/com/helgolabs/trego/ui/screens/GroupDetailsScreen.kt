@@ -962,7 +962,7 @@ fun GroupImageFullWidth(
         }
 
         // Use the StatusBarProtection from your existing StatusBarHelper
-        StatusBarHelper.StatusBarProtection(
+        StatusBarProtection(
             color = if (statusBarShouldBeDark) {
                 // For dark image tops, use darker protection
                 Color.Black.copy(alpha = 0.4f)

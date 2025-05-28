@@ -12,6 +12,8 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
@@ -24,6 +26,12 @@ object NetworkUtils {
     private var lastHealthCheckTime = 0L
     private var lastHealthCheckResult = false
     private const val HEALTH_CHECK_CACHE_DURATION = 30000L // 30 seconds
+
+    // Add a mutex to prevent multiple simultaneous health checks
+    private val healthCheckMutex = Mutex()
+
+    // Track if a health check is in progress
+    private var healthCheckInProgress = false
 
     fun initialize(context: Context, apiService: ApiService) {
         connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -49,20 +57,30 @@ object NetworkUtils {
         return now - lastHealthCheckTime > HEALTH_CHECK_CACHE_DURATION
     }
 
-    // Update our base isOnline function
+    // Update our base isOnline function with mutex protection
     suspend fun isOnline(): Boolean {
         // First check basic connectivity
         if (!hasNetworkCapabilities()) {
             return false
         }
 
-        // Use cached result if available
+        // Fast path: use cached result if available and not stale
         if (!shouldPerformHealthCheck()) {
             return lastHealthCheckResult
         }
 
-        return withContext(Dispatchers.IO) {
+        // Use mutex to prevent multiple simultaneous health checks
+        return healthCheckMutex.withLock {
+            // Double-check after acquiring lock (another thread might have updated the cache)
+            if (!shouldPerformHealthCheck()) {
+                return@withLock lastHealthCheckResult
+            }
+
+            // Mark that a health check is in progress
+            healthCheckInProgress = true
+
             try {
+                Log.d("NetworkUtils", "Performing server health check")
                 withTimeout(SERVER_TIMEOUT) {
                     try {
                         apiService.healthCheck()
@@ -87,6 +105,8 @@ object NetworkUtils {
                 lastHealthCheckTime = System.currentTimeMillis()
                 lastHealthCheckResult = false
                 false
+            } finally {
+                healthCheckInProgress = false
             }
         }
     }

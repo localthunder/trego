@@ -64,7 +64,7 @@ class BankAccountRepository(
         // Check if we should fetch fresh data
         if (NetworkUtils.isOnline()) {
             try {
-                val serverAccounts = apiService.getUserAccounts(userId)
+                val serverAccounts = apiService.getMyBankAccounts()
                 serverAccounts.forEach { serverAccount ->
                     val localAccount = bankAccountDao.getAccountById(serverAccount.accountId)?.toModel()
                     if (localAccount != null) {

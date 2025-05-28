@@ -386,43 +386,53 @@ class GroupViewModel(
     fun loadGroupMembersWithUsers(groupId: Int) {
         viewModelScope.launch {
             try {
+                // Set loading flag but DON'T clear existing data
                 _groupDetailsState.update { it.copy(isLoading = true) }
 
-                // Load ALL group members including archived
+                // Get fresh data from repository
                 groupRepository.getAllGroupMembersIncludingArchived(groupId).collect { allMembers ->
+                    // Immediate filtering of dupes by ID - convert to Map by ID first, then back to list
+                    val uniqueMembers = allMembers.associateBy { it.id }.values.toList()
+
                     // Filter into active and archived
-                    val activeMembers = allMembers.filter { it.removedAt == null }
-                    val archivedMembers = allMembers.filter { it.removedAt != null }
+                    val activeMembers = uniqueMembers.filter { it.removedAt == null }
+                    val archivedMembers = uniqueMembers.filter { it.removedAt != null }
 
                     // Get all user IDs from all members
-                    val userIds = allMembers.map { it.userId }
+                    val userIds = uniqueMembers.map { it.userId }
 
-                    // Update members in state immediately
+                    // Update members in state
                     _groupDetailsState.update { currentState ->
                         currentState.copy(
-                            groupMembers = allMembers,
+                            groupMembers = uniqueMembers,
                             activeMembers = activeMembers,
                             archivedMembers = archivedMembers
                         )
                     }
 
-                    // Load user data for these IDs
-                    try {
-                        userRepository.getUsersByIds(userIds).collect { userEntities ->
-                            _groupDetailsState.update { currentState ->
-                                currentState.copy(
-                                    users = userEntities,
-                                    isLoading = false
-                                )
+                    // Load user data for these IDs - using withContext to avoid nested coroutines
+                    withContext(Dispatchers.IO) {
+                        try {
+                            userRepository.getUsersByIds(userIds).collect { userEntities ->
+                                // Ensure users are also deduplicated to avoid issues
+                                val uniqueUsers = userEntities.associateBy { it.userId }.values.toList()
+
+                                _groupDetailsState.update { currentState ->
+                                    currentState.copy(
+                                        users = uniqueUsers,
+                                        isLoading = false
+                                    )
+                                }
                             }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error loading users", e)
+                            _groupDetailsState.update { it.copy(isLoading = false, error = e.message) }
                         }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error loading users", e)
-                        _groupDetailsState.update { it.copy(isLoading = false, error = e.message) }
                     }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading group members", e)
+                // Don't clear existing data on error
                 _groupDetailsState.update { it.copy(isLoading = false, error = e.message) }
             }
         }
@@ -471,6 +481,7 @@ class GroupViewModel(
 
     private suspend fun loadPayments(groupId: Int) {
         paymentRepository.getPaymentsByGroup(groupId)
+            .map { payments -> payments.filter { it.deletedAt == null } } // Filter here
             .collect { paymentEntities ->
                 if (paymentEntities != _payments.value) {
                     _payments.value = paymentEntities
@@ -647,8 +658,40 @@ class GroupViewModel(
 
     fun updateGroup(group: GroupEntity) {
         viewModelScope.launch {
-            val result = groupRepository.updateGroup(group)
-            _groupUpdateStatus.value = result
+            try {
+                // Immediately update the local UI state to prevent race conditions
+                _groupDetailsState.update { currentState ->
+                    currentState.copy(
+                        group = group,
+                        error = null
+                    )
+                }
+
+                val result = groupRepository.updateGroup(group)
+                result.onSuccess { updatedGroup ->
+                    // Only update if the server returned a different version
+                    if (updatedGroup.updatedAt != group.updatedAt || updatedGroup.serverId != group.serverId) {
+                        _groupDetailsState.update { currentState ->
+                            currentState.copy(
+                                group = updatedGroup,
+                                error = null
+                            )
+                        }
+                    }
+                }.onFailure { error ->
+                    // Revert to previous state on failure
+                    _groupDetailsState.update { currentState ->
+                        currentState.copy(error = error.message)
+                    }
+                }
+                _groupUpdateStatus.value = result
+            } catch (e: Exception) {
+                _groupUpdateStatus.value = Result.failure(e)
+                // Revert state on exception
+                _groupDetailsState.update { currentState ->
+                    currentState.copy(error = e.message)
+                }
+            }
         }
     }
 
@@ -850,49 +893,61 @@ class GroupViewModel(
             try {
                 val userId = getUserIdFromPreferences(context)
                 if (userId != null) {
-                    // First get current group members to exclude
-                    val currentGroupMembers = groupRepository.getGroupMembers(groupId)
-                        .first()
-                        .map { it.userId }
-                        .toSet()
-
-                    // Then get all users from groups
-                    groupRepository.getGroupsByUserId(userId)
-                        .flatMapLatest { groups ->
-                            if (groups.isEmpty()) {
-                                flowOf(emptyList())
-                            } else {
-                                combine(
-                                    groups.map { group ->
-                                        groupRepository.getGroupMembers(group.id)
-                                    }
-                                ) { membersList ->
-                                    membersList.toList().flatten()
-                                }
-                            }
+                    // Avoid nesting coroutines - use withContext instead
+                    withContext(Dispatchers.IO) {
+                        // First get current group members to exclude
+                        val currentGroupMembers = try {
+                            groupRepository.getGroupMembers(groupId)
+                                .first()
+                                .map { it.userId }
+                                .toSet()
+                        } catch (e: Exception) {
+                            Log.e("GroupViewModel", "Error fetching current members", e)
+                            emptySet()
                         }
-                        .collect { allMembers ->
-                            val uniqueUserIds = allMembers
+
+                        // Then get unique user IDs from other groups to consider for invitation
+                        val availableUserIds = try {
+                            val otherGroupMembers = groupRepository.getGroupsByUserId(userId)
+                                .first()
+                                .flatMap { group ->
+                                    if (group.id != groupId) {
+                                        try {
+                                            groupRepository.getGroupMembers(group.id).first()
+                                        } catch (e: Exception) {
+                                            emptyList()
+                                        }
+                                    } else emptyList()
+                                }
+
+                            otherGroupMembers
                                 .map { it.userId }
                                 .distinct()
-                                .filter { it !in currentGroupMembers } // Exclude current group members
+                                .filter { it !in currentGroupMembers }
+                        } catch (e: Exception) {
+                            Log.e("GroupViewModel", "Error getting available users", e)
+                            emptyList()
+                        }
 
-                            userRepository.getUsersByIds(uniqueUserIds)
-                                .collect { users ->
-                                    _usernames.value = users.associateBy(
+                        // Only fetch user data if we have IDs to look up
+                        if (availableUserIds.isNotEmpty()) {
+                            try {
+                                userRepository.getUsersByIds(availableUserIds).collect { users ->
+                                    _usernames.postValue(users.associateBy(
                                         { it.userId },
                                         { it.username }
-                                    )
-                                    _loading.value = false
+                                    ))
                                 }
+                            } catch (e: Exception) {
+                                Log.e("GroupViewModel", "Error fetching user data", e)
+                            }
                         }
-                } else {
-                    _error.value = "User ID not found"
-                    _loading.value = false
+                    }
                 }
             } catch (e: Exception) {
-                Log.e("GroupViewModel", "Error fetching usernames", e)
+                Log.e("GroupViewModel", "Error in fetchUsernamesForInvitation", e)
                 _error.value = e.message
+            } finally {
                 _loading.value = false
             }
         }
@@ -952,6 +1007,10 @@ class GroupViewModel(
 
                     // Also refresh from the repository to ensure consistency
                     loadGroupMembersWithUsers(groupId)
+
+                    // Reset group default splits
+                    resetDefaultSplitModeOnMemberAdded(groupId)
+
                 }
 
                 _addMemberResult.value = result
@@ -965,14 +1024,65 @@ class GroupViewModel(
         _addMemberResult.value = null
     }
 
+    fun resetDefaultSplitModeOnMemberAdded(groupId: Int) {
+        viewModelScope.launch {
+            try {
+                // Get the current group
+                val group = groupDetailsState.value.group ?: return@launch
+
+                // Check if the split mode is percentage
+                if (group.defaultSplitMode == "percentage") {
+                    Log.d(TAG, "New member added to group with percentage splits, updating...")
+
+                    // Update the group to use equal splitting instead
+                    val updatedGroup = group.copy(
+                        defaultSplitMode = "equally",
+                        updatedAt = DateUtils.getCurrentTimestamp()
+                    )
+
+                    // Update the group entity
+                    updateGroup(updatedGroup)
+
+                    // Update the state to reflect changes immediately
+                    _groupDetailsState.update { it.copy(
+                        group = updatedGroup
+                    )}
+
+                    // Now handle the default splits
+                    handleDefaultSplitsOnMemberAdded(groupId)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error resetting split mode on member added", e)
+            }
+        }
+    }
+
+    private suspend fun handleDefaultSplitsOnMemberAdded(groupId: Int) {
+        try {
+            deleteAllGroupDefaultSplits(groupId)
+
+            Log.d(TAG, "Deleted all default splits due to new member being added")
+
+            // Reload default splits to ensure UI is up-to-date
+            loadGroupDefaultSplits(groupId)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error handling default splits on member added", e)
+        }
+    }
+
     fun ensureUsernamesLoaded(userIds: List<Int>) {
+        // If no userIds provided, skip the operation entirely
+        if (userIds.isEmpty()) return
+
         viewModelScope.launch {
             try {
                 // Get all usernames that are not already in our state
                 val currentUsernames = _groupDetailsState.value.usernames
                 val missingUserIds = userIds.filter { !currentUsernames.containsKey(it) }
 
+                // Only make network call if we actually have missing usernames
                 if (missingUserIds.isNotEmpty()) {
+                    Log.d("GroupViewModel", "Loading usernames for ${missingUserIds.size} missing users")
                     userRepository.getUsersByIds(missingUserIds).collect { users ->
                         val newUsernames = users.associate { it.userId to it.username }
                         _groupDetailsState.update { currentState ->
@@ -980,7 +1090,10 @@ class GroupViewModel(
                                 usernames = currentState.usernames + newUsernames
                             )
                         }
+                        Log.d("GroupViewModel", "Successfully loaded ${newUsernames.size} usernames")
                     }
+                } else {
+                    Log.d("GroupViewModel", "All usernames already loaded, skipping network call")
                 }
             } catch (e: Exception) {
                 Log.e("GroupViewModel", "Error loading usernames", e)
@@ -1130,12 +1243,7 @@ class GroupViewModel(
     fun regeneratePlaceholderImage(groupId: Int) {
         viewModelScope.launch {
             try {
-                // First, get the latest group data from the repository to ensure we have the most current image path
-                val latestGroup = groupRepository.getGroupById(groupId).firstOrNull()
-                    ?: throw Exception("Group not found")
-
                 Log.d("GroupViewModel", "Starting placeholder regeneration for groupId: $groupId")
-                Log.d("GroupViewModel", "Initial group details state: ${_groupDetailsState.value}")
 
                 _groupDetailsState.update { it.copy(
                     uploadStatus = UploadStatus.Loading,
@@ -1150,61 +1258,21 @@ class GroupViewModel(
                     activeExtractionGroupId = null
                 }
 
-                // Always generate a new seed and pattern for regeneration
-                // This will create a completely different image than before
-                val placeholderReference = PlaceholderImageGenerator.generatePlaceholderReference(
-                    groupId = groupId,
-                    groupName = latestGroup.name,
-                    useTimestamp = true  // This forces a new seed
-                )
-
-                // Verify it's in the correct format before proceeding
-                if (!placeholderReference.startsWith("placeholder://")) {
-                    Log.e("GroupViewModel", "Generated reference is not in the expected format: $placeholderReference")
-                    throw IllegalStateException("Invalid placeholder reference generated")
-                }
-
-                Log.d("GroupViewModel", "Generated new reference: $placeholderReference")
-
-                // Generate a local image for immediate display
-                val localPath = PlaceholderImageGenerator.getImageForPath(context, placeholderReference)
-                Log.d("GroupViewModel", "Local image path: $localPath")
-
-                // First, update the database entry (this will be synced to the server later)
-                val result = groupRepository.updateGroup(
-                    latestGroup.copy(
-                        groupImg = placeholderReference,
-                        localImagePath = localPath,
-                        imageLastModified = DateUtils.getCurrentTimestamp(),
-                        updatedAt = DateUtils.getCurrentTimestamp(),
-                        syncStatus = SyncStatus.PENDING_SYNC
-                    )
-                )
-                Log.d("GroupViewModel", "Resulting group: $result")
+                // Use the new method that handles notifications properly
+                val result = groupRepository.regeneratePlaceholderImageWithNotification(groupId)
 
                 result.fold(
                     onSuccess = {
-                        Log.d("GroupViewModel", "Group image updated on server: $placeholderReference")
-                        Log.d("GroupViewModel", "Successfully set placeholder image: $placeholderReference")
+                        Log.d("GroupViewModel", "Successfully regenerated placeholder image with notifications")
 
-                        // Update the state to reflect the new image
                         _groupDetailsState.update { currentState ->
                             currentState.copy(
                                 uploadStatus = UploadStatus.Success(
-                                    imagePath = placeholderReference,
+                                    imagePath = null, // Will be set by the reload
                                     message = "Generated new image"
                                 ),
-                                groupImage = placeholderReference,  // Use the placeholder reference directly
                                 imageLoadingState = ImageLoadingState.Success,
-                                isPlaceholderImage = true,
-                                imageUpdateTimestamp = System.currentTimeMillis(), // Force recomposition
-                                group = currentState.group?.copy(
-                                    groupImg = placeholderReference,
-                                    localImagePath = localPath,
-                                    imageLastModified = DateUtils.getCurrentTimestamp(),
-                                    updatedAt = DateUtils.getCurrentTimestamp(),
-                                    syncStatus = SyncStatus.PENDING_SYNC
-                                ),
+                                imageUpdateTimestamp = System.currentTimeMillis(),
                                 // Clear the color scheme to force re-extraction
                                 groupColorScheme = null
                             )
@@ -1213,26 +1281,24 @@ class GroupViewModel(
                         // Extract new colors for the new image
                         extractGroupImageColors(context)
 
-                        // Force a full reload of group details with force refresh
+                        // Force a full reload of group details
                         loadGroupDetails(groupId, forceRefresh = true)
-
-                        Log.d("GroupViewModel", "Final group details state: ${_groupDetailsState.value}")
 
                         // Notify any listeners that the image has been updated
                         _imageUpdateEvent.value = System.currentTimeMillis()
                     },
                     onFailure = { error ->
-                        Log.e("GroupViewModel", "Failed to set placeholder image", error)
+                        Log.e("GroupViewModel", "Failed to regenerate placeholder image", error)
                         _groupDetailsState.update {
                             it.copy(
-                                uploadStatus = UploadStatus.Error(error.message ?: "Failed to set placeholder image"),
-                                imageLoadingState = ImageLoadingState.Error(error.message ?: "Failed to set placeholder image")
+                                uploadStatus = UploadStatus.Error(error.message ?: "Failed to generate placeholder image"),
+                                imageLoadingState = ImageLoadingState.Error(error.message ?: "Failed to generate placeholder image")
                             )
                         }
                     }
                 )
             } catch (e: Exception) {
-                Log.e("GroupViewModel", "Error generating placeholder image", e)
+                Log.e("GroupViewModel", "Error in regeneratePlaceholderImage", e)
                 _groupDetailsState.update {
                     it.copy(
                         uploadStatus = UploadStatus.Error(e.message ?: "Unknown error"),

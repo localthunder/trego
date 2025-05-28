@@ -16,6 +16,7 @@ fun PaymentSplit.toEntity(syncStatus: SyncStatus = SyncStatus.PENDING_SYNC): Pay
         createdAt = this.createdAt,
         updatedAt = this.updatedAt,
         currency = this.currency,
+        percentage = this.percentage,
         deletedAt = this.deletedAt,
         syncStatus = syncStatus
     )
@@ -31,6 +32,7 @@ fun PaymentSplitEntity.toModel(): PaymentSplit {
         updatedBy = this.updatedBy,
         createdAt = this.createdAt,
         updatedAt = this.updatedAt,
+        percentage = this.percentage,
         currency = this.currency,
         deletedAt = this.deletedAt
     )

@@ -29,7 +29,7 @@ interface SplitCalculator {
             val targetRounded = targetAmount.setScale(2, RoundingMode.HALF_UP)
 
             // Check if they are equal or extremely close (difference less than 0.01)
-            return splitSum.subtract(targetRounded).abs() < BigDecimal("0.01")
+            return splitSum.compareTo(targetRounded) == 0
         }
 
         fun verifyEqualDistribution(splits: List<PaymentSplitEntity>): Boolean {

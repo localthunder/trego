@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.helgolabs.trego.MyApplication
+import com.helgolabs.trego.utils.SecureLogger
 
 class FetchTransactionsForAccountWorker(
     appContext: Context,
@@ -32,7 +33,7 @@ class FetchTransactionsForAccountWorker(
 
             return Result.success()
         } catch (e: Exception) {
-            Log.e("FetchAccountsWorker", "Error", e)
+            SecureLogger.e("FetchAccountsWorker", "Error", e)
             return Result.retry()
         }
     }

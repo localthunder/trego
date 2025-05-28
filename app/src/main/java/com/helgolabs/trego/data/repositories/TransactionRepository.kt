@@ -222,11 +222,7 @@ class TransactionRepository(
         return try {
             Log.d(TAG, "Fetching transactions from server for user $userId")
 
-            // Convert local user ID to server ID
-            val serverUserId = ServerIdUtil.getServerId(userId, "users", context)
-                ?: throw Exception("Could not resolve server user ID for $userId")
-
-            val response = apiService.getTransactionsByUserId(serverUserId)
+            val response = apiService.getMyTransactions()
 
             if (response.transactions.isNotEmpty()) {
                 // Convert the server response transactions to use local user IDs
@@ -257,7 +253,7 @@ class TransactionRepository(
                 val dateFrom = dateFormat.format(Calendar.getInstance().apply {
                     add(Calendar.MONTH, -1) // Fetch recent transactions from the past month
                 }.time)
-                val response = apiService.getRecentTransactions(userId, dateFrom)
+                val response = apiService.getMyRecentTransactions(dateFrom)
                 TransactionCache.saveTransactions(response)
                 response
             } catch (e: Exception) {
@@ -276,7 +272,7 @@ class TransactionRepository(
                 val dateTo = dateFormat.format(Calendar.getInstance().apply {
                     add(Calendar.MONTH, -1) // Fetch non-recent transactions up to the past month
                 }.time)
-                val response = apiService.getNonRecentTransactions(userId, dateTo)
+                val response = apiService.getMyNonRecentTransactions(dateTo)
                 TransactionCache.saveTransactions(response)
                 response
             } catch (e: Exception) {

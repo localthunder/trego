@@ -25,11 +25,26 @@ android {
     }
 
     buildTypes {
+        debug {
+            isDebuggable = true
+            // Explicitly set the DEBUG field for the debug build type
+            buildConfigField("boolean", "DEBUG", "true")
+        }
+
         release {
+            isDebuggable = false
             isMinifyEnabled = false
+            // Explicitly set the DEBUG field for the release build type
+            buildConfigField("boolean", "DEBUG", "false")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
+
+    // Make sure BuildConfig is generated
+    buildFeatures {
+        buildConfig = true
+    }
+    
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11

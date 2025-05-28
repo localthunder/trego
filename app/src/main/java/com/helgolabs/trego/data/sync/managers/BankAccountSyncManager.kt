@@ -9,6 +9,7 @@ import com.helgolabs.trego.data.extensions.toModel
 import com.helgolabs.trego.data.local.dao.BankAccountDao
 import com.helgolabs.trego.data.local.dao.SyncMetadataDao
 import com.helgolabs.trego.data.local.dao.UserDao
+import com.helgolabs.trego.data.local.entities.BankAccountEntity
 import com.helgolabs.trego.data.model.BankAccount
 import com.helgolabs.trego.data.network.ApiService
 import com.helgolabs.trego.data.sync.OptimizedSyncManager
@@ -28,22 +29,49 @@ class BankAccountSyncManager(
     syncMetadataDao: SyncMetadataDao,
     dispatchers: CoroutineDispatchers,
     private val context: Context
-) : OptimizedSyncManager<BankAccount, BankAccount>(syncMetadataDao, dispatchers) {
+) : OptimizedSyncManager<BankAccountEntity, BankAccount>(syncMetadataDao, dispatchers) {
 
     override val entityType = "bank_accounts"
     override val batchSize = 20
 
     val myApplication = context.applicationContext as MyApplication
 
-    override suspend fun getLocalChanges(): List<BankAccount> =
-        bankAccountDao.getUnsyncedBankAccounts().first().mapNotNull { bankAccountEntity ->
-            myApplication.entityServerConverter.convertBankAccountToServer(bankAccountEntity).getOrNull()
+    // Override parent methods to provide BankAccount-specific anti-loop protection
+    override fun shouldSyncEntity(entity: BankAccountEntity): Boolean {
+        // Skip entities that are already synced unless they need special handling
+        return when (entity.syncStatus) {
+            SyncStatus.SYNCED -> false // Skip recently synced accounts
+            SyncStatus.CONFLICT -> false // Skip conflicted accounts
+            else -> true
         }
+    }
 
-    override suspend fun syncToServer(entity: BankAccount): Result<BankAccount> {
+    override fun getEntityTimestamp(entity: BankAccountEntity): Long {
+        return try {
+            DateUtils.parseTimestamp(entity.updatedAt ?: "").toEpochMilli()
+        } catch (e: Exception) {
+            0L
+        }
+    }
+
+    override fun getEntitySyncStatus(entity: BankAccountEntity): SyncStatus {
+        return entity.syncStatus
+    }
+
+    override suspend fun getLocalChanges(): List<BankAccountEntity> =
+        bankAccountDao.getUnsyncedBankAccounts().first()
+
+    override suspend fun syncToServer(entity: BankAccountEntity): Result<BankAccountEntity> {
         return try {
             val accountId = entity.accountId
             val existingAccount = bankAccountDao.getAccountById(accountId)
+
+            // Convert entity to server model for API calls
+            val serverModel = myApplication.entityServerConverter.convertBankAccountToServer(entity)
+                .getOrElse { error ->
+                    Log.e(TAG, "Failed to convert entity to server model", error)
+                    return Result.failure(error)
+                }
 
             // Mark as pending sync before server operation
             bankAccountDao.updateBankAccountSyncStatus(accountId, SyncStatus.PENDING_SYNC)
@@ -62,12 +90,12 @@ class BankAccountSyncManager(
                     // Get server result
                     val serverResult = if (existingAccount == null) {
                         Log.d(TAG, "Creating new bank account on server: $accountId")
-                        apiService.addAccount(entity)
+                        apiService.addAccount(serverModel)
                     } else {
                         Log.d(TAG, "Updating existing bank account on server: $accountId")
                         apiService.updateAccount(
                             accountId,
-                            entity
+                            serverModel
                         ).data  // Add .data here since we modified the API response
                     }
 
@@ -78,7 +106,7 @@ class BankAccountSyncManager(
                             onSuccess = { localAccount ->
                                 bankAccountDao.insertBankAccount(localAccount)
                                 bankAccountDao.updateBankAccountSyncStatus(accountId, SyncStatus.SYNCED)
-                                Result.success(serverResult)
+                                Result.success(localAccount)
                             },
                             onFailure = { error ->
                                 bankAccountDao.updateBankAccountSyncStatus(
@@ -112,18 +140,8 @@ class BankAccountSyncManager(
     }
 
     override suspend fun getServerChanges(since: Long): List<BankAccount> {
-        val userId = getUserIdFromPreferences(context)
-            ?: throw IllegalStateException("User ID not found")
-
-        // Get the server ID from the local user ID
-        val localUser = userDao.getUserByIdDirect(userId)
-            ?: throw IllegalStateException("User not found in local database")
-
-        val serverUserId = localUser.serverId
-            ?: throw IllegalStateException("No server ID found for user $userId")
-
-        Log.d(TAG, "Fetching bank accounts since $since for user $userId")
-        return apiService.getAccountsSince(since, serverUserId).also { accounts ->
+        Log.d(TAG, "Fetching bank accounts since $since")
+        return apiService.getAccountsSince(since).also { accounts ->
             Log.d(TAG, "Received ${accounts.size} accounts from server")
         }
     }
@@ -164,13 +182,25 @@ class BankAccountSyncManager(
             // Log successful conversion
             Log.d(TAG, "Successfully converted account: $convertedAccount")
 
-            // Rest of your existing logic...
+            // Apply the server change based on what exists locally
             when {
                 localEntity == null -> {
                     Log.d(TAG, "Inserting new bank account from server: ${serverEntity.accountId}")
-                    bankAccountDao.insertBankAccount(convertedAccount)
+                    bankAccountDao.insertBankAccount(convertedAccount.copy(syncStatus = SyncStatus.SYNCED))
                 }
-                // ... rest of your when block
+                DateUtils.isUpdateNeeded(
+                    serverEntity.updatedAt ?: "",
+                    localEntity.updatedAt ?: "",
+                    "BankAccount-${serverEntity.accountId}"
+                ) -> {
+                    Log.d(TAG, "Updating existing bank account from server: ${serverEntity.accountId}")
+                    bankAccountDao.insertBankAccount(convertedAccount.copy(
+                        syncStatus = SyncStatus.SYNCED
+                    ))
+                }
+                else -> {
+                    Log.d(TAG, "Local bank account ${serverEntity.accountId} is up to date")
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, """

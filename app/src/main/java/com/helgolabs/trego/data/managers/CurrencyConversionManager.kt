@@ -2,8 +2,6 @@ package com.helgolabs.trego.data.managers
 
 import android.util.Log
 import com.helgolabs.trego.data.calculators.SplitCalculator
-import com.helgolabs.trego.data.calculators.SplitCalculator.Companion.verifyEqualDistribution
-import com.helgolabs.trego.data.calculators.SplitCalculator.Companion.verifySplits
 import com.helgolabs.trego.data.local.dao.CurrencyConversionDao
 import com.helgolabs.trego.data.local.dao.PaymentDao
 import com.helgolabs.trego.data.local.dao.PaymentSplitDao
@@ -15,8 +13,10 @@ import com.helgolabs.trego.utils.CoroutineDispatchers
 import com.helgolabs.trego.utils.DateUtils
 import com.helgolabs.trego.utils.EntityServerConverter
 import com.helgolabs.trego.utils.NetworkUtils
+import com.helgolabs.trego.utils.NetworkUtils.hasNetworkCapabilities
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import java.math.BigDecimal
 import java.math.RoundingMode
 import kotlin.math.sign
 
@@ -38,7 +38,8 @@ class CurrencyConversionManager(
         amount: Double,
         exchangeRate: Double,
         userId: Int,
-        source: String
+        source: String,
+        skipNotification: Boolean = false
     ): Result<CurrencyConversionEntity> = withContext(dispatchers.io) {
         try {
             Log.d(TAG, """
@@ -56,17 +57,26 @@ class CurrencyConversionManager(
             val originalSign = amount.sign
             val absAmount = kotlin.math.abs(amount)
 
-            // Calculate total converted amount
-            val absConvertedAmount = (absAmount * exchangeRate)
-                .toBigDecimal()
+            // Calculate total converted amount using BigDecimal for precision
+            val convertedAmountBD = BigDecimal.valueOf(absAmount)
+                .multiply(BigDecimal.valueOf(exchangeRate))
                 .setScale(2, RoundingMode.HALF_UP)
-                .toDouble()
-            val convertedAmount = absConvertedAmount * originalSign
+
+            // Apply the sign to the BigDecimal amount for splits calculation
+            val signedConvertedAmountBD = if (originalSign < 0) {
+                convertedAmountBD.negate()
+            } else {
+                convertedAmountBD
+            }
+
+            val convertedAmount = signedConvertedAmountBD.toDouble()
 
             Log.d(TAG, """
                 Conversion calculation:
-                Abs converted amount: $absConvertedAmount
+                Converted amount (BigDecimal): $convertedAmountBD
+                Signed converted amount (BigDecimal): $signedConvertedAmountBD
                 Final converted amount: $convertedAmount
+                Original sign: $originalSign
             """.trimIndent())
 
             // Get existing payment and its splits
@@ -77,6 +87,7 @@ class CurrencyConversionManager(
             Log.d(TAG, """
                 Found existing payment and splits:
                 Payment: ${existingPayment.id}, amount: ${existingPayment.amount}
+                Split mode: ${existingPayment.splitMode}
                 Number of splits: ${existingSplits.size}
                 Original splits: ${existingSplits.joinToString { "${it.userId}: ${it.amount}" }}
             """.trimIndent())
@@ -111,26 +122,48 @@ class CurrencyConversionManager(
             )
 
             // Determine if splits are equal
-            val areAllSplitsEqual = existingPayment.splitMode == "equally" // Note: "equally" not "equal"
+            val areAllSplitsEqual = existingPayment.splitMode == "equally"
             Log.d(TAG, "Are all splits equal? $areAllSplitsEqual")
 
+            // Use your existing split calculator with the exact BigDecimal target amount
+            // The calculator should handle penny distribution automatically
             val convertedSplits = splitCalculator.calculateSplits(
-                payment = existingPayment,
+                payment = updatedPayment, // Use updated payment with new currency/amount
                 splits = existingSplits,
-                targetAmount = convertedAmount.toBigDecimal().setScale(2, RoundingMode.HALF_UP),
+                targetAmount = signedConvertedAmountBD, // Use the exact BigDecimal amount with sign
                 targetCurrency = toCurrency,
                 userId = userId,
                 currentTime = currentTime
             )
 
-            // Verify the splits
-            if (!verifySplits(convertedSplits, convertedAmount.toBigDecimal())) {
-                throw IllegalStateException("Split verification failed")
+            Log.d(TAG, """
+                Split calculator results:
+                Calculated splits: ${convertedSplits.joinToString { "${it.userId}: ${it.amount}" }}
+                Split sum: ${convertedSplits.sumOf { it.amount }}
+                Target amount: $convertedAmount
+            """.trimIndent())
+
+            // Verify the splits using your existing verification functions
+            val targetAmountBD = signedConvertedAmountBD
+            if (!SplitCalculator.verifySplits(convertedSplits, targetAmountBD)) {
+                Log.e(TAG, """
+                    Split verification failed:
+                    Target amount: $targetAmountBD
+                    Split amounts: ${convertedSplits.map { "${it.userId}: ${BigDecimal.valueOf(it.amount).setScale(2, RoundingMode.HALF_UP)}" }}
+                    Split sum: ${convertedSplits.map { BigDecimal.valueOf(it.amount).setScale(2, RoundingMode.HALF_UP) }.fold(BigDecimal.ZERO) { acc, amount -> acc.add(amount) }}
+                """.trimIndent())
+                throw IllegalStateException("Split verification failed - splits do not sum to target amount")
             }
 
-            if (areAllSplitsEqual && !verifyEqualDistribution(convertedSplits)) {
+            if (areAllSplitsEqual && !SplitCalculator.verifyEqualDistribution(convertedSplits)) {
+                Log.e(TAG, """
+                    Equal distribution verification failed:
+                    Split amounts (cents): ${convertedSplits.map { (it.amount * 100).toLong() }}
+                """.trimIndent())
                 throw IllegalStateException("Equal distribution verification failed")
             }
+
+            Log.d(TAG, "All split verifications passed successfully")
 
             // Perform database transaction
             var localConversionId: Long = 0
@@ -143,16 +176,21 @@ class CurrencyConversionManager(
             }
 
             // Handle server sync if online
-            if (NetworkUtils.isOnline()) {
+            if (hasNetworkCapabilities()) {
                 try {
                     // Convert and update payment on server
                     val serverPaymentModel = entityServerConverter
                         .convertPaymentToServer(updatedPayment)
                         .getOrThrow()
+
                     val serverPayment = apiService.updatePayment(
-                        paymentId = updatedPayment.serverId
-                            ?: throw Exception("No server ID for payment"),
-                        payment = serverPaymentModel
+                        paymentId = updatedPayment.serverId ?: throw Exception("No server ID for payment"),
+                        payment = serverPaymentModel,
+                        headers = mapOf(
+                            "X-Currency-Conversion" to "true",
+                            "X-Skip-Expense-Notification" to "true",
+                            "X-Skip-Currency-Notification" to skipNotification.toString()
+                        )
                     )
 
                     // Create currency conversion on server
@@ -160,13 +198,16 @@ class CurrencyConversionManager(
                         .convertCurrencyConversionToServer(conversion)
                         .getOrThrow()
 
-                    val response = apiService.createCurrencyConversion(serverConversionModel)
+                    val response = apiService.createCurrencyConversion(
+                        serverConversionModel,
+                        headers = mapOf("X-Skip-Currency-Notification" to skipNotification.toString())
+                    )
 
                     val serverConversion = CurrencyConversionData(
-                            currencyConversion = response,
-                            payment = null,  // These could be populated if needed
-                            group = null
-                        )
+                        currencyConversion = response,
+                        payment = null,  // These could be populated if needed
+                        group = null
+                    )
 
                     // Update splits on server
                     convertedSplits.forEach { split ->
@@ -189,13 +230,14 @@ class CurrencyConversionManager(
                     }
 
                     // Update local entities with server data
-                    val syncedConversion = entityServerConverter
-                        .convertCurrencyConversionFromServer(serverConversion)
-                        .getOrThrow()
-                        .copy(id = localConversionId.toInt())
+                    val syncedConversion = conversion.copy(
+                        id = localConversionId.toInt(),
+                        serverId = response.id,
+                        syncStatus = SyncStatus.SYNCED
+                    )
 
                     paymentDao.runInTransaction {
-                        currencyConversionDao.updateConversion(syncedConversion.copy(syncStatus = SyncStatus.SYNCED))
+                        currencyConversionDao.insertOrUpdateConversion(syncedConversion)
                         paymentDao.updatePayment(updatedPayment.copy(syncStatus = SyncStatus.SYNCED))
                         convertedSplits.forEach { split ->
                             paymentSplitDao.updatePaymentSplit(split.copy(syncStatus = SyncStatus.SYNCED))

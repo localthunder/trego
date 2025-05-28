@@ -38,6 +38,7 @@ import com.helgolabs.trego.ui.viewmodels.InstitutionViewModel
 import com.helgolabs.trego.ui.viewmodels.UserPreferencesViewModel
 import com.helgolabs.trego.ui.viewmodels.UserViewModel
 import com.helgolabs.trego.utils.AuthUtils
+import com.helgolabs.trego.utils.SecureLogger
 import com.helgolabs.trego.utils.TokenManager
 import com.helgolabs.trego.utils.storeUserIdInPreferences
 import kotlinx.coroutines.Dispatchers
@@ -92,10 +93,10 @@ fun LoginScreen(navController: NavController, inviteCode: String? = null) {
                         val savedToken = TokenManager.getAccessToken(context)
                         if (savedToken == token) {
                             tokenSaved = true
-                            Log.d("LoginScreen", "Token verified as saved on attempt ${attempts + 1}")
+                            SecureLogger.d("LoginScreen", "Token verified as saved on attempt ${attempts + 1}")
                         } else {
                             attempts++
-                            Log.d("LoginScreen", "Token not yet saved, waiting... (attempt $attempts)")
+                            SecureLogger.d("LoginScreen", "Token not yet saved, waiting... (attempt $attempts)")
                             delay(200) // Increase delay
                         }
                     }
@@ -125,7 +126,7 @@ fun LoginScreen(navController: NavController, inviteCode: String? = null) {
                         institutionViewModel.syncInstitutions("GB")
                         SyncWorker.requestSync(context)
                     } catch(e: Exception) {
-                        Log.e("LoginScreen", "Error during sync", e)
+                        SecureLogger.e("LoginScreen", "Error during sync", e)
                     }
                 }
 
@@ -142,7 +143,7 @@ fun LoginScreen(navController: NavController, inviteCode: String? = null) {
                     }
                 }
             } catch (e: Exception) {
-                Log.e("LoginScreen", "Error during login sequence", e)
+                SecureLogger.e("LoginScreen", "Error during login sequence", e)
                 withContext(Dispatchers.Main) {
                     Toast.makeText(
                         context,
